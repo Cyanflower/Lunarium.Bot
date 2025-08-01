@@ -1,0 +1,82 @@
+{
+  // Bot配置
+  "BotConfig": {
+    // 主服务器ID
+    "MainGuildId": 123,
+    // 维护频道ID(必须位于主服务器)
+    "MaintainChannelId": 456,
+    // 部署的服务器列表(用于普通交互鉴权是否在授权服务器中)
+    "DeployGuildIds": [
+      123
+    ]
+  },
+  // 管理员鉴权配置
+  "AuthConfig": {
+    "AdminRoleIds": [
+      123
+    ]
+  },
+  // 服务器配置(兼容多服务器配置)
+  "GuildsConfig": {
+    // 服务器ID与仪表盘频道ID的映射
+    "GuildIds": {
+      "123": {
+        "DashboardChannelId": 123
+      }
+    },
+    // 扫描分类与频道ID的映射
+    "ScanChannelIDS": {
+      "男性向": [
+        123,
+        456,
+        789
+      ],
+      "女性向": [
+        123,
+        456,
+        789
+      ],
+      "全性向": [
+        123
+      ],
+      "纯净区": [
+        123
+      ],
+      "小众区": [
+        123
+      ],
+      "工具区": [
+        123
+      ],
+      "世界书": [
+        123
+      ],
+      "深渊区": [
+        123
+      ]
+    }
+  },
+  // 推送配置
+  "BannerConfig": {
+    "New": {
+      "ChannelId": [
+        123
+      ]
+    },
+    "Popular": {
+      "ChannelId": [
+        123
+      ]
+    },
+    "Feature": {
+      "ChannelId": [
+        123
+      ]
+    },
+    "Toplist": {
+      "ChannelId": [
+        123
+      ]
+    }
+  }
+} 
