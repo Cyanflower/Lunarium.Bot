@@ -25,12 +25,7 @@ public class ThreadProcessor
         RetryMode = RetryMode.AlwaysRetry // 启用 Discord.Net 的内置重试
     };
 
-    public enum ProcessingStatus
-    {
-        Success, // 成功处理
-        Skipped, // 按规则跳过
-        Failed   // 发生意外错误
-    }
+    private ConcurrentDictionary<ulong, IForumChannel> forumCache = new();
 
     public ThreadProcessor(ILogger<ThreadProcessor> logger)
     {
@@ -41,10 +36,10 @@ public class ThreadProcessor
         _apiRetryPolicy = Policy
             // 1. 定义需要处理的异常
             //    - HttpClient 超时: 表现为 TaskCanceledException, 其内部异常为 TimeoutException
-            .Handle<TaskCanceledException>(ex => ex.InnerException is TimeoutException) 
+            .Handle<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
             //    - 服务器不可用: 表现为 HttpException, 状态码为 503
             .Or<HttpException>(ex => ex.HttpCode == HttpStatusCode.ServiceUnavailable)
-            
+
             // 2. 定义重试逻辑: 指数退避策略
             .WaitAndRetryAsync(
                 retryCount: 3, // 最多重试3次
@@ -55,17 +50,15 @@ public class ThreadProcessor
                     var threadId = context.ContainsKey("threadId") ? context["threadId"] : "N/A";
                     var threadName = context.ContainsKey("threadName") ? context["threadName"] : "N/A";
 
-                    _logger.LogWarning(exception, 
+                    _logger.LogWarning(exception,
                         "帖子 {ThreadName}({ThreadId}) API请求失败，在 {TimeSpan} 后进行第 {Attempt}/3 次重试",
                         threadName, threadId, timespan, attempt);
                 }
             );
     }
 
-    // GetAllThreads 方法保持不变, 这里省略以保持简洁
     public async Task<List<IThreadChannel>> GetAllThreads(IForumChannel channel)
     {
-        // ... 此方法代码与原来完全相同 ...
         List<IThreadChannel> threads = new List<IThreadChannel>();
         // 1. 获取活跃的帖子 (Active Threads)
         // 这些是当前未归档的帖子, 用户可以直接在频道内看到。
@@ -103,7 +96,7 @@ public class ThreadProcessor
                         retryCount++;
                     }
                 }
-                
+
                 if (fetchedThreads?.Count > 0)
                 {
                     publicArchivedThreads.AddRange(fetchedThreads);
@@ -126,11 +119,8 @@ public class ThreadProcessor
         return uniqueThreads;
     }
 
-
-    // ProcessToThreadDataModelAsync 方法保持不变, 这里省略以保持简洁
     public async Task<(List<ThreadDataModel>, ThreadProcessResult)> ProcessToThreadDataModelAsync(List<IThreadChannel> threads)
     {
-        // ... 此方法代码与原来完全相同, 它调用 ToThreadDataModelAsync ...
         List<ThreadDataModel> threadDataModels = new List<ThreadDataModel>();
         _logger.LogInformation("开始并发处理 {Count} 个帖子", threads.Count);
         var semaphore = new SemaphoreSlim(26, 26);
@@ -138,7 +128,7 @@ public class ThreadProcessor
         var skippedCount = 0;
         var failedCount = 0;
         var num = 0;
-        
+
         // 添加时间戳和性能统计变量
         var startTime = DateTime.Now;
         var processingTimes = new ConcurrentQueue<double>(); // 存储处理时间（秒）
@@ -155,11 +145,11 @@ public class ThreadProcessor
                 {
                     results.Add(threadData);
                     var currentNum = Interlocked.Increment(ref num);
-                    
+
                     // 计算性能统计
                     var currentTime = DateTime.Now;
                     var elapsedSeconds = (currentTime - startTime).TotalSeconds;
-                    
+
                     lock (lockObj)
                     {
                         // 维护最近处理时间的队列
@@ -168,19 +158,19 @@ public class ThreadProcessor
                         {
                             processingTimes.TryDequeue(out _);
                         }
-                        
+
                         // 计算平均处理速度
                         var timesArray = processingTimes.ToArray();
                         if (timesArray.Length >= 2)
                         {
                             var timeSpan = timesArray[^1] - timesArray[0]; // 最新时间 - 最早时间
                             var avgSpeed = timeSpan > 0 ? (timesArray.Length - 1) / timeSpan : 0;
-                            
+
                             // 预估完成时间
                             var remainingTasks = threads.Count - currentNum;
                             var estimatedSecondsRemaining = avgSpeed > 0 ? remainingTasks / avgSpeed : 0;
                             var estimatedCompletionTime = currentTime.AddSeconds(estimatedSecondsRemaining);
-                            
+
                             _logger.LogDebug("第 {num}/{total} 个帖子处理完成 - 平均速度: {avgSpeed:F2} 任务/秒，预计完成时间: {estimatedTime:HH:mm:ss}",
                                 currentNum, threads.Count, avgSpeed, estimatedCompletionTime);
                         }
@@ -228,12 +218,12 @@ public class ThreadProcessor
         var successCount = results.Count;
         var totalElapsed = (DateTime.Now - startTime).TotalSeconds;
         var overallAvgSpeed = totalElapsed > 0 ? successCount / totalElapsed : 0;
-        
-        _logger.LogInformation("并发处理完成。成功: {SuccessCount}，失败: {FailedCount}，跳过: {SkippedCount}，总计: {Total}，总耗时: {TotalSeconds:F2}秒，平均速度: {OverallSpeed:F2} 任务/秒", 
+
+        _logger.LogInformation("并发处理完成。成功: {SuccessCount}，失败: {FailedCount}，跳过: {SkippedCount}，总计: {Total}，总耗时: {TotalSeconds:F2}秒，平均速度: {OverallSpeed:F2} 任务/秒",
             successCount, failedCount, skippedCount, threads.Count, totalElapsed, overallAvgSpeed);
 
         // 构建结果数据
-        var threadProcessResult =new ThreadProcessResult
+        var threadProcessResult = new ThreadProcessResult
         {
             SuccessCount = successCount,
             FailedCount = failedCount,
@@ -242,6 +232,9 @@ public class ThreadProcessor
             TotalElapsed = totalElapsed,
             OverallAvgSpeed = overallAvgSpeed
         };
+
+        // 清空缓存
+        forumCache.Clear();
 
         return (results.ToList(), threadProcessResult);
     }
@@ -263,7 +256,7 @@ public class ThreadProcessor
             _logger.LogWarning("帖子 {ThreadName}({ThreadId}) 被置顶，已跳过", thread.Name, thread.Id);
             return (ProcessingStatus.Skipped, null);
         }
-        
+
         IMessage? firstMessage = null;
         IEnumerable<IMessage>? recentMessages = null;
 
@@ -304,7 +297,7 @@ public class ThreadProcessor
             _logger.LogWarning("帖子 {ThreadName}({ThreadId}) 没有有效首楼消息，已跳过", thread.Name, thread.Id);
             return (ProcessingStatus.Skipped, null);
         }
-        
+
         // 计算最后活跃时间
         long lastActiveAt;
         if (recentMessages?.Any() != true)
@@ -324,6 +317,51 @@ public class ThreadProcessor
             .DefaultIfEmpty(0)
             .Max();
 
+        string tags = "";
+        IForumChannel? forumChannel;
+
+        if (thread.CategoryId.HasValue && forumCache.TryGetValue(thread.CategoryId.Value, out forumChannel))
+        {
+            // 如果能进入这个 if 代码块，说明：
+            // 1. thread.CategoryId 有值。
+            // 2. 缓存中成功找到了这个ID。
+            // 处理标签
+            // 只获取该帖子实际应用的标签
+            var appliedTagNames = forumChannel.Tags
+                .Where(tag => thread.AppliedTags.Contains(tag.Id)) 
+                .Select(tag => tag.Name)
+                .ToList();
+            tags = string.Join(", ", appliedTagNames);
+        }
+        else
+        {
+            // 如果缓存里没有，或者 CategoryId 本身就是 null，
+            // 在这里执行获取频道、并存入缓存的逻辑。
+            if (thread.CategoryId.HasValue)
+            {
+                forumChannel = await thread.Guild.GetChannelAsync(thread.CategoryId.Value, CacheMode.AllowDownload) as IForumChannel;
+                if (forumChannel != null)
+                {
+                    // 只获取该帖子实际应用的标签
+                    var appliedTagNames = forumChannel.Tags
+                        .Where(tag => thread.AppliedTags.Contains(tag.Id)) 
+                        .Select(tag => tag.Name)
+                        .ToList();
+                    tags = string.Join(", ", appliedTagNames);
+                }
+                else
+                {
+                    _logger.LogWarning("帖子 {ThreadName}({ThreadId}) 没有有效频道ID (forumChannel is null)， thread.CategoryId: {CategoryId}，已跳过", thread.Name, thread.Id, thread.CategoryId);
+                    return (ProcessingStatus.Failed, null);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("帖子 {ThreadName}({ThreadId}) 没有有效频道ID (No Has Value)，已跳过", thread.Name, thread.Id);
+                return (ProcessingStatus.Failed, null);
+            }
+        }
+
         // 构建并返回数据模型
         return (ProcessingStatus.Success, new ThreadDataModel
         {
@@ -331,7 +369,9 @@ public class ThreadProcessor
             FirstMessageId = firstMessage.Id,
             AuthorId = thread.OwnerId,
             ChannelId = (ulong)thread.CategoryId!,
+            ChannelName = forumChannel.Name,
             GuildId = thread.GuildId,
+            GuildName = thread.Guild.Name,
             CreatedAt = thread.CreatedAt.ToUnixTimeSeconds(),
             MemberCount = thread.MemberCount,
             ReactionCount = highestReactionCount,
@@ -339,7 +379,8 @@ public class ThreadProcessor
             LastActiveAt = lastActiveAt,
             JumpUrl = $"https://discord.com/channels/{thread.GuildId}/{thread.Id}",
             AttachmentUrl = imageAttachment?.Url,
-            Tags = thread.AppliedTags.ToList(),
+            Tags = tags,
+            TagsId = thread.AppliedTags.ToList(),
             Title = thread.Name,
             Content = firstMessage.Content,
         });
@@ -348,7 +389,7 @@ public class ThreadProcessor
     private bool IsImageAttachment(IAttachment attachment)
     {
         var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp" };
-        return imageExtensions.Any(ext => 
+        return imageExtensions.Any(ext =>
             attachment.Filename.ToLowerInvariant().EndsWith(ext));
     }
 }

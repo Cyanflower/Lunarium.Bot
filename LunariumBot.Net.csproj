@@ -10,6 +10,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,5 +35,6 @@
   <!-- 排除Example文件夹中的所有C#文件，使其不参与编译 -->
   <ItemGroup>
     <Compile Remove="Example/**/*.cs" />
+    <Compile Remove="LunariumBot.Net.Tests/**/*.cs" />
   </ItemGroup>
 </Project>

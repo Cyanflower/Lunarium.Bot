@@ -16,6 +16,8 @@ using Discord.Net.WebSockets;
 using SearchBot.ThreadFetcher;
 using SearchBot.Database;
 using SearchBot.Utils;
+using SearchBot.Scheduler;
+using SearchBot.AppInteractionService;
 
 
 namespace SearchBot;
@@ -31,6 +33,7 @@ public class SearchBotService : IHostedService
     private readonly DatabaseService _databaseService;
     private readonly Scanner _scanner;
     private readonly Listener _listener;
+    
     // 构造函数
     public SearchBotService(ILogger<SearchBotService> logger, ILoggerFactory loggerFactory, IOptions<ProxyConfig> proxyOptions)
     {
@@ -65,7 +68,8 @@ public class SearchBotService : IHostedService
             // 注册 ConfigLoader
             .AddSingleton<ConfigLoader>()
             // 注册 Discord 客户端，并使用从全局传入的代理配置
-            .AddSingleton<DiscordSocketClient>(provider => {
+            .AddSingleton<DiscordSocketClient>(provider =>
+            {
                 _logger.LogInformation("创建 DiscordSocketClient... 代理启用: {Enabled}", proxyConfig.Enable);
                 if (proxyConfig.Enable && !string.IsNullOrEmpty(proxyConfig.ProxyUrl))
                 {
@@ -82,6 +86,13 @@ public class SearchBotService : IHostedService
                     return new DiscordSocketClient();
                 }
             })
+
+            // 注册分页管理器
+            .AddSingleton<PaginatorManager>()
+            // 注册命令冷却管理器
+            .AddSingleton<UserCooldown>()
+            // 注册搜索命令构建器
+            .AddSingleton<SearchCriteriaBuilder>()
 
             // 注册交互服务
             .AddSingleton<InteractionService>(provider => 
@@ -168,24 +179,31 @@ public class SearchBotService : IHostedService
 
     private async Task ReadyAsync()
     {
-        _logger.LogInformation("🎉 Bot 已就绪！已连接为: {Username}#{Discriminator}", 
-            _client.CurrentUser.Username, _client.CurrentUser.Discriminator);
-        
-        // 现在 bot 完全就绪，可以安全地同步命令
-        await SyncCommandsAsync();
+        try
+        {
+            _logger.LogInformation("🎉 Bot 已就绪！已连接为: {Username}#{Discriminator}",
+                _client.CurrentUser.Username, _client.CurrentUser.Discriminator);
 
-        
-        var need_sync = _databaseService.LoadDB();
-        if (need_sync)
-        {
-            _logger.LogInformation("⏳ 数据库时间戳过期，准备执行全量同步。");
-            _scanner.FullSync();
+            // 现在 bot 完全就绪，可以安全地同步命令
+            await SyncCommandsAsync();
+
+
+            var needSync = _databaseService.NeedSync;
+            if (needSync)
+            {
+                _logger.LogInformation("⏳ 数据库时间戳过期，准备执行全量同步。");
+                _scanner.FullSync();
+            }
+            else
+            {
+                _logger.LogInformation("✅ 数据库时间戳未过期，跳过全量同步。");
+            }
+            _listener.AddEventHandlers();
         }
-        else
+        catch (Exception ex)
         {
-            _logger.LogInformation("✅ 数据库时间戳未过期，跳过全量同步。");
+            _logger.LogError("ReadyAsync 出现异常: {ex}", ex);
         }
-        _listener.AddEventHandlers();
 
     }
     

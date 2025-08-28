@@ -6,21 +6,29 @@ namespace SearchBot.Database;
 
 public static class DBTable
 {
+    public const int CURRENT_DB_VERSION = 1;
+    public static string GetCreateVersionTableSql()
+    {
+        return """
+        -- ===================================================================
+        -- 表: db_info
+        -- 描述: 存储数据库元信息，如 schema 版本号，数据库创建或初始化的时间戳
+        -- ===================================================================
+        CREATE TABLE IF NOT EXISTS db_info (
+            version INTEGER PRIMARY KEY,
+            applied_at INTEGER NOT NULL,
+            initialize_at NTEGER NOT NULL,
+            last_save_at INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO db_info (version, applied_at, initialize_at, last_save_at) VALUES (@Version, @AppliedAt, @InitializeAt, @LastSaveAt);
+        """;
+    }
     public static string GetCreateAllTablesSql()
     {
         // 注意：@timestamp 是一个参数占位符,
         // 需要在使用 Dapper 或其他库执行时传入具体值。
         // 例如: connection.Execute(sql, new { timestamp = 1672531200 });
-        string sql = """
-        -- ===================================================================
-        -- 表: db_timestamp
-        -- 描述: 记录数据库创建或初始化的时间戳
-        -- ===================================================================
-        CREATE TABLE IF NOT EXISTS db_timestamp (
-            timestamp INTEGER NOT NULL
-        );
-        INSERT INTO db_timestamp (timestamp) VALUES (@timestamp);
-
+        return """
         -- ===================================================================
         -- 1. 基础实体表
         -- ===================================================================
@@ -37,11 +45,17 @@ public static class DBTable
         CREATE TABLE IF NOT EXISTS tags (
             tag_id INTEGER PRIMARY KEY,
             channel_id INTEGER NOT NULL,
-            tag_name TEXT NOT NULL,           -- 标签名, 便于调试
-
+            tag_name TEXT NOT NULL,
+            channel_name TEXT,
+            guild_name TEXT,
+            
             -- 外键: 关联频道表. 删除频道时, 级联删除其下所有标签
             FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
         );
+
+        CREATE INDEX IF NOT EXISTS idx_tag_name ON tags (tag_name);
+        CREATE INDEX IF NOT EXISTS idx_channel_name ON tags (channel_name);
+        CREATE INDEX IF NOT EXISTS idx_guild_name ON tags (guild_name);
 
         -- ===================================================================
         -- 2. 核心内容表
@@ -54,7 +68,9 @@ public static class DBTable
             first_message_id INTEGER NOT NULL,
             author_id INTEGER NOT NULL,
             channel_id INTEGER NOT NULL,
+            channel_name TEXT NOT NULL,
             guild_id INTEGER NOT NULL,
+            guild_name TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             member_count INTEGER DEFAULT 0,
             reaction_count INTEGER DEFAULT 0,
@@ -62,6 +78,9 @@ public static class DBTable
             last_active_at INTEGER NOT NULL,
             jump_url TEXT NOT NULL,
             attachment_url TEXT,
+            update_at INTEGER DEFAULT 0,
+            message_jump_url TEXT,
+            tags TEXT,
             title TEXT NOT NULL,
             content TEXT NOT NULL,
 
@@ -78,7 +97,7 @@ public static class DBTable
         CREATE INDEX IF NOT EXISTS idx_posts_last_active_at ON posts_main (last_active_at);
 
         -- ===================================================================
-        -- 3. 关系/连接表
+        -- 3. 关系连接表
         -- ===================================================================
 
         -- 表: post_tags_junction
@@ -113,16 +132,17 @@ public static class DBTable
         END;
 
         -- ===================================================================
-        -- 5. 用户订阅/收藏表
+        -- 5. 用户订阅收藏表
         -- ===================================================================
-        -- 说明: 收藏/订阅表中的帖子信息字段为后备字段,
+        -- 说明: 收藏订阅表中的帖子信息字段为后备字段,
         --      用于在主表帖子被删除后, 仍能为用户提供基础信息.
-        --      同步机制与主表不同, 仅在用户收藏/订阅关系表所有关系中都没有该帖子时, 才删除帖子记录
+        --      同步机制与主表不同, 仅在用户收藏订阅关系表所有关系中都没有该帖子时, 才删除帖子记录
 
-        -- 表: user_favorite_and_subscription_posts
+        -- 表: fallback_posts
         -- 描述: 记录用户收藏和订阅的帖子的基础后备数据
-        CREATE TABLE IF NOT EXISTS user_favorite_and_subscription_posts (
+        CREATE TABLE IF NOT EXISTS fallback_posts (
             thread_id INTEGER PRIMARY KEY,
+            author_id INTEGER,
             title TEXT,
             jump_url TEXT,
             attachment_url TEXT
@@ -130,9 +150,10 @@ public static class DBTable
 
         -- 表: user_favorite_tpye
         -- 描述: 记录用户收藏的帖子类型
-        CREATE TABLE IF NOT EXISTS user_favorite_type (
-            user_id INTEGER PRIMARY KEY,
-            type TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS user_favorite_types (
+            user_id INTEGER NOT NULL,
+            type_name TEXT NOT NULL,
+            PRIMARY KEY (user_id, type_name)
         );
 
         -- 表: user_favorite_posts
@@ -140,7 +161,7 @@ public static class DBTable
         CREATE TABLE IF NOT EXISTS user_favorite_posts (
             user_id INTEGER,
             thread_id INTEGER,
-            favorite_as INTEGER,
+            favorite_as TEXT,
             added_at INTEGER NOT NULL,
             PRIMARY KEY (user_id, thread_id)
         );
@@ -150,6 +171,7 @@ public static class DBTable
         CREATE TABLE IF NOT EXISTS user_subscriptions_post (
             user_id INTEGER,
             thread_id INTEGER,
+            added_at INTEGER,
             PRIMARY KEY (user_id, thread_id)
         );
 
@@ -170,8 +192,9 @@ public static class DBTable
         -- 描述: 记录用户自定义的快速搜索命令
         CREATE TABLE IF NOT EXISTS user_fast_search_command (
             user_id INTEGER,
-            command TEXT,
-            PRIMARY KEY (user_id, command)
+            command_name TEXT,
+            criteria_json TEXT,
+            PRIMARY KEY (user_id, command_name)
         );
 
         -- 触发器: ufasp_after_delete_on_favorite
@@ -182,7 +205,7 @@ public static class DBTable
         BEGIN
             -- 检查此帖子是否还被任何用户收藏或订阅
             -- 如果均无记录, 则从后备表中删除
-            DELETE FROM user_favorite_and_subscription_posts
+            DELETE FROM fallback_posts
             WHERE thread_id = OLD.thread_id
               AND NOT EXISTS (SELECT 1 FROM user_favorite_posts WHERE thread_id = OLD.thread_id)
               AND NOT EXISTS (SELECT 1 FROM user_subscriptions_post WHERE thread_id = OLD.thread_id);
@@ -195,13 +218,81 @@ public static class DBTable
         FOR EACH ROW
         BEGIN
             -- 逻辑同上, 检查并清理
-            DELETE FROM user_favorite_and_subscription_posts
+            DELETE FROM fallback_posts
             WHERE thread_id = OLD.thread_id
               AND NOT EXISTS (SELECT 1 FROM user_favorite_posts WHERE thread_id = OLD.thread_id)
               AND NOT EXISTS (SELECT 1 FROM user_subscriptions_post WHERE thread_id = OLD.thread_id);
         END;
+
+        -- ===================================================================
+        -- 6. 数据同步触发器 (Data Synchronization Triggers)
+        -- ===================================================================
+
+        -- 触发器: fp_after_insert_copy_attachment
+        -- 动作: 当新记录插入 fallback_posts 后, 尝试从 posts_main 复制附件链接
+        CREATE TRIGGER IF NOT EXISTS fp_after_insert_copy_attachment
+        AFTER INSERT ON fallback_posts
+        FOR EACH ROW
+        BEGIN
+            UPDATE fallback_posts
+            SET attachment_url = (
+                SELECT attachment_url 
+                FROM posts_main 
+                WHERE thread_id = NEW.thread_id
+            )
+            WHERE thread_id = NEW.thread_id;
+        END;
         """;
-        return sql;
-        
     }
+    /// <summary>
+    /// 升级迁移脚本
+    /// </summary>
+    /// <returns></returns>
+    public static Dictionary<int, string> GetMigrationScripts()
+    {
+        return new Dictionary<int, string>
+        {
+
+        };
+    }
+
 }
+// =================================================
+// 迁移脚本示例
+// =================================================
+/*
+return new Dictionary<int, string>
+{
+    版本2的迁移脚本示例
+    [2] = """
+        -- 添加新列到现有表
+        ALTER TABLE posts_main ADD COLUMN view_count INTEGER DEFAULT 0;
+        
+        -- 创建新表
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id INTEGER PRIMARY KEY,
+            setting_key TEXT NOT NULL,
+            setting_value TEXT,
+            updated_at INTEGER NOT NULL
+        );
+        
+        -- 创建新索引
+        CREATE INDEX IF NOT EXISTS idx_posts_view_count ON posts_main (view_count);
+        """,
+
+    版本3的迁移脚本
+    [3] = """
+        -- 更多的数据库变更...
+        ALTER TABLE channels ADD COLUMN is_active INTEGER DEFAULT 1;
+        """
+}
+*/
+// =================================================
+// 历史迁移脚本区
+// =================================================
+/*
+
+
+
+
+*/

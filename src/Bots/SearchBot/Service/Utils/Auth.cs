@@ -15,7 +15,7 @@ public class Authentication
 
     public bool IsAdmin(IEnumerable<ulong> userRoleIds)
     {
-        return userRoleIds.Any(roleId => _configLoader.AdminRoleIds.Contains(roleId));
+        return userRoleIds.Any(_configLoader.AdminRoleIds.Contains);
     }
 
     public bool InGuild(ulong guildId)

@@ -14,21 +14,17 @@ using SearchBot.Model;
 
 namespace SearchBot.Database;
 
-public partial class DatabaseService 
+public partial class DatabaseService
 {
     // === SQL 模板定义 ===
     // SQL模板: 查询所有频道ID
-    const string getAllChannelIdsSql = "SELECT channel_id FROM channels;";
+    const string getAllChannelIdsSql = "SELECT channel_id AS ChannelId FROM channels;";
     // SQL模板: 查询所有标签ID
-    const string getAllTagIdsSql = "SELECT tag_id FROM tags;";
-    // SQL模板: 查询所有订阅了指定帖子的用户ID列表
-    const string getAllUserIdsByThreadIdSql = "SELECT user_id FROM user_push_list WHERE thread_id = @threadId;";
-    // SQL模板: 查询用户收藏夹
-    const string getUserFavoriteTypeSql = "SELECT type FROM user_favorite_type WHERE user_id = @userId;";
-    // SQL模板: 查询用户某一订阅贴
-    const string getUserSubscriptionsPostSql = "SELECT 1 FROM user_subscriptions_post WHERE user_id = @userId AND thread_id = @threadId LIMIT 1;";
-    // SQL模板: 查询用户某一收藏贴
-    const string getUserFavoritePostSql = "SELECT 1 FROM user_favorite_posts WHERE user_id = @userId AND thread_id = @threadId LIMIT 1;";
+    const string getAllTagIdsSql = "SELECT tag_id AS TagId FROM tags;";
+    // SQL模板: 根据帖子ID在标签关系表中查询标签信息
+    const string getTagsByThreadIdSql = "SELECT tag_name AS TagName FROM post_tags_junction WHERE thread_id = @threadId;";
+    // SQL模板: 查询全部标签名字 (去重)
+    const string getAllUniqueTagNamesSql = "SELECT DISTINCT tag_name AS TagName FROM tags;";
     // === 私有辅助方法 ===
 
     /// <summary>
@@ -74,92 +70,6 @@ public partial class DatabaseService
     }
 
     /// <summary>
-    /// 获取数据库中所有订阅了指定帖子的用户ID列表
-    /// </summary>
-    /// <param name="threadId">帖子ID</param>
-    /// <returns>用户ID列表</returns>
-    public Task<List<ulong>> GetAllUserIdsByThreadIdAsync(ulong threadId)
-    {
-        return QueryUlongListAsync(getAllUserIdsByThreadIdSql, new { threadId });
-    }
-
-    /// <summary>
-    /// 获取数据库中单个用户收藏的帖子类型
-    /// </summary>
-    /// <param name="userId">用户ID</param>
-    /// <returns>用户收藏的帖子类型</returns>
-    public async Task<HashSet<string>> GetUserFavoriteTypeAsync(ulong userId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            var type = await connection.QueryFirstOrDefaultAsync<string>(getUserFavoriteTypeSql, new { userId });
-            if (type == null)
-            {
-                return new HashSet<string>() { "默认分类" };
-            }
-            // 将json字符串转换为HashSet<string>
-            var typeSet = JsonSerializer.Deserialize<HashSet<string>>(type);
-            return typeSet ?? new HashSet<string>() { "默认分类" };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "执行用户收藏的帖子类型查询时出错. SQL: {sqlQuery}", getUserFavoriteTypeSql);
-            return new HashSet<string>() { "默认分类" };
-        }
-    }
-    
-    /// <summary>
-    /// 查询用户是否已经订阅了某个帖子
-    /// </summary>
-    /// <param name="userId"></param>
-    /// <param name="threadId"></param>
-    /// <returns></returns>
-    public async Task<bool> QueryUserSubscriptionsExistAsync(ulong userId, ulong threadId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            var result = await connection.QueryFirstOrDefaultAsync<int?>(getUserSubscriptionsPostSql, new { userId, threadId });
-            if (result != null)
-            {
-                return true;
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "执行用户订阅存在性检查时出错");
-            return false;
-        }
-    }
-    
-    /// <summary>
-    /// 查询用户是否已经收藏了某个帖子
-    /// </summary>
-    /// <param name="userId"></param>
-    /// <param name="threadId"></param>
-    /// <returns></returns>
-    public async Task<bool> QueryUserFavoriteExistAsync(ulong userId, ulong threadId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            var result = await connection.QueryFirstOrDefaultAsync<int?>(getUserFavoritePostSql, new { userId, threadId });
-            if (result != null)
-            {
-                return true;
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "执行用户收藏存在性检查时出错");
-            return false;
-        }
-    }
-    
-    /// <summary>
     /// 查询数据库中的所有帖子，移除不存在于当前数据列表中的帖子。
     /// 该方法用于清理过时的帖子数据，确保数据库与最新扫描结果保持同步。
     /// </summary>
@@ -194,7 +104,7 @@ public partial class DatabaseService
         {
             // 查询: 从数据库获取所有现有的帖子ID
             var dbThreadIds = await connection.QueryAsync<ulong>(
-                "SELECT thread_id FROM posts_main;",
+                "SELECT thread_id AS ThreadId FROM posts_main;",
                 transaction: transaction
             );
             var dbThreadIdsList = dbThreadIds.ToList();
@@ -222,6 +132,27 @@ public partial class DatabaseService
             await transaction.RollbackAsync();
             _logger.LogError(ex, "移除过时帖子时发生错误，事务已回滚。");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 获取数据库中所有唯一的标签名称列表。
+    /// </summary>
+    /// <returns>一个包含不重复标签名的列表。</returns>
+    public async Task<List<string>> GetAllUniqueTagNamesAsync()
+    {
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            // 使用 DISTINCT 关键字，数据库会直接帮我们完成去重，效率超高！
+            var names = await connection.QueryAsync<string>(getAllUniqueTagNamesSql);
+            return names.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "执行所有唯一标签名查询时出错. SQL: {sqlQuery}", getAllUniqueTagNamesSql);
+            // 出错时返回一个空列表，保证程序不会崩溃
+            return new List<string>();
         }
     }
 }

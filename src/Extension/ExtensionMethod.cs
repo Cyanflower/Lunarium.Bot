@@ -6,7 +6,7 @@ public static class StringExtensions
     public static string Slice(this string value, int maxLength, string truncationSuffix = "...")
     {
         // 1. 检查输入是否为空或null
-        if (string.IsNullOrEmpty(value))
+        if (string.IsNullOrWhiteSpace(value))
         {
             return value;
         }
@@ -16,8 +16,14 @@ public static class StringExtensions
         {
             return value;
         }
+        
+        // 3. 如果字符串本身长度小于后缀长度, 直接返回字符串
+        if (truncationSuffix.Length >= maxLength)
+        {
+            return value;
+        }
 
-        // 3. 截断并添加后缀
+        // 4. 截断并添加后缀
         // 确保截断后的长度加上后缀的长度不超过 maxLength
         int truncatedLength = maxLength - truncationSuffix.Length;
         return value.Substring(0, truncatedLength) + truncationSuffix;

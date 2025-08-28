@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SearchBot.ThreadFetcher;
 
-namespace SearchBot.Service.Scheduler;
+namespace SearchBot.Scheduler;
 
 [DisallowConcurrentExecution]
 public class SchedulerService: IJob
