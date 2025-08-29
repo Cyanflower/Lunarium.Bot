@@ -253,6 +253,7 @@ public class ThreadProcessor
         }
         if (thread.Flags.HasFlag(ChannelFlags.Pinned))
         {
+            _logger.LogDebug("thread.Flags {thread.Flags}", thread.Flags);
             _logger.LogWarning("帖子 {ThreadName}({ThreadId}) 被置顶，已跳过", thread.Name, thread.Id);
             return (ProcessingStatus.Skipped, null);
         }
@@ -377,7 +378,7 @@ public class ThreadProcessor
             ReactionCount = highestReactionCount,
             ReplyCount = thread.MessageCount,
             LastActiveAt = lastActiveAt,
-            JumpUrl = $"https://discord.com/channels/{thread.GuildId}/{thread.Id}",
+            JumpUrl = $"https://discord.com/channels/{thread.GuildId}/{thread.Id}/0",
             AttachmentUrl = imageAttachment?.Url,
             Tags = tags,
             TagsId = thread.AppliedTags.ToList(),

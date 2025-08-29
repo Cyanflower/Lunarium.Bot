@@ -20,11 +20,24 @@ public static class DisplayEmbedBuilder
             var embedsChunk = new List<Embed>();
             foreach (var post in postChunk)
             {
-                if (post.IsFallbackData)
+                // https://discord.com/channels/1291925535324110879/1410172300442992681/0
+                // 处理为
+                // https://discord.com/channels/1291925535324110879/1410172300442992681
+                var shortJumpUrl = post.JumpUrl;
+                if (shortJumpUrl != null)
                 {
-                    postNum++;
-                    var embed = new EmbedBuilder()
-                        .WithDescription($"""
+                    var lastSlashIndex = shortJumpUrl.LastIndexOf('/');
+                    if (lastSlashIndex != -1)
+                    {
+                        shortJumpUrl = shortJumpUrl.Substring(0, lastSlashIndex);
+                    }
+                }
+
+                if (post.IsFallbackData)
+                    {
+                        postNum++;
+                        var embed = new EmbedBuilder()
+                            .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
                             -# 点击标题可以尝试进行访问
                             =====================================
@@ -40,45 +53,46 @@ public static class DisplayEmbedBuilder
                             -# 若提示无法访问, 则该帖很可能已删除
                             =====================================
                             """)
-                        .AddField("统计信息:", $"""
+                            .AddField("统计信息:", $"""
                             -# 收藏类别: {post.FavoriteAS ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                             帖子可复制链接:
                             ```
-                            {post.JumpUrl}
+                            {shortJumpUrl}
                             ```
                             """)
-                        .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
-                        .WithThumbnailUrl(post.AttachmentUrl)
-                        .Build();
-                    embedsChunk.Add(embed);
-                }
-                else
-                {
-                    postNum++;
-                    var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.MessageJumpUrl}" : "";
-                    var embed = new EmbedBuilder()
-                        .WithDescription($"""
+                            .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
+                            .WithThumbnailUrl(post.AttachmentUrl)
+                            .Build();
+                        embedsChunk.Add(embed);
+                    }
+                    else
+                    {
+                        postNum++;
+                        var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.MessageJumpUrl}" : "";
+                        var embed = new EmbedBuilder()
+                            .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
-                            -# {post.GuildName}.{post.ChannelName} **作者**: <@{post.AuthorId}>
+                            **作者**: <@{post.AuthorId}>
+                            -# {post.GuildName}.{post.ChannelName}
                             -# 帖子信息: 👍🏻: {post.ReactionCount} | 💬: {post.ReplyCount} | 🏷: {post.Tags}
                             -# 发帖时间: <t:{post.CreatedAt}:f> 最近活跃: <t:{post.LastActiveAt}:R>{updatedInfo}
                             =====================================
-                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl}))
+                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl})
                             {(post.Content != null ? post.Content.Slice(75, "...") : "无首楼内容")}
                             =====================================
                             """)
-                        .AddField("收藏信息:", $"""
+                            .AddField("收藏信息:", $"""
                             -# 收藏类别: {post.FavoriteAS ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                             帖子可复制链接:
                             ```
-                            {post.JumpUrl}
+                            {shortJumpUrl}
                             ```
                             """)
-                        .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
-                        .WithThumbnailUrl(post.AttachmentUrl)
-                        .Build();
-                    embedsChunk.Add(embed);
-                }
+                            .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
+                            .WithThumbnailUrl(post.AttachmentUrl)
+                            .Build();
+                        embedsChunk.Add(embed);
+                    }
             }
             embeds.Add(embedsChunk);
         }
@@ -98,6 +112,19 @@ public static class DisplayEmbedBuilder
             var embedsChunk = new List<Embed>();
             foreach (var post in postChunk)
             {
+                // https://discord.com/channels/1291925535324110879/1410172300442992681/0
+                // 处理为
+                // https://discord.com/channels/1291925535324110879/1410172300442992681
+                var shortJumpUrl = post.JumpUrl;
+                if (shortJumpUrl != null)
+                {
+                    var lastSlashIndex = shortJumpUrl.LastIndexOf('/');
+                    if (lastSlashIndex != -1)
+                    {
+                        shortJumpUrl = shortJumpUrl.Substring(0, lastSlashIndex);
+                    }
+                }
+
                 if (post.IsFallbackData)
                 {
                     postNum++;
@@ -122,7 +149,7 @@ public static class DisplayEmbedBuilder
                             订阅时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                             帖子可复制链接:
                             ```
-                            {post.JumpUrl}
+                            {shortJumpUrl}
                             ```
                             -# 数据库基线版本: <t:{baselineVersion}:d>
                             """)
@@ -138,11 +165,12 @@ public static class DisplayEmbedBuilder
                     var embed = new EmbedBuilder()
                         .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
-                            -# {post.GuildName}.{post.ChannelName} **作者**: <@{post.AuthorId}>
+                            **作者**: <@{post.AuthorId}>
+                            -# {post.GuildName}.{post.ChannelName}
                             -# 帖子信息: 👍🏻: {post.ReactionCount} | 💬: {post.ReplyCount} | 🏷: {post.Tags}
                             -# 发帖时间: <t:{post.CreatedAt}:f> 最近活跃: <t:{post.LastActiveAt}:R>{updatedInfo}
                             =====================================
-                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl}))
+                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl})
                             {(post.Content != null ? post.Content.Slice(75, "...") : "无首楼内容")}
                             =====================================
                             """)
@@ -150,7 +178,7 @@ public static class DisplayEmbedBuilder
                             -# 订阅时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                             帖子可复制链接:
                             ```
-                            {post.JumpUrl}
+                            {shortJumpUrl}
                             ```
                             """)
                         .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
@@ -177,17 +205,25 @@ public static class DisplayEmbedBuilder
             var embedsChunk = new List<Embed>();
             foreach (var post in postChunk)
             {
+                // https://discord.com/channels/1291925535324110879/1410172300442992681/0
+                // 处理为
+                // https://discord.com/channels/1291925535324110879/1410172300442992681
+                var shortJumpUrl = post.JumpUrl;
+                if (shortJumpUrl != null)
+                {
+                    var lastSlashIndex = shortJumpUrl.LastIndexOf('/');
+                    if (lastSlashIndex != -1)
+                    {
+                        shortJumpUrl = shortJumpUrl.Substring(0, lastSlashIndex);
+                    }
+                }
                 if (post.IsFallbackData)
                 {
                     postNum++;
                     var embed = new EmbedBuilder()
                         .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
-                            跳转链接: {post.JumpUrl}
-                            ## 该贴内作品已更新
-                            更新时间: <t:{post.UpdatedAt}:f>|<t:{post.UpdatedAt}:R>
-                            最新作品链接: {post.MessageJumpUrl}
-                            -# 点击标题与链接可以尝试进行访问
+                            -# 点击标题可以尝试进行访问
                             =====================================
                             **作者**: <@{post.AuthorId}>
                             无详细数据
@@ -202,12 +238,11 @@ public static class DisplayEmbedBuilder
                             =====================================
                             """)
                         .AddField("统计信息:", $"""
-                            订阅于: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
+                            -# 订阅时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                             帖子可复制链接:
                             ```
-                            {post.JumpUrl}
+                            {shortJumpUrl}
                             ```
-                            -# 数据库基线版本: <t:{baselineVersion}:d>
                             """)
                         .WithFooter($"结果 {postNum}/{totalPosts} | 第 {PageNum} 页，共 {totalPages} 页 | 数据库基线版本: {baselineVersion}")
                         .WithThumbnailUrl(post.AttachmentUrl)
@@ -220,13 +255,14 @@ public static class DisplayEmbedBuilder
                     var embed = new EmbedBuilder()
                         .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
-                            -# {post.GuildName}.{post.ChannelName} **作者**: <@{post.AuthorId}>
+                            **作者**: <@{post.AuthorId}>
+                            -# {post.GuildName}.{post.ChannelName}
                             -# 帖子信息: 👍🏻: {post.ReactionCount} | 💬: {post.ReplyCount} | 🏷: {post.Tags}
                             -# 发帖时间: <t:{post.CreatedAt}:f> 最近活跃: <t:{post.LastActiveAt}:R>
                             该贴子有作品更新:
                             -# 更新时间: <t:{post.UpdatedAt}:f> 最新作品链接: {post.MessageJumpUrl}
                             =====================================
-                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl}))
+                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl})
                             {(post.Content != null ? post.Content.Slice(75, "...") : "无首楼内容")}
                             =====================================
                             """)
@@ -262,11 +298,12 @@ public static class DisplayEmbedBuilder
                 var embed = new EmbedBuilder()
                         .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})
-                            -# {post.GuildName}.{post.ChannelName} **作者**: <@{post.AuthorId}>
+                            **作者**: <@{post.AuthorId}>
+                            -# {post.GuildName}.{post.ChannelName}
                             -# 帖子信息: 👍🏻: {post.ReactionCount} | 💬: {post.ReplyCount} | 🏷: {post.Tags}
                             -# 发帖时间: <t:{post.CreatedAt}:f> 最近活跃: <t:{post.LastActiveAt}:R>{updatedInfo}
                             =====================================
-                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl}))
+                            **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl})
                             {(post.Content != null ? post.Content.Slice(75, "...") : "无首楼内容")}
                             =====================================
                             """)

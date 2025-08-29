@@ -45,7 +45,8 @@ public partial class DatabaseService
             {
                 ThreadId = thread.Id,
                 Title = thread.Name,
-                JumpUrl = $"https://discord.com/channels/{thread.Guild.Id}/{thread.Id}",
+                AuthorId = thread.OwnerId,
+                JumpUrl = $"https://discord.com/channels/{thread.Guild.Id}/{thread.Id}/0",
             };
             // 准备: 构造订阅关系数据
             var subscriptionData = new { UserId = user.Id, ThreadId = thread.Id, AddedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };

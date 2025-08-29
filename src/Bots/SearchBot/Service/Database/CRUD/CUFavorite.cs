@@ -25,6 +25,11 @@ public partial class DatabaseService
         INSERT OR IGNORE INTO user_favorite_types (user_id, type_name)
         VALUES (@UserId, @TypeName);
         """;
+    // SQL模板: 重命名收藏夹类别
+    const string favoriteCategoryRenameSqlCommand = "UPDATE user_favorite_types SET type_name = @NewName WHERE user_id = @UserId AND type_name = @OldName;";
+    // SQL模板: 更新收藏帖子中的类别名称
+    const string favoritePostsCategoryRenameSqlCommand = "UPDATE user_favorite_posts SET favorite_as = @NewName WHERE user_id = @UserId AND favorite_as = @OldName;";
+
     /// <summary>
     /// 更新(插入或更新)单个用户的帖子收藏。
     /// </summary>
@@ -44,7 +49,8 @@ public partial class DatabaseService
             {
                 ThreadId = thread.Id,
                 Title = thread.Name,
-                JumpUrl = $"https://discord.com/channels/{thread.Guild.Id}/{thread.Id}",
+                AuthorId = thread.OwnerId,
+                JumpUrl = $"https://discord.com/channels/{thread.Guild.Id}/{thread.Id}/0",
             };
             // 准备: 构造收藏关系数据
             var favoriteData = new { UserId = userId, ThreadId = thread.Id, Favorite = favorite, AddedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
@@ -74,7 +80,7 @@ public partial class DatabaseService
         {
             using var connection = new SqliteConnection(_connectionString);
             var affectedRows = await connection.ExecuteAsync(
-                userFavoriteTypeInsertSqlCommand, 
+                userFavoriteTypeInsertSqlCommand,
                 new { UserId = userId, TypeName = newType }
             );
 
@@ -90,6 +96,41 @@ public partial class DatabaseService
         catch (Exception ex)
         {
             _logger.LogError(ex, "为用户 {UserId} 添加收藏夹类型时发生错误。", userId);
+        }
+    }
+    
+    /// <summary>
+    /// 重命名用户的某个收藏夹
+    /// </summary>
+    /// <param name="userId">用户ID</param>
+    /// <param name="oldName">旧名称</param>
+    /// <param name="newName">新名称</param>
+    /// <returns>操作影响的总行数</returns>
+    public async Task<int> RenameFavoriteCategoryAsync(ulong userId, string oldName, string newName)
+    {
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+            
+            int totalAffectedRows = 0;
+            
+            // 步骤 1: 更新 user_favorite_types 表
+            totalAffectedRows += await connection.ExecuteAsync(favoriteCategoryRenameSqlCommand, new { UserId = userId, OldName = oldName, NewName = newName }, transaction);
+
+            // 步骤 2: 更新 user_favorite_posts 表
+            totalAffectedRows += await connection.ExecuteAsync(favoritePostsCategoryRenameSqlCommand, new { UserId = userId, OldName = oldName, NewName = newName }, transaction);
+
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("用户 {UserId} 成功将收藏夹 '{OldName}' 重命名为 '{NewName}', 影响了 {Rows} 行记录。", userId, oldName, newName, totalAffectedRows);
+            return totalAffectedRows;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "重命名用户 {UserId} 的收藏夹 '{OldName}' 时出错。", userId, oldName);
+            return 0;
         }
     }
 }

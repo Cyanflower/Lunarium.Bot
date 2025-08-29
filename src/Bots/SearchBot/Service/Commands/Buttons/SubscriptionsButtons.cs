@@ -29,7 +29,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
 
             var embed = new EmbedBuilder()
                 .WithTitle("✅ 订阅成功")
-                .WithDescription($"太棒啦！你已成功订阅 **{threadChannel.Name}**，之后有更新我会通知你的！")
+                .WithDescription($"成功订阅 **{threadChannel.Name}**，后续更新可以通过`/查看收藏`命令或搜索频道的按钮查看")
                 .WithColor(Color.Green)
                 .Build();
 

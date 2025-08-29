@@ -78,14 +78,14 @@ public partial class DatabaseService
             var allThreadIds = subscriptionResult.Select(s => s.ThreadId).ToList();
 
             // 2. 从主表获取数据
-            var mainPosts = await connection.QueryAsync<PostDisplayModel>(getMainPostsSql, new { ThreadIds = allThreadIds });
+            var mainPosts = await connection.QueryAsync<PostDisplayModel>(getMainPostsSql, new { threadIds = allThreadIds });
             var postsDictionary = mainPosts.ToDictionary(p => p.ThreadId);
 
             // 3. 找出缺失的，从备用表获取
             var missingThreadIds = allThreadIds.Except(postsDictionary.Keys).ToList();
             if (missingThreadIds.Any())
             {
-                var fallbackPosts = await connection.QueryAsync<PostDisplayModel>(getFallbackPostsSql, new { ThreadIds = missingThreadIds });
+                var fallbackPosts = await connection.QueryAsync<PostDisplayModel>(getFallbackPostsSql, new { threadIds = missingThreadIds });
                 foreach (var fallbackPost in fallbackPosts)
                 {
                     fallbackPost.IsFallbackData = true;
@@ -138,14 +138,14 @@ public partial class DatabaseService
             var pushInfoDictionary = pushListResult.ToDictionary(p => p.ThreadId);
 
             // 2. 从主表获取数据
-            var mainPosts = await connection.QueryAsync<PostDisplayModel>(getMainPostsSql, new { ThreadIds = allThreadIds });
+            var mainPosts = await connection.QueryAsync<PostDisplayModel>(getMainPostsSql, new { threadIds = allThreadIds });
             var postsDictionary = mainPosts.ToDictionary(p => p.ThreadId);
 
             // 3. 从备用表获取缺失数据
             var missingThreadIds = allThreadIds.Except(postsDictionary.Keys).ToList();
             if (missingThreadIds.Any())
             {
-                var fallbackPosts = await connection.QueryAsync<PostDisplayModel>(getFallbackPostsSql, new { ThreadIds = missingThreadIds });
+                var fallbackPosts = await connection.QueryAsync<PostDisplayModel>(getFallbackPostsSql, new { threadIds = missingThreadIds });
                 foreach (var fallbackPost in fallbackPosts)
                 {
                     fallbackPost.IsFallbackData = true;

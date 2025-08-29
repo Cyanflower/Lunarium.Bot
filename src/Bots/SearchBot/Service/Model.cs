@@ -244,6 +244,25 @@ public class SearchCriteria
     // --- 排序与分页 ---
     public string OrderBy { get; set; } = "posted_date_desc";
     public int ResultLimit { get; set; } = 200;
+    
+    /// <summary>
+    /// 检查是否所有过滤条件都为空。
+    /// 注意：不检查 OrderBy 和 ResultLimit，因为它们不是“过滤”条件。
+    /// </summary>
+    /// <returns>如果没有任何有效的过滤条件，则返回 true。</returns>
+    public bool IsEmpty()
+    {
+        return ForumChannelIds.Count == 0 &&
+               !AuthorId.HasValue &&
+               IncludeKeywords.Count == 0 &&
+               ExcludeKeywords.Count == 0 &&
+               IncludeTagsAnd.Count == 0 &&
+               IncludeTagsOr.Count == 0 &&
+               ExcludeTags.Count == 0 &&
+               ExcludeAuthorIds.Count == 0 &&
+               !StartTimestamp.HasValue &&
+               !EndTimestamp.HasValue;
+    }
 }
 
 /// <summary>
@@ -269,7 +288,7 @@ public static class SearchParameterMapper
     {
         { nameof(SearchCriteria.ForumChannelIds), "论坛分区" },
         { nameof(SearchCriteria.AuthorId), "帖子作者" },
-        // ✨ 为了更清晰地展示，我们将关键词和标签细分
+        // 为了更清晰地展示，将关键词和标签细分
         { "IncludeKeywords1", "关键词1" },
         { "IncludeKeywords2", "关键词2" },
         { "IncludeKeywords3", "关键词3" },
@@ -293,13 +312,13 @@ public static class SearchParameterMapper
         
         var parts = new List<string>();
         
-        if (criteria.ForumChannelIds.Any()) parts.Add($"分区:{criteria.ForumChannelIds.Count}个");
+        if (criteria.ForumChannelIds.Count != 0) parts.Add($"分区:{criteria.ForumChannelIds.Count}个");
         if (criteria.AuthorId.HasValue) parts.Add($"作者:<@{criteria.AuthorId.Value}>");
-        if (criteria.IncludeKeywords.Any()) parts.Add($"关键词:{criteria.IncludeKeywords.Sum(g => g.Count)}个");
-        if (criteria.IncludeTagsAnd.Any() || criteria.IncludeTagsOr.Any()) parts.Add($"含标签:{criteria.IncludeTagsAnd.Count + criteria.IncludeTagsOr.Count}个");
-        if (criteria.ExcludeKeywords.Any()) parts.Add($"除关键词:{criteria.ExcludeKeywords.Sum(g => g.Count)}个");
-        if (criteria.ExcludeTags.Any()) parts.Add($"除标签:{criteria.ExcludeTags.Count}个");
-        if (criteria.ExcludeAuthorIds.Any()) parts.Add($"除作者:{criteria.ExcludeAuthorIds.Count}个");
+        if (criteria.IncludeKeywords.Count != 0) parts.Add($"关键词:{criteria.IncludeKeywords.Sum(g => g.Count)}个");
+        if (criteria.IncludeTagsAnd.Count != 0 || criteria.IncludeTagsOr.Count != 0) parts.Add($"含标签:{criteria.IncludeTagsAnd.Count + criteria.IncludeTagsOr.Count}个");
+        if (criteria.ExcludeKeywords.Count != 0) parts.Add($"除关键词:{criteria.ExcludeKeywords.Sum(g => g.Count)}个");
+        if (criteria.ExcludeTags.Count != 0) parts.Add($"除标签:{criteria.ExcludeTags.Count}个");
+        if (criteria.ExcludeAuthorIds.Count != 0) parts.Add($"除作者:{criteria.ExcludeAuthorIds.Count}个");
         if (criteria.StartTimestamp.HasValue) parts.Add($"始于:{DateTimeOffset.FromUnixTimeSeconds(criteria.StartTimestamp.Value):yyyy-MM-dd}");
         
         var label = string.Join(" ", parts);
@@ -336,9 +355,9 @@ public static class SearchParameterMapper
         }
 
         // 处理标签 (这里简化处理，实际效果如果不够好可能需要从ID反查名称)
-        if (criteria.IncludeTagsAnd.Any()) sb.Append($" {PropertyToParameterMap[nameof(criteria.IncludeTagsAnd)]}:[包含 {criteria.IncludeTagsAnd.Count} 个标签]");
-        if (criteria.IncludeTagsOr.Any()) sb.Append($" {PropertyToParameterMap[nameof(criteria.IncludeTagsOr)]}:[包含 {criteria.IncludeTagsOr.Count} 个标签]");
-        if (criteria.ExcludeTags.Any()) sb.Append($" {PropertyToParameterMap[nameof(criteria.ExcludeTags)]}:[排除 {criteria.ExcludeTags.Count} 个标签]");
+        if (criteria.IncludeTagsAnd.Count != 0) sb.Append($" {PropertyToParameterMap[nameof(criteria.IncludeTagsAnd)]}:[包含 {criteria.IncludeTagsAnd.Count} 个标签]");
+        if (criteria.IncludeTagsOr.Count != 0) sb.Append($" {PropertyToParameterMap[nameof(criteria.IncludeTagsOr)]}:[包含 {criteria.IncludeTagsOr.Count} 个标签]");
+        if (criteria.ExcludeTags.Count != 0) sb.Append($" {PropertyToParameterMap[nameof(criteria.ExcludeTags)]}:[排除 {criteria.ExcludeTags.Count} 个标签]");
 
         // 处理其他参数
         if (criteria.StartTimestamp.HasValue) AppendParameter(PropertyToParameterMap[nameof(criteria.StartTimestamp)], DateTimeOffset.FromUnixTimeSeconds(criteria.StartTimestamp.Value).ToString("yyyy-MM-dd"));

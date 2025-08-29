@@ -8,6 +8,7 @@ using Discord.Interactions;
 using SearchBot.Database;
 using SearchBot.Scheduler;
 using SearchBot.Model;
+using SearchBot.Utils;
 
 namespace SearchBot.AppInteractionService;
 
@@ -85,7 +86,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
                 _logger.LogDebug("1");
                 // 关键：从交互发生的频道获取帖子信息！
                 var channel = interaction.Channel as IThreadChannel;
-    
+
                 if (channel != null)
                 {
                     _logger.LogDebug("2");
@@ -142,18 +143,18 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
             if (Context.Interaction is SocketMessageComponent interaction)
             {
                 var channel = interaction.Channel as IThreadChannel;
-    
+
                 if (channel != null)
                 {
                     // 执行取消收藏的数据库操作
                     await _databaseService.RemoveFavoriteAsync(userId, channel.Id);
-    
+
                     var embed = new EmbedBuilder()
                         .WithTitle("🗑️ 已取消收藏")
                         .WithDescription($"成功将帖子 **{channel.Name}** 从您的收藏中移除。")
                         .WithColor(Color.Default) // 使用默认颜色或灰色
                         .Build();
-    
+
                     await interaction.UpdateAsync(props =>
                     {
                         props.Embed = embed;
@@ -196,7 +197,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
             {
                 // 直接使用从 customId 解析出的 threadId 进行操作
                 await _databaseService.RemoveFavoriteAsync(userId, threadId);
-    
+
                 // 为了显示帖子名称，尝试从原始消息的Embed中获取
                 var originalEmbed = interaction.Message.Embeds.FirstOrDefault();
                 string postInfo = $"ID为 {threadId} 的帖子"; // 备用描述
@@ -206,17 +207,17 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
                     var match = Regex.Match(originalEmbed.Description, @"\*\*(.*?)\*\*");
                     if (match.Success)
                     {
-                        string postName = match.Groups[1].Value; 
+                        string postName = match.Groups[1].Value;
                         postInfo = $"帖子 **{postName}**";
                     }
                 }
-    
+
                 var embed = new EmbedBuilder()
                     .WithTitle("🗑️ 已取消收藏")
                     .WithDescription($"成功将{postInfo}从您的收藏中移除。")
                     .WithColor(Color.Default)
                     .Build();
-    
+
                 await interaction.UpdateAsync(props =>
                 {
                     props.Embed = embed;
@@ -227,6 +228,66 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
         catch (Exception ex)
         {
             _logger.LogError("RemoveFavoriteByIdConfirmButton {ex}", ex);
+        }
+    }
+    /// <summary>
+    /// 删除收藏夹的确认按钮回调
+    /// </summary>
+    [ComponentInteraction("delete_F_cat_*_*_*", true)]
+    public async Task HandleDeleteFavoriteCategory(ulong userId, string action, string categoryName)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interaction) return;
+            if (interaction.User.Id != userId)
+            {
+                await interaction.RespondAsync("这是别人的按钮哦！", ephemeral: true);
+                return;
+            }
+    
+            bool deletePosts = action == "remove";
+            await _databaseService.RemoveFavoriteCategoryAsync(userId, categoryName, deletePosts);
+    
+            var embed = EmbedUtils.SuccessEmbed($"操作成功！收藏夹 **{categoryName}** 已经被删除了哦。");
+            await interaction.UpdateAsync(props =>
+            {
+                props.Embed = embed;
+                props.Components = new ComponentBuilder().Build();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("HandleDeleteFavoriteCategory {ex}", ex);
+        }
+    }
+
+    /// <summary>
+    /// 重命名收藏夹的确认按钮回调
+    /// </summary>
+    [ComponentInteraction("rename_F_cat_*_*_*", true)]
+    public async Task HandleRenameFavoriteCategory(ulong userId, string oldName, string newName)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interaction) return;
+            if (interaction.User.Id != userId)
+            {
+                await interaction.RespondAsync("这是别人的按钮哦！", ephemeral: true);
+                return;
+            }
+    
+            await _databaseService.RenameFavoriteCategoryAsync(userId, oldName, newName);
+    
+            var embed = EmbedUtils.SuccessEmbed($"操作成功！收藏夹 **{oldName}** 已经成功改名为 **{newName}**。");
+            await interaction.UpdateAsync(props =>
+            {
+                props.Embed = embed;
+                props.Components = new ComponentBuilder().Build();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("HandleRenameFavoriteCategory {ex}", ex);
         }
     }
 }

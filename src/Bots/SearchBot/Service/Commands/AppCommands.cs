@@ -232,7 +232,18 @@ public class AppCommands : InteractionModuleBase<SocketInteractionContext>
         // 鉴权: 如果不是admin, 则返回
         if (!await IsAdmin("创建管理面板", Context)) return;
 
+        var embed = new EmbedBuilder()
+            .WithDescription("")
+            .Build();
+        var component = new ComponentBuilder()
+            .WithButton("直接搜索: 无过滤条件的浏览发帖时间从新到旧的200个帖子", customId: "direct_search", style: ButtonStyle.Primary, row: 0)
+            .WithButton("查看全部收藏的帖子", customId: "view_favorite", style: ButtonStyle.Primary, row: 1)
+            .WithButton("查看全部订阅的帖子", customId: "view_subthread", style: ButtonStyle.Primary, row: 2)
+            .WithButton("查看更新: 查看订阅帖子的更新推送消息", customId: "view_pushlist", style: ButtonStyle.Primary, row: 3)
+            .WithButton("快捷搜索: 打开快速搜索菜单", customId:"quick_search", style: ButtonStyle.Primary, row: 4)
+            .Build();
 
+        await FollowupAsync(embed: embed, components: component);
     }
 
     #endregion
@@ -765,6 +776,98 @@ public class AppCommands : InteractionModuleBase<SocketInteractionContext>
         var firstPageEmbeds = embeds[0];
         await FollowupAsync(embeds: firstPageEmbeds.ToArray(), components: button, ephemeral: true);
     }
+
+    [SlashCommand("删除收藏夹", "删除一个收藏夹并处理其中的帖子")]
+    public async Task DeleteFavoriteCategoryAsync(
+        [Summary("收藏夹", "要删除的收藏夹名称")]
+        [Autocomplete(typeof(FavoriteClassAutoCompletion))]
+        string favorite,
+
+        [Summary("处理方式", "如何处理该收藏夹内的帖子")]
+        [Choice("全部移除收藏 (不可逆)", "remove")]
+        [Choice("保留并移至'未分类'", "keep")]
+        string action
+    )
+    {
+        await DeferAsync(ephemeral: true);
+        if (!await InGuild("删除收藏夹", Context)) return;
+
+        var favoriteTypes = await _databaseService.GetUserFavoriteTypeAsync(Context.User.Id);
+        if (!favoriteTypes.Contains(favorite))
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作失败", $"你没有一个叫 **{favorite}** 的收藏夹哦。"), ephemeral: true);
+            return;
+        }
+
+        var actionDescription = action == "remove" 
+            ? "该收藏夹里的所有帖子都将被**取消收藏**" 
+            : "该收藏夹里的所有帖子都将被**移至未分类**";
+
+        var embed = new EmbedBuilder()
+            .WithTitle("⚠️ 确认删除操作")
+            .WithDescription($"你确定要删除收藏夹 **{favorite}** 吗？\n\n**重要提示**: {actionDescription}。\n此操作无法撤销！")
+            .WithColor(Color.Red)
+            .Build();
+
+        var components = new ComponentBuilder()
+            .WithButton("确认删除", $"delete_F_cat_{Context.User.Id}_{action}_{favorite}", ButtonStyle.Danger)
+            .WithButton("我再想想", "general_cancel", ButtonStyle.Secondary)
+            .Build();
+
+        await FollowupAsync(embed: embed, components: components, ephemeral: true);
+    }
+
+    [SlashCommand("重命名收藏夹", "更改一个收藏夹的名称")]
+    public async Task RenameFavoriteCategoryAsync(
+        [Summary("旧名称", "选择要重命名的收藏夹")]
+        [Autocomplete(typeof(FavoriteClassAutoCompletion))]
+        string oldName,
+        [Summary("新名称", "为收藏夹起一个新名字")]
+        string newName
+    )
+    {
+        await DeferAsync(ephemeral: true);
+        if (!await InGuild("重命名收藏夹", Context)) return;
+        
+        // --- 参数校验 ---
+        if (string.IsNullOrWhiteSpace(newName) || newName.Length > 50)
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作失败", "新名称不能为空，且长度不能超过50个字符哦。"), ephemeral: true);
+            return;
+        }
+
+        if (oldName == newName)
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作无效", "新旧名称不能一样呀！"), ephemeral: true);
+            return;
+        }
+
+        var favoriteTypes = await _databaseService.GetUserFavoriteTypeAsync(Context.User.Id);
+        if (!favoriteTypes.Contains(oldName))
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作失败", $"你没有一个叫 **{oldName}** 的收藏夹哦。"), ephemeral: true);
+            return;
+        }
+        if (favoriteTypes.Contains(newName))
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作失败", $"你已经有一个叫 **{newName}** 的收藏夹啦，换个名字吧！"), ephemeral: true);
+            return;
+        }
+
+        // --- 发送确认 ---
+        var embed = new EmbedBuilder()
+            .WithTitle("🔄 确认重命名")
+            .WithDescription($"你确定要将收藏夹 **{oldName}** 的名字改成 **{newName}** 吗？")
+            .WithColor(Color.Blue)
+            .Build();
+
+        var components = new ComponentBuilder()
+            .WithButton("确认更改", $"rename_F_cat_{Context.User.Id}_{oldName}_{newName}", ButtonStyle.Success)
+            .WithButton("放弃", "general_cancel", ButtonStyle.Secondary)
+            .Build();
+
+        await FollowupAsync(embed: embed, components: components, ephemeral: true);
+    }
     #endregion
 
     #region 搜索功能
@@ -920,7 +1023,16 @@ public class AppCommands : InteractionModuleBase<SocketInteractionContext>
         [Summary("排除作者1", "在结果中排除这位作者的帖子(OR)")] IUser? exAuthor1 = null,
         [Summary("排除作者2", "在结果中排除这位作者的帖子(OR)")] IUser? exAuthor2 = null,
         [Summary("排除作者3", "在结果中排除这位作者的帖子(OR)")] IUser? exAuthor3 = null,
-        [Summary("排序方式", "结果的排序方式")][Choice("发帖时间降序(从新到旧)", "posted_date_desc")][Choice("发帖时间升序(从旧到新)", "posted_date_asc")] /*...其他选项...*/ string order = "posted_date_desc",
+        [Summary("排序方式", "结果的排序方式")]
+        [Choice("发帖时间降序(从新到旧)", "posted_date_desc")]
+        [Choice("发帖时间升序(从旧到新)", "posted_date_asc")]
+        [Choice("最后活跃降序(从新到旧)", "last_active_desc")]
+        [Choice("最后活跃升序(从旧到新)", "last_active_asc")]
+        [Choice("最高反应降序(从高到低)", "reactions_desc")]
+        [Choice("最高反应升序(从低到高)", "reactions_asc")]
+        [Choice("总回复数降序(从高到低)", "replies_desc")]
+        [Choice("总回复数升序(从低到高)", "replies_asc")]
+        string order = "posted_date_desc",
         [Summary("起始日期", "搜索在此日期之后创建的帖子 (格式: YYYY-MM-DD)")] string? startTime = null,
         [Summary("结束日期", "搜索在此日期之前创建的帖子 (格式: YYYY-MM-DD)")] string? endTime = null,
         [Summary("结果上限", "最多返回多少条结果")][MinValue(10)][MaxValue(1000)] int resultLimit = 200
@@ -944,6 +1056,12 @@ public class AppCommands : InteractionModuleBase<SocketInteractionContext>
             exTags1, exTags2, exTags3, exTags4, exKeyWord1, exKeyWord2, exKeyWord3,
             exAuthor1, exAuthor2, exAuthor3, order, startTime, endTime, resultLimit
         );
+
+        if (criteria.IsEmpty())
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("添加失败", "您必须至少提供一个搜索条件才能保存快捷命令哦"), ephemeral: true);
+            return;
+        }
 
         var commandToSave = new QuickSearchCommandModel
         {

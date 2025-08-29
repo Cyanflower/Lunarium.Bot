@@ -74,10 +74,11 @@ public partial class DatabaseService
 
     // SQL模板: 插入或忽略用户收藏和订阅的帖子后备表 (INSERT OR IGNORE)
     const string fallbackPostsUpsertSqlCommand = """
-        INSERT INTO fallback_posts (thread_id, title, jump_url)
-        VALUES (@ThreadId, @Title, @JumpUrl)
+        INSERT INTO fallback_posts (thread_id, title, author_id, jump_url)
+        VALUES (@ThreadId, @Title, @AuthorId, @JumpUrl)
         ON CONFLICT(thread_id) DO UPDATE SET
             title = excluded.title,
+            author_id = excluded.author_id,
             jump_url = excluded.jump_url
         """;
 
