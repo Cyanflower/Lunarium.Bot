@@ -47,6 +47,27 @@ public class ThreadDataModel
 }
 
 /// <summary>
+/// 一个轻量级模型，用于在删除帖子前从数据库获取必要的统计信息。
+/// </summary>
+public class PostInfoForStats
+{
+    public ulong ThreadId { get; set; }
+    public long CreatedAt { get; set; }
+    public ulong GuildId { get; set; }
+    public ulong ChannelId { get; set; }
+    public int ReplyCount { get; set; }
+}
+
+public class TagInfo
+{
+    public string? TagId { get; set; } = "";
+    public ulong? ChannelId { get; set; }
+    public string? TagName { get; set; } = "";
+    public string? ChannelName { get; set; } = "";
+    public string? GuildName { get; set; } = "";
+}
+
+/// <summary>
 /// 扫描全部结果数据
 /// </summary>
 public class ScanResult
@@ -278,9 +299,6 @@ public class QuickSearchCommandModel
 /// <summary>
 /// 辅助类，用于将 SearchCriteria 映射为用户友好的命令字符串。
 /// </summary>
-/// <summary>
-/// 辅助类，用于将 SearchCriteria 映射为用户友好的命令字符串。
-/// </summary>
 public static class SearchParameterMapper
 {
     // 映射表保持不变
@@ -304,14 +322,14 @@ public static class SearchParameterMapper
         { nameof(SearchCriteria.OrderBy), "排序方式" },
         { nameof(SearchCriteria.ResultLimit), "结果上限" }
     };
-    
+
     // ToDisplayLabel 方法保持原样，它作为摘要非常出色
     public static string ToDisplayLabel(SearchCriteria? criteria)
     {
         if (criteria == null) return "参数解析失败";
-        
+
         var parts = new List<string>();
-        
+
         if (criteria.ForumChannelIds.Count != 0) parts.Add($"分区:{criteria.ForumChannelIds.Count}个");
         if (criteria.AuthorId.HasValue) parts.Add($"作者:<@{criteria.AuthorId.Value}>");
         if (criteria.IncludeKeywords.Count != 0) parts.Add($"关键词:{criteria.IncludeKeywords.Sum(g => g.Count)}个");
@@ -320,12 +338,12 @@ public static class SearchParameterMapper
         if (criteria.ExcludeTags.Count != 0) parts.Add($"除标签:{criteria.ExcludeTags.Count}个");
         if (criteria.ExcludeAuthorIds.Count != 0) parts.Add($"除作者:{criteria.ExcludeAuthorIds.Count}个");
         if (criteria.StartTimestamp.HasValue) parts.Add($"始于:{DateTimeOffset.FromUnixTimeSeconds(criteria.StartTimestamp.Value):yyyy-MM-dd}");
-        
+
         var label = string.Join(" ", parts);
         return string.IsNullOrEmpty(label) ? "无任何有效参数" : label;
     }
-    
-    // ✨ 全新实现的 ToCommandString 方法，用于精确展示
+
+    // 用于精确展示
     public static string ToCommandString(SearchCriteria? criteria)
     {
         if (criteria == null) return "/搜索 [参数解析失败]";
@@ -340,18 +358,18 @@ public static class SearchParameterMapper
                 sb.Append($" {name}:\"{value}\"");
             }
         }
-        
+
         // ✨ 分别处理每个参数，展示具体内容
         if (criteria.AuthorId.HasValue) sb.Append($" {PropertyToParameterMap[nameof(criteria.AuthorId)]}:<@{criteria.AuthorId.Value}>");
 
         // 处理关键词 (这里我们假设IncludeKeywords列表的顺序对应keyWord1, 2, 3)
-        for(int i = 0; i < criteria.IncludeKeywords.Count; i++)
+        for (int i = 0; i < criteria.IncludeKeywords.Count; i++)
         {
-            AppendParameter(PropertyToParameterMap[$"IncludeKeywords{i+1}"], string.Join(" ", criteria.IncludeKeywords[i]));
+            AppendParameter(PropertyToParameterMap[$"IncludeKeywords{i + 1}"], string.Join(" ", criteria.IncludeKeywords[i]));
         }
-        for(int i = 0; i < criteria.ExcludeKeywords.Count; i++)
+        for (int i = 0; i < criteria.ExcludeKeywords.Count; i++)
         {
-            AppendParameter(PropertyToParameterMap[$"ExcludeKeywords{i+1}"], string.Join(" ", criteria.ExcludeKeywords[i]));
+            AppendParameter(PropertyToParameterMap[$"ExcludeKeywords{i + 1}"], string.Join(" ", criteria.ExcludeKeywords[i]));
         }
 
         // 处理标签 (这里简化处理，实际效果如果不够好可能需要从ID反查名称)
@@ -362,11 +380,41 @@ public static class SearchParameterMapper
         // 处理其他参数
         if (criteria.StartTimestamp.HasValue) AppendParameter(PropertyToParameterMap[nameof(criteria.StartTimestamp)], DateTimeOffset.FromUnixTimeSeconds(criteria.StartTimestamp.Value).ToString("yyyy-MM-dd"));
         if (criteria.EndTimestamp.HasValue) AppendParameter(PropertyToParameterMap[nameof(criteria.EndTimestamp)], DateTimeOffset.FromUnixTimeSeconds(criteria.EndTimestamp.Value).ToString("yyyy-MM-dd"));
-        
+
         // 对于默认值，可以不显示
         if (criteria.OrderBy != "posted_date_desc") AppendParameter(PropertyToParameterMap[nameof(criteria.OrderBy)], criteria.OrderBy);
         if (criteria.ResultLimit != 200) AppendParameter(PropertyToParameterMap[nameof(criteria.ResultLimit)], criteria.ResultLimit.ToString());
 
         return sb.ToString();
     }
+}
+
+public class ForumInfo
+{
+    // 频道
+    public string? ChannelName { get; set; } = "";
+    // === 统计概览 ===
+    // 总贴数
+    public int TotalPost { get; set; }
+    public int PostAdd24h { get; set; }
+    public int PostAdd7d { get; set; }
+    // 新增贴数
+    // 总回复
+    public int TotalReply { get; set; }
+    public int ReplyAdd24h { get; set; }
+    public int ReplyAdd7d { get; set; }
+
+    // 标签概览(7d)
+    public Dictionary<TagInfo, long> TagData = new();
+    // [焦点标签] 历史热门
+    public Dictionary<TagInfo, long> TagDataHistory = new();
+
+    // [焦点帖子] 近期(7天)前三反应
+    public List<PostDisplayModel> ReactionTop7d = new();
+    // [焦点帖子] 近期(7天)前三回复
+    public List<PostDisplayModel> ReplyTop7d = new();
+    // [焦点帖子] 历史前三反应
+    public List<PostDisplayModel> ReactionTopHistory = new();
+    // [焦点帖子] 历史前三回复
+    public List<PostDisplayModel> ReplyTopHistory = new();
 }

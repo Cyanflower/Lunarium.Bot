@@ -16,7 +16,7 @@ using LunariumExtensionMethod;
 
 namespace SearchBot.AppInteractionService;
 
-public class AppCommands : InteractionModuleBase<SocketInteractionContext>
+public partial class AppCommands : InteractionModuleBase<SocketInteractionContext>
 {
     private readonly ILogger<AppCommands> _logger;
     private readonly Scanner _scanner;

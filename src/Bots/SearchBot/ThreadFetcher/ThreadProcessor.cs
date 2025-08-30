@@ -343,6 +343,8 @@ public class ThreadProcessor
                 forumChannel = await thread.Guild.GetChannelAsync(thread.CategoryId.Value, CacheMode.AllowDownload) as IForumChannel;
                 if (forumChannel != null)
                 {
+                    // 将新获取到的频道信息存入缓存，以便后续使用
+                    forumCache.TryAdd(thread.CategoryId.Value, forumChannel);
                     // 只获取该帖子实际应用的标签
                     var appliedTagNames = forumChannel.Tags
                         .Where(tag => thread.AppliedTags.Contains(tag.Id)) 

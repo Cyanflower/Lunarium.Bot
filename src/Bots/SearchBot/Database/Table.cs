@@ -6,7 +6,7 @@ namespace SearchBot.Database;
 
 public static class DBTable
 {
-    public const int CURRENT_DB_VERSION = 1;
+    public const int CURRENT_DB_VERSION = 2;
     public static string GetCreateVersionTableSql()
     {
         return """
@@ -105,6 +105,7 @@ public static class DBTable
         CREATE TABLE IF NOT EXISTS post_tags_junction (
             thread_id INTEGER,
             tag_id INTEGER,
+            channel_id INTEGER DEFAULT 0,
             PRIMARY KEY (thread_id, tag_id), -- 复合主键: 确保 post-tag 关系唯一
             FOREIGN KEY (thread_id) REFERENCES posts_main(thread_id) ON DELETE CASCADE,
             FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
@@ -242,6 +243,24 @@ public static class DBTable
             )
             WHERE thread_id = NEW.thread_id;
         END;
+
+        -- ===================================================================
+        -- 7. 服务器总统计数据
+        -- ===================================================================
+
+        -- 表: server_data
+        -- 描述: 记录服务器整体数据
+        CREATE TABLE IF NOT EXISTS server_data (
+            date DATE NOT NULL,
+            server_id INTEGER NOT NULL,
+            server_name TEXT NOT NULL,
+            channel_id INTEGER NOT NULL,
+            channel_name TEXT NOT NULL,
+            created_posts_count INTEGER DEFAULT 0,
+            reply_count INTEGER DEFAULT 0,
+
+            PRIMARY KEY (date, server_id, channel_id)
+        );
         """;
     }
     /// <summary>
@@ -255,16 +274,16 @@ public static class DBTable
 
         };
     }
-
 }
+
 // =================================================
 // 迁移脚本示例
 // =================================================
 /*
 return new Dictionary<int, string>
 {
-    版本2的迁移脚本示例
-    [2] = """
+    版本x的迁移脚本示例
+    [x] = """
         -- 添加新列到现有表
         ALTER TABLE posts_main ADD COLUMN view_count INTEGER DEFAULT 0;
         
@@ -280,19 +299,35 @@ return new Dictionary<int, string>
         CREATE INDEX IF NOT EXISTS idx_posts_view_count ON posts_main (view_count);
         """,
 
-    版本3的迁移脚本
-    [3] = """
+    版本y的迁移脚本
+    [y] = """
         -- 更多的数据库变更...
         ALTER TABLE channels ADD COLUMN is_active INTEGER DEFAULT 1;
         """
 }
+
 */
 // =================================================
 // 历史迁移脚本区
 // =================================================
 /*
+版本 v2 ==========================
+[2] = """
+    ALTER TABLE post_tags_junction ADD COLUMN channel_id INTEGER DEFAULT 0;
 
+    CREATE TABLE IF NOT EXISTS server_data (
+        date DATE NOT NULL,
+        server_id INTEGER NOT NULL,
+        server_name TEXT NOT NULL,
+        channel_id INTEGER NOT NULL,
+        channel_name TEXT NOT NULL,
+        created_posts_count INTEGER DEFAULT 0,
+        reply_count INTEGER DEFAULT 0,
 
+        PRIMARY KEY (date, server_id, channel_id)
+    );
+    """,
+=================================
 
 
 */

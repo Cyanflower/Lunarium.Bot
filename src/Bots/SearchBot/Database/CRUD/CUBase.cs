@@ -65,10 +65,12 @@ public partial class DatabaseService
             content = excluded.content;
         """;
 
-    // SQL模板: 插入或忽略帖子-标签关系表 (INSERT OR IGNORE)
+    // SQL模板: 插入或更新帖子-标签关系表 (INSERT OR IGNORE)
     const string postTagsJunctionUpsertSqlCommand = """
-        INSERT OR IGNORE INTO post_tags_junction (thread_id, tag_id)
-        VALUES (@ThreadId, @TagId);
+        INSERT INTO post_tags_junction (thread_id, tag_id, channel_id)
+        VALUES (@ThreadId, @TagId, @ChannelId)
+        ON CONFLICT(thread_id, tag_id) DO UPDATE SET
+            channel_id = excluded.channel_id;
         """;
     // --- 关系/连接表 ---
 
@@ -149,7 +151,7 @@ public partial class DatabaseService
                 var junctionData = dataList.SelectMany(data =>
                     data.TagsId
                         .Where(tagId => tagId > 0) // 过滤: 确保标签ID有效 (Discord ID 不会为0)
-                        .Select(tagId => new { ThreadId = data.ThreadId, TagId = tagId })
+                        .Select(tagId => new { ThreadId = data.ThreadId, TagId = tagId , ChannelId = data.ChannelId})
                 ).ToList();
 
                 // 校验: 仅在存在标签关系时执行插入
@@ -376,8 +378,6 @@ public partial class DatabaseService
             }
             else
             {
-                // 比如一个帖子在主表中还不存在 (可能还没被扫描)
-                // 但用户已经订阅了它, 这时主表找不到记录
                 _logger.LogTrace("尝试更新帖子 {ThreadId} 的作品信息, 但主表中未找到记录 (可能尚未同步), 跳过。", threadId);
             }
         }

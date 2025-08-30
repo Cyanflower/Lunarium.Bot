@@ -2,6 +2,7 @@ using Dapper;
 using Discord;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using SearchBot.Model;
 
 namespace SearchBot.Database;
 
@@ -22,7 +23,18 @@ public partial class DatabaseService
     const string userSubscriptionsPostDeleteSqlCommand = "DELETE FROM user_subscriptions_post WHERE thread_id IN @ThreadIds;";
     // SQL模板: 删除用户待推送的帖子
     const string userPushListDeleteSqlCommand = "DELETE FROM user_push_list WHERE thread_id IN @ThreadIds;";
-    
+    // SQL模板，用于在删除前获取帖子的统计相关信息
+    private const string getPostInfoForStatsSql = """
+        SELECT 
+            thread_id AS ThreadId, 
+            created_at AS CreatedAt,
+            guild_id AS GuildId,
+            channel_id AS ChannelId,
+            reply_count AS ReplyCount
+        FROM posts_main 
+        WHERE thread_id IN @PostIds;
+        """;
+
     /// <summary>
     /// 批量移除帖子及其关联数据 (帖子对象列表)。
     /// 依赖 ON DELETE CASCADE 自动清理关系表。
@@ -73,12 +85,12 @@ public partial class DatabaseService
         {
             _logger.LogError("{ex}", ex);
             return 0;
-}
+        }
     }
-    
+
     /// <summary>
-    /// 批量移除帖子及其关联数据 (帖子ID列表)。
-    /// 依赖 ON DELETE CASCADE 自动清理关系表。
+    /// [重构后] 批量移除帖子及其关联数据 (帖子ID列表)。
+    /// 该方法现在会自动处理统计数据的更新。
     /// </summary>
     /// <param name="postIds">要移除的帖子ID列表</param>
     /// <returns>数据库成功更改的行数</returns>
@@ -86,44 +98,96 @@ public partial class DatabaseService
     {
         try
         {
-            // 校验: 若无数据则提前返回
             if (postIds == null || !postIds.Any())
             {
                 _logger.LogWarning("无帖子数据需要移除, 操作跳过。");
                 return 0;
             }
 
-            // 准备: 创建数据库连接
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
-            // 开始: 数据库事务
             await using var transaction = await connection.BeginTransactionAsync();
 
-            int affectedRows;
+            int affectedRows = 0;
 
             try
             {
-                // 执行: Dapper 批量删除
+                // 在删除前，查询这些帖子的统计信息
+                var postsToProcess = await connection.QueryAsync<PostInfoForStats>(
+                    getPostInfoForStatsSql,
+                    new { PostIds = postIds },
+                    transaction
+                );
+
+                if (!postsToProcess.Any())
+                {
+                    _logger.LogWarning("尝试删除 {Count} 个帖子, 但在 posts_main 中未找到任何记录, 可能已被删除。", postIds.Count);
+                    // 即使 posts_main 里没有，也继续尝试删除，因为可能存在于其他关联表中
+                    // (虽然 CASCADE 会处理，但这样更明确)
+                    affectedRows = await connection.ExecuteAsync(postsDeleteSqlCommand, new { PostIds = postIds }, transaction);
+                    await transaction.CommitAsync();
+                    return affectedRows;
+                }
+
+                var statsGroupedByChannel = postsToProcess
+                    .GroupBy(p => new { p.GuildId, p.ChannelId }) // <-- 复合键分组
+                    .Select(g => new
+                    {
+                        // 分组的键，包含了 GuildId 和 ChannelId
+                        g.Key.GuildId,
+                        g.Key.ChannelId,
+                        
+                        // 对每个分组内部进行聚合计算
+                        // PostsRemoved: 这个分组里有多少个帖子被删除
+                        PostsRemoved = g.Count(),
+                        
+                        // RepliesRemoved: 这个分组里所有帖子的回复数总和
+                        RepliesRemoved = g.Sum(p => p.ReplyCount)
+                    });
+
+                // 获取当前的统计日期，对于所有分组都是一样的
+                // 这里的目的是: 我们更希望获得一个 实时 的数据概况, 反映“当下”变化的实时数据参考
+                // 因为删除帖子导致回复数下降是发生在当下, 减去当下的数据更能表示是现在发生了什么事, 而不是当做从来没存在过
+                var currentDate = DateTimeOffset.UtcNow.AddHours(4).ToString("yyyy-MM-dd");
+
+                // 遍历每一个分组，为各自的统计行执行更新
+                _logger.LogInformation("准备更新 {GroupCount} 个不同频道的每日统计数据。", statsGroupedByChannel.Count());
+                foreach (var stat in statsGroupedByChannel)
+                {
+                    _logger.LogTrace("  -> 更新频道 {ChannelId}: 帖子数 -{Posts}, 回复数 -{Replies}", 
+                        stat.ChannelId, stat.PostsRemoved, stat.RepliesRemoved);
+                        
+                     await DecrementPostStatsAsync(
+                        currentDate,          // 使用【当前日期】
+                        stat.GuildId,         // 使用当前分组的 GuildId
+                        stat.ChannelId,       // 使用当前分组的 ChannelId
+                        stat.PostsRemoved,    // 使用当前分组计算出的帖子减少数
+                        stat.RepliesRemoved,  // 使用当前分组计算出的回复减少数
+                        transaction           // 在同一个事务中执行！
+                    );
+                }
+
+                // 所有统计都更新完毕后，再统一执行帖子的删除操作
                 affectedRows = await connection.ExecuteAsync(postsDeleteSqlCommand, new { PostIds = postIds }, transaction);
 
-                // 成功: 提交事务
+                // 提交事务，完成所有操作
                 await transaction.CommitAsync();
-                _logger.LogInformation("成功移除 {AffectedRows} 条帖子及其关联数据 (处理了 {TotalCount} 个ID)。", affectedRows, postIds.Count);
+                _logger.LogInformation("成功移除 {AffectedRows} 条帖子，并精确更新了 {GroupCount} 个频道的当日统计数据。", affectedRows, statsGroupedByChannel.Count());
+                
+                return affectedRows;
             }
             catch (Exception ex)
             {
-                // 失败: 回滚事务
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "批量删除帖子时发生错误, 事务已回滚。");
-                throw;
+                throw; 
             }
-            return affectedRows;
         }
         catch (Exception ex)
         {
-            _logger.LogError("{ex}", ex);
+            _logger.LogError(ex, "在 RemovePostAsync(List<ulong> postIds) 中发生异常。");
             return 0;
-}
+        }
     }
 
     /// <summary>
@@ -139,13 +203,13 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             await using var transaction = await connection.BeginTransactionAsync();
-    
+
             try
             {
                 var currentChannelIds = validForumChannels.Select(c => c.Id).ToHashSet();
                 var dbChannelIds = await connection.QueryAsync<ulong>("SELECT channel_id FROM channels;", transaction: transaction);
                 var channelsToDelete = dbChannelIds.Where(id => !currentChannelIds.Contains(id)).ToList();
-    
+
                 if (channelsToDelete.Any())
                 {
                     int affectedRows = await connection.ExecuteAsync(channelsDeleteSqlCommand, new { ChannelIds = channelsToDelete }, transaction);
@@ -155,14 +219,14 @@ public partial class DatabaseService
                 {
                     _logger.LogInformation("无过时频道需要清理。");
                 }
-    
+
                 var currentTagIds = allValidTags
                     .Where(t => t.Id.HasValue)
                     .Select(t => t.Id!.Value)
                     .ToHashSet();
                 var dbTagIds = await connection.QueryAsync<ulong>("SELECT tag_id FROM tags;", transaction: transaction);
                 var tagsToDelete = dbTagIds.Where(id => !currentTagIds.Contains(id)).ToList();
-    
+
                 if (tagsToDelete.Any())
                 {
                     int affectedRows = await connection.ExecuteAsync(tagsDeleteSqlCommand, new { TagIds = tagsToDelete }, transaction);
@@ -172,9 +236,9 @@ public partial class DatabaseService
                 {
                     _logger.LogInformation("无过时标签需要清理。");
                 }
-                
+
                 await transaction.CommitAsync();
-                _logger.LogInformation("数据清理完成。保留频道 {ChannelCount} 个, 标签 {TagCount} 个。", 
+                _logger.LogInformation("数据清理完成。保留频道 {ChannelCount} 个, 标签 {TagCount} 个。",
                     currentChannelIds.Count, currentTagIds.Count);
             }
             catch (Exception ex)

@@ -36,42 +36,53 @@ public class Scanner
 
     public ScanResult FullSync()
     {
-        // 检查锁
-        if (FullSyncLock)
+        try
         {
-            var errorMessage = "❌ 另一次全量同步正在执行中，跳过。";
-            _logger.LogInformation(errorMessage);
-            throw new InvalidOperationException(errorMessage);;
-        }
-        // 设置锁
-        FullSyncLock = true;
-        var scanResult = new ScanResult();
-        // 扫描全部帖子
-        List<IThreadChannel> threads = Scan().GetAwaiter().GetResult();
-        scanResult.ScanAllResult = threads.Count;
-        // 处理全部帖子数据
-        (List<ThreadDataModel> threadDataModels, ThreadProcessResult threadProcessResult) = _threadProcessor.ProcessToThreadDataModelAsync(threads).GetAwaiter().GetResult();
-        scanResult.ThreadProcessResult = threadProcessResult;
-        // 批量插入数据库
-        (List<ThreadDataModel>? result ,InsertPostResult? insertPostResult)= _databaseService.InsertPostAsync(threadDataModels).GetAwaiter().GetResult();
-        if (result != null)
-        {
-            scanResult.InsertPostResult = insertPostResult!;
-            // 查询数据库内过时失效帖子
-            var obsoletePosts = _databaseService.QueryObsoletePostsAsync(result).GetAwaiter().GetResult();
-            if (obsoletePosts != null)
+            // 检查锁
+            if (FullSyncLock)
             {
-                // 批量移除
-                var removeResult = _databaseService.RemovePostAsync(obsoletePosts).GetAwaiter().GetResult();
-                scanResult.ScanObsoleteResult = obsoletePosts.Count;
-                scanResult.ScanRemoveResult = removeResult;
+                var errorMessage = "❌ 另一次全量同步正在执行中，跳过。";
+                _logger.LogInformation(errorMessage);
+                throw new InvalidOperationException(errorMessage); ;
             }
+            // 设置锁
+            FullSyncLock = true;
+            var scanResult = new ScanResult();
+            // 扫描全部帖子
+            List<IThreadChannel> threads = Scan().GetAwaiter().GetResult();
+            scanResult.ScanAllResult = threads.Count;
+            // 处理全部帖子数据
+            (List<ThreadDataModel> threadDataModels, ThreadProcessResult threadProcessResult) = _threadProcessor.ProcessToThreadDataModelAsync(threads).GetAwaiter().GetResult();
+            scanResult.ThreadProcessResult = threadProcessResult;
+            // 批量插入数据库
+            (List<ThreadDataModel>? result, InsertPostResult? insertPostResult) = _databaseService.InsertPostAsync(threadDataModels).GetAwaiter().GetResult();
+            if (result != null)
+            {
+                scanResult.InsertPostResult = insertPostResult!;
+                // 查询数据库内过时失效帖子
+                var obsoletePosts = _databaseService.QueryObsoletePostsAsync(result).GetAwaiter().GetResult();
+                if (obsoletePosts != null && obsoletePosts.Count != 0)
+                {
+                    // 批量移除
+                    _logger.LogInformation("数据库有 {0} 个过时失效帖子, 正在执行移除", obsoletePosts.Count);
+                    var removeResult = _databaseService.RemovePostAsync(obsoletePosts).GetAwaiter().GetResult();
+                    scanResult.ScanObsoleteResult = obsoletePosts.Count;
+                    scanResult.ScanRemoveResult = removeResult;
+                    _logger.LogInformation("成功从数据库移除 {0} 个过时失效帖子", obsoletePosts.Count);
+                }
+            }
+            // 执行一次 内存数据库 -> 文件 的写入
+            _databaseService.SaveDB();
+            // 关闭锁
+            FullSyncLock = false;
+            return scanResult;
         }
-        // 执行一次 内存数据库 -> 文件 的写入
-        _databaseService.SaveDB();
-        // 关闭锁
-        FullSyncLock = false;
-        return scanResult;
+        catch (Exception ex)
+        {
+            _logger.LogError("FullSync {ex}", ex);
+            // TODO 发送提示消息
+            return new ScanResult();
+        }
     }
 
     /// <summary>

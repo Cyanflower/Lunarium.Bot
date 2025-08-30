@@ -33,6 +33,8 @@ public class SearchBotService : IHostedService
     private readonly DatabaseService _databaseService;
     private readonly Scanner _scanner;
     private readonly Listener _listener;
+    // [测试] 分析器
+    private readonly DataAnalysis _analysis;
     
     // 构造函数
     public SearchBotService(ILogger<SearchBotService> logger, ILoggerFactory loggerFactory, IOptions<ProxyConfig> proxyOptions)
@@ -51,6 +53,8 @@ public class SearchBotService : IHostedService
         _databaseService = _privateServices.GetRequiredService<DatabaseService>();
         _scanner = _privateServices.GetRequiredService<Scanner>();
         _listener = _privateServices.GetRequiredService<Listener>();
+        // [测试] 分析器
+        _analysis = _privateServices.GetRequiredService<DataAnalysis>();
         _logger.LogInformation("✅ SearchBot 模块初始化完成。");
     }
 
@@ -95,7 +99,7 @@ public class SearchBotService : IHostedService
             .AddSingleton<SearchCriteriaBuilder>()
 
             // 注册交互服务
-            .AddSingleton<InteractionService>(provider => 
+            .AddSingleton<InteractionService>(provider =>
                 new InteractionService(provider.GetRequiredService<DiscordSocketClient>())
             )
 
@@ -117,8 +121,14 @@ public class SearchBotService : IHostedService
             .AddSingleton<DatabaseService>()
             // 注册鉴权服务
             .AddSingleton<Authentication>()
+
+            // [测试] 注册分析器
+            .AddSingleton<DataAnalysis>()
+
             // 注册分词器
             .AddSingleton<ITokenizerService, JiebaTokenizerService>();
+
+
         
         return services.BuildServiceProvider();
     }
@@ -199,6 +209,8 @@ public class SearchBotService : IHostedService
                 _logger.LogInformation("✅ 数据库时间戳未过期，跳过全量同步。");
             }
             _listener.AddEventHandlers();
+            // [测试] 分析器
+            await _analysis.RunAndSaveAnalysisReportAsync();
         }
         catch (Exception ex)
         {

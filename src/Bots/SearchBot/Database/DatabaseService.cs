@@ -235,43 +235,54 @@ public partial class DatabaseService : IDisposable
                 _logger.LogInformation("✅ 版本信息表创建完成。");
             }
             
-            // 获取当前数据库版本 - 使用 Dapper
-            var currentVersion = connection.QueryFirstOrDefault<int?>(
-                "SELECT MAX(version) FROM db_info"
-            ) ?? 0;
+            var latestDbInfo = connection.QueryFirstOrDefault<(int Version, long InitializeAt)>(
+                "SELECT version, initialize_at FROM db_info ORDER BY version DESC LIMIT 1"
+            );
+
+            var currentVersion = latestDbInfo.Version;
+            if (currentVersion == 0)
+            {
+                //们直接抛出异常，中断程序，防止数据损坏。
+                _logger.LogCritical("CRITICAL: 数据库完整性错误! 在 '{FilePath}' 中找到了空的 'db_info' 表。", _dbFilePath);
+                throw new InvalidOperationException(
+                    $"数据库文件 '{_dbFilePath}' 处于不一致的状态，关键的 'db_info' 表为空。" +
+                    "为防止数据丢失，Bot将立即关闭。" +
+                    "请手动检查数据库文件。如果确认要重新开始，请删除该文件后重启Bot。"
+                );
+            }
             
             _logger.LogInformation("当前数据库版本: {CurrentVersion}, 目标版本: {TargetVersion}", 
                 currentVersion, DBTable.CURRENT_DB_VERSION);
-            
+
             if (currentVersion < DBTable.CURRENT_DB_VERSION)
             {
                 _logger.LogInformation("🔄 检测到数据库需要更新，开始执行迁移...");
-                
+
                 var migrations = DBTable.GetMigrationScripts();
                 long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                
+
                 // 执行从当前版本+1到目标版本的所有迁移
                 for (int version = currentVersion + 1; version <= DBTable.CURRENT_DB_VERSION; version++)
                 {
                     if (migrations.ContainsKey(version))
                     {
                         _logger.LogInformation("📝 执行版本 {Version} 的迁移脚本...", version);
-                        
+
                         connection.Execute(migrations[version]);
-                        
+
                         _logger.LogInformation("✅ 版本 {Version} 迁移脚本执行完成", version);
                     }
-                    
+
                     // 记录迁移版本（无论是否有具体的迁移脚本）- 使用 Dapper
                     connection.Execute(
-                        "INSERT OR REPLACE INTO db_info (version, applied_at, last_save_at) VALUES (@version, @appliedAt, @lastSaveAt)",
-                        new { version, appliedAt = timestamp, lastSaveAt = timestamp }
+                        "INSERT OR REPLACE INTO db_info (version, applied_at, initialize_at, last_save_at) VALUES (@version, @appliedAt, @initializeAt, @lastSaveAt)",
+                        new { version, appliedAt = timestamp, initializeAt = latestDbInfo.InitializeAt, lastSaveAt = timestamp }
                     );
-                    
+
                     _logger.LogInformation("✅ 版本 {Version} 迁移完成", version);
                     hasUpdates = true;
                 }
-                
+
                 if (hasUpdates)
                 {
                     _logger.LogInformation("🎉 数据库迁移完成！当前版本: {Version}", DBTable.CURRENT_DB_VERSION);
@@ -279,8 +290,13 @@ public partial class DatabaseService : IDisposable
             }
             else if (currentVersion > DBTable.CURRENT_DB_VERSION)
             {
-                _logger.LogWarning("⚠️ 数据库版本 {DbVersion} 高于程序版本 {AppVersion}，可能存在兼容性问题", 
+                _logger.LogCritical("⚠️ 数据库版本 [{DbVersion}] 高于程序版本 [{AppVersion}]，可能存在兼容性问题",
                     currentVersion, DBTable.CURRENT_DB_VERSION);
+                throw new InvalidOperationException(
+                    $"数据库文件 '{_dbFilePath}' 处于不一致的状态，本地数据库文件内部版本 [{currentVersion}] 高于程序版本 [{DBTable.CURRENT_DB_VERSION}] ，可能存在兼容性问题。" +
+                    "为防止数据丢失，Bot将立即关闭。" +
+                    "请手动检查数据库文件。如果确认要重新开始，请删除该文件后重启Bot。"
+                );
             }
         }
         catch (Exception ex)

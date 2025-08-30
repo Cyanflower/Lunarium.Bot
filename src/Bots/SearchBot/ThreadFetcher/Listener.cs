@@ -46,6 +46,12 @@ class Listener
     /// 批量处理的阈值。当待处理帖子数量达到此值时，立即触发处理。
     /// </summary>
     private const int BATCH_PROCESS_THRESHOLD = 100;
+
+    /// <summary>
+    /// 论坛频道缓存字典
+    /// </summary>
+    private readonly ConcurrentDictionary<ulong, IForumChannel> forumCache = new();
+
     public Listener(
         ILogger<Listener> logger,
         DiscordSocketClient client,
@@ -123,35 +129,25 @@ class Listener
     /// <param name="message">接收到的消息对象。</param>
     private async Task AddOrUpdateThreadAsync(SocketMessage message)
     {
-        // === 前置条件检查 (Guards) ===
-
+        // === 前置条件检查  ============================
         // 1. 如果正在全量同步，则暂停所有增量更新，避免数据冲突。
         if (_scanner.FullSyncLock)
         {
             return;
         }
         // 2. 检查是否来自监控的频道。
-
         var threadChannel = message.Channel as IThreadChannel;
-
         // 从帖子对象获取其父频道ID (CategoryId 在论坛帖子里就是父频道ID)
         // 然后检查父频道ID是否在我们监控的列表中。
-        if (threadChannel?.CategoryId == null || !_channelIds.Contains(threadChannel.CategoryId.Value))
-        {
-            // 这个帖子不属于我们扫描的任何一个论坛频道, 忽略。
-            return;
-        }
+        // 如果这个帖子不属于我们扫描的任何一个论坛频道, 忽略。
+        if (threadChannel?.CategoryId == null || !_channelIds.Contains(threadChannel.CategoryId.Value)) return;
         // 3. 忽略机器人自身或任何其他机器人发出的消息。
-        if (message.Author == _client.CurrentUser)
-        {
-            return;
-        }
+        if (message.Author == _client.CurrentUser) return;
+        // === 前置条件检查  ============================
 
-        // === 核心调度逻辑 ===
-
-        _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
-
-        // 1. 将帖子添加到待处理队列 (或更新已有的)
+        // === 更新数据逻辑 ============================
+        // // _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
+        // 将帖子添加到待处理队列 (或更新已有的)
         // AddOrUpdate 方法是线程安全的，它会原子性地完成操作。
         // 如果键已存在，它会使用新的 threadChannel 对象更新值。
         _logger.LogInformation("监听待处理队列添加帖子: {ThreadName}({ThreadId})", threadChannel.Name, threadChannel.Id);
@@ -167,23 +163,54 @@ class Listener
         }
         else
         {
-            // 3. 未达到阈值，则触发/重置防抖计时器
+            // 未达到阈值，则触发/重置防抖计时器
             _threadProcessorDebouncer.Trigger();
         }
+        // _logger.LogDebug("message.Author.Id {message.Author.Id}", message.Author.Id);
+        // _logger.LogDebug("threadChannel.OwnerId {threadChannel.OwnerId}", threadChannel.OwnerId);
+        // === 更新数据逻辑 ============================
 
-        _logger.LogDebug("message.Author.Id {message.Author.Id}",message.Author.Id);
-        _logger.LogDebug("threadChannel.OwnerId {threadChannel.OwnerId}",threadChannel.OwnerId);
+        // === 处理频道缓存和统计 ============================
+        var now = DateTimeOffset.UtcNow.AddHours(4).ToString("yyyy-MM-dd");
+        IForumChannel? forumChannel = null;
+        if (threadChannel.CategoryId.HasValue && forumCache.TryGetValue(threadChannel.CategoryId.Value, out var forumChannelCache))
+        {
+            // 如果能进入这个 if 代码块，说明：
+            // 1. thread.CategoryId 有值。
+            // 2. 缓存中成功找到了这个ID。
+            forumChannel = forumChannelCache;
+        }
+        else
+        {
+            // 如果缓存里没有，或者 CategoryId 本身就是 null，
+            // 在这里执行获取频道、并存入缓存的逻辑。
+            if (threadChannel.CategoryId.HasValue) forumChannel = await threadChannel.Guild.GetChannelAsync(threadChannel.CategoryId.Value, CacheMode.AllowDownload) as IForumChannel;
+            if (forumChannel != null) forumCache.TryAdd(threadChannel.CategoryId.Value, forumChannel);
+        }
+        if (forumChannel != null) await _databaseService.IncrementReplyCountAsync(now, threadChannel.GuildId, threadChannel.Guild.Name, forumChannel.Id, forumChannel.Name);
+        // === 处理频道缓存和统计 ============================
 
+        // === 检查作品更新 ============================
         if (message.Author.Id == threadChannel.OwnerId)
         {
-            var freshMessage = await threadChannel.GetMessageAsync(message.Id);
+            // 傻逼 dc api 的 MessageReceived 不会附带附件, 附件是后续 Update 上去的, 得重新获取一下 Update 的消息
+            // 先尝试仅从缓存获取
+            var freshMessage = await threadChannel.GetMessageAsync(message.Id, CacheMode.CacheOnly);
             if (freshMessage == null)
             {
-                _logger.LogWarning("无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
-                freshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
+                // _logger.LogDebug("无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将尝试从API获取。", message.Id);
+                freshMessage = await threadChannel.GetMessageAsync(message.Id, CacheMode.AllowDownload);
+                if (freshMessage == null)
+                {
+                    _logger.LogWarning("无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
+                    freshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
+                }
             }
+            // 判断是否是更新
             var isUpdate = await CheckUpdateAsync(freshMessage);
-            _logger.LogDebug("isUpdate {isUpdate}",isUpdate);
+            // _logger.LogDebug("isUpdate {isUpdate}", isUpdate);
+
+            // 推送和插入更新数据
             if (isUpdate)
             {
                 // 推送给订阅用户
@@ -192,6 +219,7 @@ class Listener
                 await UpdateMainTableInfoAsync(threadChannel, freshMessage);
             }
         }
+        // === 检查作品更新 ============================
     }
 
     /// <summary>
@@ -222,7 +250,7 @@ class Listener
 
         // === 核心调度逻辑 ===
 
-        _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
+        // _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
 
         // 1. 将帖子添加到待处理队列 (或更新已有的)
         // AddOrUpdate 方法是线程安全的，它会原子性地完成操作。
@@ -230,7 +258,27 @@ class Listener
         _logger.LogInformation("监听待处理队列添加帖子: {ThreadName}({ThreadId})", threadChannel.Name, threadChannel.Id);
         _pendingThreads[threadChannel.Id] = threadChannel;
         _logger.LogInformation("待处理帖子数量: {Count}", _pendingThreads.Count);
-        
+
+        // === 处理频道缓存和统计 ============================
+        var now = DateTimeOffset.UtcNow.AddHours(4).ToString("yyyy-MM-dd");
+        IForumChannel? forumChannel = null;
+        if (threadChannel.CategoryId.HasValue && forumCache.TryGetValue(threadChannel.CategoryId.Value, out var forumChannelCache))
+        {
+            // 如果能进入这个 if 代码块，说明：
+            // 1. thread.CategoryId 有值。
+            // 2. 缓存中成功找到了这个ID。
+            forumChannel = forumChannelCache;
+        }
+        else
+        {
+            // 如果缓存里没有，或者 CategoryId 本身就是 null，
+            // 在这里执行获取频道、并存入缓存的逻辑。
+            if (threadChannel.CategoryId.HasValue) forumChannel = await threadChannel.Guild.GetChannelAsync(threadChannel.CategoryId.Value, CacheMode.AllowDownload) as IForumChannel;
+            if (forumChannel != null) forumCache.TryAdd(threadChannel.CategoryId.Value, forumChannel);
+        }
+        if (forumChannel != null) await _databaseService.IncrementCreatedPostsCountAsync(now, threadChannel.GuildId, threadChannel.Guild.Name, forumChannel.Id, forumChannel.Name);
+        // === 处理频道缓存和统计 ============================
+
         // 2. 检查是否达到批量处理阈值
         if (_pendingThreads.Count >= BATCH_PROCESS_THRESHOLD)
         {
@@ -276,7 +324,7 @@ class Listener
 
         // === 核心调度逻辑 ===
 
-        _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
+        // _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
 
         // 1. 将帖子添加到待处理队列 (或更新已有的)
         // AddOrUpdate 方法是线程安全的，它会原子性地完成操作。
@@ -329,7 +377,7 @@ class Listener
 
         // === 核心调度逻辑 ===
 
-        _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
+        // _logger.LogTrace("接收到帖子更新事件: {ThreadId}, 加入待处理队列。", threadChannel.Id);
 
         // 1. 将帖子添加到待处理队列 (或更新已有的)
         // AddOrUpdate 方法是线程安全的，它会原子性地完成操作。
@@ -395,7 +443,7 @@ class Listener
         }
 
         // 把暂存区的内容“快照”出来处理
-        // 注意：这里不是完全线程安全的，但对于我们的场景足够了。
+        // 注意：这里不是完全线程安全的，但足够了。
         // 一个更严谨的做法是加锁，但...也够用了 (懒了。
         var currentKeys = _pendingThreads.Keys.ToList();
         threadsToProcess = new List<IThreadChannel>();
@@ -443,18 +491,18 @@ class Listener
     /// <returns>如果消息包含更新，则返回 true；否则返回 false。</returns>
     public async Task<bool> CheckUpdateAsync(IMessage message)
     {
-        // ✨ [Trace] 记录方法开始执行，并标记是为哪条消息服务
+        // 记录方法开始执行，并标记是为哪条消息服务
         _logger.LogDebug("CheckUpdateAsync started for message ID: {MessageId}", message.Id);
         try
         {
             if (message.Attachments.Count == 0)
             {
-                // ✨ [Trace] 最早的出口，清晰地知道为什么提前返回
+                // 最早的出口，清晰地知道为什么提前返回
                 _logger.LogDebug("No attachments found on message {MessageId}. Returning false.", message.Id);
                 return false;
             }
             
-            // ✨ [Debug] 记录总附件数，为后续的过滤提供上下文
+            // 记录总附件数，为后续的过滤提供上下文
             _logger.LogDebug("Message {MessageId} has {AttachmentCount} attachments. Filtering for updates...", message.Id, message.Attachments.Count);
 
             var attachment = message.Attachments as IEnumerable<IAttachment>;
@@ -463,12 +511,12 @@ class Listener
             var pngAttachments = attachment.Where(a => a.Filename.EndsWith(".png")).ToList(); // 使用 ToList() 避免多次枚举
             if (pngAttachments.Any())
             {
-                // ✨ [Debug] 明确告知找到了多少个PNG文件，准备开始处理
+                // 明确告知找到了多少个PNG文件，准备开始处理
                 _logger.LogDebug("Found {PngCount} PNG attachments. Starting parallel processing.", pngAttachments.Count);
 
                 var tasks = pngAttachments.Select(async a =>
                 {
-                    // ✨ [Trace] 每个并发任务开始时，记录正在处理的具体文件
+                    // 每个并发任务开始时，记录正在处理的具体文件
                     _logger.LogDebug("Processing PNG attachment: {FileName} from URL: {Url}", a.Filename, a.Url);
                     try
                     {
@@ -490,7 +538,7 @@ class Listener
                             }
                         }
 
-                        // ✨ [Debug] 如果检查完所有chunk都没找到，也明确记录下来
+                        // 如果检查完所有chunk都没找到，也明确记录下来
                         _logger.LogDebug("No update keywords found in {FileName} after checking all text chunks.", a.Filename);
                         return false;
                     }
@@ -503,7 +551,7 @@ class Listener
                 });
 
                 var results = await Task.WhenAll(tasks);
-                // ✨ [Debug] 汇总所有PNG处理结果
+                // 汇总所有PNG处理结果
                 _logger.LogDebug("All PNG processing tasks completed. Results: [{Results}]", string.Join(", ", results));
                 
                 var isUpdate = results.Any(result => result);
@@ -515,7 +563,7 @@ class Listener
             }
 
             // --- 步骤 2: 检查 JSON 附件 ---
-            // ✨ [Trace] 如果PNG检查未通过，记录流程进入下一步
+            // 如果PNG检查未通过，记录流程进入下一步
             _logger.LogDebug("No update-triggering PNGs found. Checking for JSON attachments...");
             var jsonAttachments = attachment.Where(a => a.Filename.EndsWith(".json")).ToList();
             if (jsonAttachments.Any())
@@ -526,7 +574,7 @@ class Listener
             }
 
             // --- 步骤 3: 未找到任何更新 ---
-            // ✨ [Debug] 所有检查都已完成，没有任何匹配项
+            // 所有检查都已完成，没有任何匹配项
             _logger.LogDebug("No update-triggering PNGs or JSONs found. Returning false.");
             return false;
         }
