@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package monitoring;
+
+// C# 客户端将订阅这个流，以接收持续的性能数据更新
+service PerformanceMonitor {
+  // 获取一次性的静态系统信息
+  rpc GetSystemInfo(Empty) returns (SystemInfo);
+  
+  // 订阅性能数据流 - 现在需要指定要监控的进程 PID
+  rpc SubscribePerformanceData(SubscriptionRequest) returns (stream PerformanceData);
+}
+
+// 空消息，用于不需要参数的请求
+message Empty {}
+
+// 订阅请求，可以指定刷新间隔（秒）和目标进程 PID
+message SubscriptionRequest {
+  int32 interval_seconds = 1;
+  int32 target_process_pid = 2;  // 新增：要监控的目标进程 PID
+}
+
+// 对应 SystemInfo 结构
+message SystemInfo {
+  string system_cpu_name = 1;
+  int32 system_cpu_core_thread = 2;
+  double cpu_frequency = 3;
+  uint64 system_memory_total_mb = 4;
+  uint64 disk_total_mb = 5;
+}
+
+// 对应 PerformanceData 结构
+message PerformanceData {
+  double system_cpu_usage_per = 1;
+  double process_cpu_usage_per = 2;
+  uint64 system_used_memory_mb = 3;
+  uint64 system_available_memory_mb = 4;
+  uint64 system_cache_memory_mb = 5;
+  uint64 system_free_memory_mb = 6;
+  uint64 process_used_memory_mb = 7;
+  double system_net_download_rate_kbps = 8;
+  double system_net_upload_rate_kbps = 9;
+  
+  // 新增的文件夹监控
+  uint64 logs_folder_size_mb = 10;        // /logs 文件夹总大小
+  uint64 data_folder_size_mb = 11;        // /data 文件夹总大小
+  repeated DatabaseFile database_files = 12; // /data 文件夹内的 .db 文件信息
+}
+
+// 数据库文件信息
+message DatabaseFile {
+  string filename = 1;    // 文件名（不包含路径）
+  uint64 size_mb = 2;     // 文件大小（MB）
+}

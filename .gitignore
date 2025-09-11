@@ -22,6 +22,7 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+dist/
 
 # .NET Core
 project.lock.json
@@ -67,10 +68,9 @@ config.jsonc
 # Example
 Example/
 SourceCodeDoc/
+# Test
+LunariumBot.Net.Tests/
 
 # === Other ===
 # 无关的环境文件
 .env
-# Prompt
-CLAUDE.md
-GEMINI.md

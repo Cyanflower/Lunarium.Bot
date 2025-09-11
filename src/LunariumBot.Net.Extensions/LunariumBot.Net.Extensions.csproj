@@ -1,0 +1,12 @@
+﻿
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 非可执行文件，而是类库 -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>LunariumBot.Net.Extensions</RootNamespace>
+  </PropertyGroup>
+  
+</Project>
