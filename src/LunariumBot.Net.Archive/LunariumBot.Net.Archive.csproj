@@ -1,0 +1,61 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <RootNamespace>LunariumBot.Net.Archive</RootNamespace>
+    <AssemblyName>LunariumBot.Net.Archive</AssemblyName>
+
+    <!-- 1. 自定义输出目录 -->
+    <!-- 使用 PublishDir 来指定 `dotnet publish` 命令的输出路径 -->
+    <!-- $(SolutionDir) 会自动获取解决方案的根目录 -->
+    <!-- $(MSBuildProjectName) 是项目名 -->
+    <PublishDir>$(SolutionDir)dist\$(MSBuildProjectName)\</PublishDir>
+    <!-- 2. 禁止在输出路径中添加框架版本号 (net9.0) -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- 3. 配置单文件发布 -->
+    <!-- 开启单文件发布功能 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- 设置为自包含，这样即使用户电脑上没有.NET 9环境也能运行 -->
+    <!-- <SelfContained>true</SelfContained> -->
+    <!-- 指定目标运行环境，这是自包含模式必需的。你可以根据需要修改 -->
+    <!-- 比如：win-x64, linux-x64, osx-x64, linux-arm64 等 -->
+    <!-- <RuntimeIdentifier>linux-x64</RuntimeIdentifier>  -->
+    <!-- 4. 禁止生成 .pdb 调试文件 -->
+    <!-- <DebugType>None</DebugType> -->
+    <!-- 5. 禁止生成你项目本身的 .xml 文档文件 (这也会顺带阻止一些依赖的xml文件被复制) -->
+    <!-- <GenerateDocumentationFile>false</GenerateDocumentationFile> -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
+    <PackageReference Include="Polly" Version="8.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 引用共享库 -->
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Commands/Discord.Net.Commands.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Webhook/Discord.Net.Webhook.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
+    <ProjectReference Include="..\LunariumBot.Net.Logger\LunariumBot.Net.Logger.csproj" />
+    <ProjectReference Include="..\LunariumBot.Net.Extensions\LunariumBot.Net.Extensions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CopyToOutputDirectory 让编译器在构建时复制它们 -->
+    <!-- PreserveNewest: 如果文件没变动就不复制 -->
+    <Content Include="appsettings.template.jsonc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="start.sh">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

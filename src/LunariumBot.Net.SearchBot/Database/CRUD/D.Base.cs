@@ -74,7 +74,7 @@ public partial class DatabaseService
 
                 // 成功: 提交事务
                 await transaction.CommitAsync();
-                _logger.Debug($"成功移除 {affectedRows} 条帖子及其关联数据 (处理了 {postIds.Count} 个ID)。");
+                _logger.Debug("成功移除 {affectedRows} 条帖子及其关联数据 (处理了 {postIds.Count} 个ID)。", affectedRows, postIds.Count);
             }
             catch (Exception ex)
             {
@@ -125,7 +125,7 @@ public partial class DatabaseService
 
                 if (!postsToProcess.Any())
                 {
-                    _logger.Warning($"尝试删除 {postIds.Count} 个帖子, 但在 posts_main 中未找到任何记录, 可能已被删除。");
+                    _logger.Warning("尝试删除 {postIds.Count} 个帖子, 但在 posts_main 中未找到任何记录, 可能已被删除。", postIds.Count);
                     // 即使 posts_main 里没有，也继续尝试删除，因为可能存在于其他关联表中
                     // (虽然 CASCADE 会处理，但这样更明确)
                     affectedRows = await connection.ExecuteAsync(postsDeleteSqlCommand, new { PostIds = postIds }, transaction);
@@ -155,10 +155,10 @@ public partial class DatabaseService
                 var currentDate = DateTimeOffset.UtcNow.AddHours(4).ToString("yyyy-MM-dd");
 
                 // 遍历每一个分组，为各自的统计行执行更新
-                _logger.Info($"准备更新 {statsGroupedByChannel.Count()} 个不同频道的每日统计数据。");
+                _logger.Info("准备更新 {statsGroupedByChannel.Count()} 个不同频道的每日统计数据。", statsGroupedByChannel.Count());
                 foreach (var stat in statsGroupedByChannel)
                 {
-                    _logger.Info($"  -> 更新频道 {stat.ChannelId}: 帖子数 -{stat.PostsRemoved}, 回复数 -{stat.RepliesRemoved}");
+                    _logger.Info("  -> 更新频道 {stat.ChannelId}: 帖子数 -{stat.PostsRemoved}, 回复数 -{stat.RepliesRemoved}", stat.ChannelId, stat.PostsRemoved, stat.RepliesRemoved);
 
                     await DecrementPostStatsAsync(
                        currentDate,          // 使用【当前日期】
@@ -175,7 +175,7 @@ public partial class DatabaseService
 
                 // 提交事务，完成所有操作
                 await transaction.CommitAsync();
-                _logger.Info($"成功移除 {affectedRows} 条帖子，并精确更新了 {statsGroupedByChannel.Count()} 个频道的当日统计数据。");
+                _logger.Info("成功移除 {affectedRows} 条帖子，并精确更新了 {statsGroupedByChannel.Count()} 个频道的当日统计数据。", affectedRows, statsGroupedByChannel.Count());
 
                 return affectedRows;
             }
@@ -216,7 +216,7 @@ public partial class DatabaseService
                 if (channelsToDelete.Any())
                 {
                     int affectedRows = await connection.ExecuteAsync(channelsDeleteSqlCommand, new { ChannelIds = channelsToDelete }, transaction);
-                    _logger.Info($"成功清理 {affectedRows} 个过时的频道。");
+                    _logger.Info("成功清理 {affectedRows} 个过时的频道。", affectedRows);
                 }
                 else
                 {
@@ -233,7 +233,7 @@ public partial class DatabaseService
                 if (tagsToDelete.Any())
                 {
                     int affectedRows = await connection.ExecuteAsync(tagsDeleteSqlCommand, new { TagIds = tagsToDelete }, transaction);
-                    _logger.Info($"成功清理 {affectedRows} 个过时的标签。");
+                    _logger.Info("成功清理 {affectedRows} 个过时的标签。", affectedRows);
                 }
                 else
                 {
@@ -241,7 +241,7 @@ public partial class DatabaseService
                 }
 
                 await transaction.CommitAsync();
-                _logger.Info($"数据清理完成。保留频道 {currentChannelIds.Count} 个, 标签 {currentTagIds.Count} 个。");
+                _logger.Info("数据清理完成。保留频道 {currentChannelIds.Count} 个, 标签 {currentTagIds.Count} 个。", currentChannelIds.Count, currentTagIds.Count);
             }
             catch (Exception ex)
             {

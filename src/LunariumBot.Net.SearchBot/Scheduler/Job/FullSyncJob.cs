@@ -70,7 +70,7 @@ public class FullSyncJob : IInvocable
             }
             else
             {
-                _logger.Error($"配置的日志频道 (ID: {_configLoader.Config.AuthConfig.LogChannel}) 不是一个有效的文本或线程频道，无法发送日志！");
+                _logger.Error("配置的日志频道 (ID: {_configLoader.Config.AuthConfig.LogChannel}) 不是一个有效的文本或线程频道，无法发送日志！", _configLoader.Config.AuthConfig.LogChannel);
             }
         }
         catch (Exception ex)

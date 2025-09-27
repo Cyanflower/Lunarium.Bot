@@ -15,7 +15,7 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        // AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
         ILogger? _rootLogger = null;
 
         try

@@ -1,0 +1,15 @@
+{
+  // 管理员鉴权配置
+  "AuthConfig": {
+    "AdminRoleIds": [
+      123
+    ],
+    "LogChannel": 123
+  },
+  // 服务器配置(兼容多服务器配置)
+  // 服务器ID
+  "DeployGuildConfig": {
+    "123": 970
+  },
+  "IntervalMin": 10
+}

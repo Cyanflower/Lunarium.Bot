@@ -62,7 +62,7 @@ public class ForumCategoriesAutoCompletion : AutocompleteHandler
         catch (Exception ex)
         {
             // 如果发生错误，记录日志，并返回一个空列表
-            _logger.Error("ForumCategoriesAutoCompletion {ex}",ex);
+            _logger.Error("ForumCategoriesAutoCompletion",ex);
             return Task.FromResult(AutocompletionResult.FromError(ex));
         }
     }
@@ -123,7 +123,7 @@ public class FavoriteClassAutoCompletion : AutocompleteHandler
         catch (Exception ex)
         {
             // 记录异常，并返回一个安全的错误结果
-            _logger.Error("FavoriteClassAutoCompletion {ex}",ex);
+            _logger.Error("FavoriteClassAutoCompletion",ex);
             return AutocompletionResult.FromError(ex);
         }
     }
@@ -217,7 +217,7 @@ public class AllTagsAutoCompletion : AutocompleteHandler, IInvocable
         }
         catch (Exception ex)
         {
-            _logger.Error("刷新标签自动补全缓存时发生严重错误: {ex}", ex);
+            _logger.Error("刷新标签自动补全缓存时发生严重错误:", ex);
         }
     }
 
@@ -257,7 +257,7 @@ public class AllTagsAutoCompletion : AutocompleteHandler, IInvocable
         }
         catch (Exception ex)
         {
-            _logger.Error("生成标签建议时出错: {ex}", ex);
+            _logger.Error("生成标签建议时出错:", ex);
             return Task.FromResult(AutocompletionResult.FromError(ex));
         }
     }

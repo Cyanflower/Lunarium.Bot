@@ -1,0 +1,28 @@
+services:
+  LunariumBot.NET.DB:
+    image: postgres:17-bookworm # 镜像版本和标签
+    container_name: LunariumBot.NET.DB # 容器名字
+    shm_size: 512mb
+    restart: always              # 保证 Docker 重启或服务器重启后容器会自动启动
+    environment:
+      # --- 基础配置 ---
+      POSTGRES_USER: 'LunariumBot.NET'              # 数据库用户名
+      POSTGRES_PASSWORD: 'kH7!p@wRz*bUvN9mG2c'  # 数据库密码
+      POSTGRES_DB: 'LunariumBot.NET.DB'                 # 数据库名
+
+      # --- 语言与区域设置 ---
+      TZ: "Asia/Shanghai"                       # 设置容器时区为东八区
+      PGTZ: "Asia/Shanghai"                     # 设置 PostgreSQL 内部时区
+    ports:
+      - "0.0.0.0:52001:5432"  # 将容器的 52001 端口映射到主机的 5432 端口
+                              # "127.0.0.1" 只允许本机访问
+    volumes:
+      - postgres-data:/var/lib/postgresql/data # 将数据持久化到名为 'postgres-data' 的 Docker 卷中
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U LunariumBot.NET -d LunariumBot.NET.DB"] # 健康检查
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data: # 定义一个 Docker 卷来持久化存储数据

@@ -30,7 +30,7 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             int affectedRows = await connection.ExecuteAsync(subscriptionDeleteOneSqlCommand, new { UserId = userId, ThreadId = threadId });
             
-            _logger.Debug($"用户 {userId} 的帖子 {threadId} 订阅已移除, 影响行数: {affectedRows}。");
+            _logger.Debug("用户 {userId} 的帖子 {threadId} 订阅已移除, 影响行数: {affectedRows}。", userId, threadId, affectedRows);
         }
         catch (Exception ex)
         {
@@ -50,11 +50,11 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             int affectedRows = await connection.ExecuteAsync(subscriptionDeleteAllByUserSqlCommand, new { UserId = userId });
             
-            _logger.Info($"已清空用户 {userId} 的所有帖子订阅, 共移除 {affectedRows} 条记录。");
+            _logger.Info("已清空用户 {userId} 的所有帖子订阅, 共移除 {affectedRows} 条记录。", userId, affectedRows);
         }
         catch (Exception ex)
         {
-            _logger.Error($"ClearSubscriptionsAsync Ex", ex);
+            _logger.Error("ClearSubscriptionsAsync Ex", ex);
         }
 
     }
@@ -71,12 +71,12 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             int affectedRows = await connection.ExecuteAsync(pushListDeleteAllByUserSqlCommand, new { UserId = userId });
 
-            _logger.Info($"已清空用户 {userId} 的所有更新推送, 共移除 {affectedRows} 条记录。");
+            _logger.Info("已清空用户 {userId} 的所有更新推送, 共移除 {affectedRows} 条记录。", userId, affectedRows);
             return affectedRows;
         }
         catch (Exception ex)
         {
-            _logger.Error($"ClearPushListAsync Ex", ex);
+            _logger.Error("ClearPushListAsync Ex", ex);
             return 0;
         }
     }

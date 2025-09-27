@@ -165,7 +165,7 @@ public class SubscriptionCommands : InteractionModuleBase<SocketInteractionConte
             .Build();
 
         var components = new ComponentBuilder()
-            // ✨ 使用新的 CustomId 格式: remove_ST_id_{userId}_{threadId} ✨
+            // 使用新的 CustomId 格式: remove_ST_id_{userId}_{threadId}
             .WithButton("确认取消", $"remove_ST_id_{Context.User.Id}_{threadId}", ButtonStyle.Danger)
             .WithButton("放弃", "general_cancel", ButtonStyle.Secondary)
             .Build();

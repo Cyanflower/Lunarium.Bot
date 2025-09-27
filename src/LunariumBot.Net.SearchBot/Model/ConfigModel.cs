@@ -2,6 +2,7 @@ namespace LunariumBot.Net.SearchBot.Model;
 
 public class SearchBotConfig
 {
+    public string DatabaseConnection { get; set; } = "";
     public AuthConfig AuthConfig { get; set; } = new();
     public GuildsConfig GuildsConfig { get; set; } = new();
     public BannerConfig BannerConfig { get; set; } = new();

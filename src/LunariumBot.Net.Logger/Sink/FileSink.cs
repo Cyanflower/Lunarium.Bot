@@ -84,7 +84,7 @@ public class RotatingFileSink : ILogSink
                     return;
                 }
                 // [Debug]
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
+                // Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
 
                 // 检查文件存在性
                 EnsureFileExists();
@@ -386,7 +386,7 @@ public class TimedRotatingFileSink : ILogSink
                     return;
                 }
                 // [Debug]
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
+                // Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
                 
                 // 检查文件存在性
                 EnsureFileExists();

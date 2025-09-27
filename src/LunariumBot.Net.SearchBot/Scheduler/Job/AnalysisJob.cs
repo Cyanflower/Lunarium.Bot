@@ -78,7 +78,7 @@ public class AnalysisJob : IInvocable
                 return;
             }
 
-            _logger.Info($"已成功生成并排序了 {embedList.Length} 个分析报告 Embed，准备推送到所有 Dashboard 频道...");
+            _logger.Info("已成功生成并排序了 {embedList.Length} 个分析报告 Embed，准备推送到所有 Dashboard 频道...", embedList.Length);
 
             // --- 2. 并发推送阶段 ---
             // 使用 LINQ 的 Select 创建一个异步任务列表，每个任务负责处理一个Dashboard频道。
@@ -184,7 +184,7 @@ public class AnalysisJob : IInvocable
                     // 使用线程安全的 TryRemove
                     if (_dashboardChannelCache.TryRemove(cachedChannelId, out _))
                     {
-                        _logger.Info($"已从缓存中移除无效或处理失败的频道: {cachedChannelId}");
+                        _logger.Info("已从缓存中移除无效或处理失败的频道: {cachedChannelId}", cachedChannelId);
                     }
                 }
             }

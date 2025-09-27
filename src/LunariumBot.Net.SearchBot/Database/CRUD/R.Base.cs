@@ -82,13 +82,13 @@ public partial class DatabaseService
 
             // 执行: 清空所有帖子 (ON DELETE CASCADE将自动清理关联数据)
             int allPostsCount = await _connection.ExecuteAsync("DELETE FROM posts_main;");
-            _logger.Info($"已清空数据库中的所有 {allPostsCount} 个帖子。");
+            _logger.Info("已清空数据库中的所有 {allPostsCount} 个帖子。", allPostsCount);
             return null;
         }
 
         // 准备: 提取当前数据列表中的所有帖子ID
         var currentThreadIds = currentDataList.Select(data => data.ThreadId).ToHashSet();
-        _logger.Debug($"当前数据列表包含 {currentThreadIds.Count} 个帖子。");
+        _logger.Debug("当前数据列表包含 {currentThreadIds.Count} 个帖子。", currentThreadIds.Count);
 
         // 准备: 创建数据库连接并开启事务
         using var connection = new SqliteConnection(_connectionString);
@@ -103,14 +103,14 @@ public partial class DatabaseService
                 transaction: transaction
             );
             var dbThreadIdsList = dbThreadIds.ToList();
-            _logger.Debug($"数据库中现有 {dbThreadIdsList.Count} 个帖子。");
+            _logger.Debug("数据库中现有 {dbThreadIdsList.Count} 个帖子。", dbThreadIdsList.Count);
 
             // 计算: 找出需要删除的过时帖子ID (存在于数据库但不在当前列表中)
             var threadsToDelete = dbThreadIdsList.Where(id => !currentThreadIds.Contains(id)).ToList();
 
             if (threadsToDelete.Any())
             {
-                _logger.Info($"发现 {threadsToDelete.Count} 个过时帖子需要移除。");
+                _logger.Info("发现 {threadsToDelete.Count} 个过时帖子需要移除。", threadsToDelete.Count);
                 return threadsToDelete;
             }
             else
@@ -145,7 +145,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error($"执行所有唯一标签名查询时出错. SQL: {getAllUniqueTagNamesSql}", ex);
+            _logger.Error(ex, "执行所有唯一标签名查询时出错. SQL: {getAllUniqueTagNamesSql}", getAllUniqueTagNamesSql);
             // 出错时返回一个空列表，保证程序不会崩溃
             return new List<string>();
         }
@@ -165,7 +165,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error($"执行所有标签详情查询时出错. SQL: {getAllTagsWithDetailsSql}", ex);
+            _logger.Error(ex, "执行所有标签详情查询时出错. SQL: {getAllTagsWithDetailsSql}", getAllUniqueTagNamesSql);
             return new List<TagInfo>();
         }
     }

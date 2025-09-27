@@ -57,7 +57,7 @@ public partial class DatabaseService
             // 执行: 更新收藏关系
             int affectedRows = await connection.ExecuteAsync(userFavoritePostsUpsertSqlCommand, favoriteData);
 
-            _logger.Info($"更新用户 {userId} 的帖子 {thread.Id} 收藏, 影响 {affectedRows} 行。");
+            _logger.Info("更新用户 {userId} 的帖子 {thread.Id} 收藏, 影响 {affectedRows} 行。", userId, thread.Id, affectedRows);
         }
         catch (Exception ex)
         {
@@ -81,16 +81,16 @@ public partial class DatabaseService
 
             if (affectedRows > 0)
             {
-                _logger.Info($"成功为用户 {userId} 添加了新的收藏夹类型 '{newType}'。");
+                _logger.Info("成功为用户 {userId} 添加了新的收藏夹类型 '{newType}'。", userId, newType);
             }
             else
             {
-                _logger.Info($"用户 {userId} 的收藏夹类型 '{newType}' 已存在, 跳过添加。");
+                _logger.Info("用户 {userId} 的收藏夹类型 '{newType}' 已存在, 跳过添加。", userId, newType);
             }
         }
         catch (Exception ex)
         {
-            _logger.Error( $"为用户 {userId} 添加收藏夹类型时发生错误。", ex);
+            _logger.Error( ex, "为用户 {userId} 添加收藏夹类型时发生错误。", userId);
         }
     }
     
@@ -119,12 +119,12 @@ public partial class DatabaseService
 
             await transaction.CommitAsync();
 
-            _logger.Info($"用户 {userId} 成功将收藏夹 '{oldName}' 重命名为 '{newName}', 影响了 {totalAffectedRows} 行记录。");
+            _logger.Info("用户 {userId} 成功将收藏夹 '{oldName}' 重命名为 '{newName}', 影响了 {totalAffectedRows} 行记录。", userId, oldName, newName, totalAffectedRows);
             return totalAffectedRows;
         }
         catch (Exception ex)
         {
-            _logger.Error($"重命名用户 {userId} 的收藏夹 '{oldName}' 时出错。", ex);
+            _logger.Error(ex, "重命名用户 {userId} 的收藏夹 '{oldName}' 时出错。", userId,oldName);
             return 0;
         }
     }

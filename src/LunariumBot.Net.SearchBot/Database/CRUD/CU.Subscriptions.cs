@@ -58,7 +58,7 @@ public partial class DatabaseService
             await connection.ExecuteAsync(fallbackPostsUpsertSqlCommand, threadFallbackData);
             // 执行: 更新订阅关系
             int affectedRows = await connection.ExecuteAsync(userSubscriptionsPostUpsertSqlCommand, subscriptionData);
-            _logger.Debug($"更新用户 {user.Id} 的帖子 {thread.Id} 订阅, 影响 {affectedRows} 行。");
+            _logger.Debug("更新用户 {user.Id} 的帖子 {thread.Id} 订阅, 影响 {affectedRows} 行。", user.Id, thread.Id, affectedRows);
         }
         catch (Exception ex)
         {
@@ -90,11 +90,11 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             // 执行: 更新推送关系
             int affectedRows = await connection.ExecuteAsync(userPushListUpsertSqlCommand, pushData);
-            _logger.Debug($"更新 {userIds.Count} 个用户的帖子 {thread.Name}({thread.Id}) 推送, 影响 {affectedRows} 行。");
+            _logger.Debug("更新 {userIds.Count} 个用户的帖子 {thread.Name}({thread.Id}) 推送, 影响 {affectedRows} 行。", userIds.Count, thread.Name, thread.Id, affectedRows);
         }
         catch (Exception ex)
         {
-            _logger.Error("批量更新(插入或更新)帖子到用户的推送列表出错 {ex}", ex);
+            _logger.Error("批量更新(插入或更新)帖子到用户的推送列表出错", ex);
         }
     }
 }

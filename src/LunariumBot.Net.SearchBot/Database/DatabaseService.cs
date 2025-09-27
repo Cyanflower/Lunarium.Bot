@@ -55,7 +55,7 @@ public partial class DatabaseService : IDisposable
     /// </summary>
     public void SaveDB()
     {
-        _logger.Info($"💾 开始保存内存数据库到文件: {_dbFilePath}...");
+        _logger.Info("💾 开始保存内存数据库到文件: {_dbFilePath}...", _dbFilePath);
 
         try
         {
@@ -123,7 +123,7 @@ public partial class DatabaseService : IDisposable
             // 然后创建所有其他表
             connection.Execute(DBTable.GetCreateAllTablesSql());
             
-            _logger.Info($"✅ 数据库表创建完成。版本: {DBTable.CURRENT_DB_VERSION}");
+            _logger.Info("✅ 数据库表创建完成。版本: {DBTable.CURRENT_DB_VERSION}", DBTable.CURRENT_DB_VERSION);
         }
         catch (Exception ex)
         {
@@ -137,7 +137,7 @@ public partial class DatabaseService : IDisposable
     /// </summary>
     public bool LoadDB()
     {
-        _logger.Info($"正在从文件 {_dbFilePath} 加载数据到内存数据库...");
+        _logger.Info("正在从文件 {_dbFilePath} 加载数据到内存数据库...", _dbFilePath);
         
         try
         {
@@ -168,10 +168,10 @@ public partial class DatabaseService : IDisposable
                 var saveTime = DateTimeOffset.FromUnixTimeSeconds(dbInfo.LastSaveAt).ToOffset(TimeSpan.FromHours(8));
                 var currentTime = DateTimeOffset.Now;
 
-                _logger.Info($"数据库版本: {dbInfo.Version}");
-                _logger.Info($"数据库初始化时间: {appliedTime.ToString("yyyy-MM-dd HH:mm:ss")}");
-                _logger.Info($"数据库保存时间: {saveTime.ToString("yyyy-MM-dd HH:mm:ss")}");
-                _logger.Info($"当前UTC+8时间: {currentTime.ToString("yyyy-MM-dd HH:mm:ss")}");
+                _logger.Info("数据库版本: {dbInfo.Version}", dbInfo.Version);
+                _logger.Info("数据库初始化时间: {appliedTime:yyyy-MM-dd HH:mm:ss}", appliedTime);
+                _logger.Info("数据库保存时间: {saveTime:yyyy-MM-dd HH:mm:ss}", saveTime);
+                _logger.Info("当前UTC+8时间: {currentTime:yyyy-MM-dd HH:mm:ss}", currentTime);
 
                 // 检查是否需要更新（距离上次保存超过10分钟或发生了迁移）
                 long currentTimestamp = currentTime.ToUnixTimeSeconds();
@@ -183,7 +183,7 @@ public partial class DatabaseService : IDisposable
             {
                 // 如果没有找到版本信息，说明数据库已损坏或处于不一致的状态。
                 // 这是一个严重错误，必须停止程序以防数据丢失。
-                _logger.Critical($"CRITICAL: 数据库完整性错误! 在 '{_dbFilePath}' 中未找到 'db_info' 表或版本信息。");
+                _logger.Critical("CRITICAL: 数据库完整性错误! 在 '{_dbFilePath}' 中未找到 'db_info' 表或版本信息。", _dbFilePath);
                 throw new InvalidOperationException(
                     $"数据库文件 '{_dbFilePath}' 处于不一致的状态，关键的 'db_info' 表或版本信息缺失。" +
                     "为防止数据丢失，Bot将立即关闭。" +
@@ -244,7 +244,7 @@ public partial class DatabaseService : IDisposable
             if (currentVersion == 0)
             {
                 //们直接抛出异常，中断程序，防止数据损坏。
-                _logger.Critical($"CRITICAL: 数据库完整性错误! 在 '{_dbFilePath}' 中找到了空的 'db_info' 表。");
+                _logger.Critical("CRITICAL: 数据库完整性错误! 在 '{_dbFilePath}' 中找到了空的 'db_info' 表。", _dbFilePath);
                 throw new InvalidOperationException(
                     $"数据库文件 '{_dbFilePath}' 处于不一致的状态，关键的 'db_info' 表为空。" +
                     "为防止数据丢失，Bot将立即关闭。" +
@@ -252,7 +252,7 @@ public partial class DatabaseService : IDisposable
                 );
             }
             
-            _logger.Info($"当前数据库版本: {currentVersion}, 目标版本: {DBTable.CURRENT_DB_VERSION}");
+            _logger.Info("当前数据库版本: {currentVersion}, 目标版本: {DBTable.CURRENT_DB_VERSION}", currentVersion, DBTable.CURRENT_DB_VERSION);
 
             if (currentVersion < DBTable.CURRENT_DB_VERSION)
             {
@@ -266,11 +266,11 @@ public partial class DatabaseService : IDisposable
                 {
                     if (migrations.ContainsKey(version))
                     {
-                        _logger.Info($"📝 执行版本 {version} 的迁移脚本...");
+                        _logger.Info("📝 执行版本 {version} 的迁移脚本...", version);
 
                         connection.Execute(migrations[version]);
 
-                        _logger.Info($"✅ 版本 {version} 迁移脚本执行完成");
+                        _logger.Info("✅ 版本 {version} 迁移脚本执行完成", version);
                     }
 
                     // 记录迁移版本（无论是否有具体的迁移脚本）- 使用 Dapper
@@ -279,18 +279,18 @@ public partial class DatabaseService : IDisposable
                         new { version, appliedAt = timestamp, initializeAt = latestDbInfo.InitializeAt, lastSaveAt = timestamp }
                     );
 
-                    _logger.Info($"✅ 版本 {version} 迁移完成");
+                    _logger.Info("✅ 版本 {version} 迁移完成", version);
                     hasUpdates = true;
                 }
 
                 if (hasUpdates)
                 {
-                    _logger.Info($"🎉 数据库迁移完成！当前版本: {DBTable.CURRENT_DB_VERSION}");
+                    _logger.Info("🎉 数据库迁移完成！当前版本: {DBTable.CURRENT_DB_VERSION}", DBTable.CURRENT_DB_VERSION);
                 }
             }
             else if (currentVersion > DBTable.CURRENT_DB_VERSION)
             {
-                _logger.Critical($"⚠️ 数据库版本 [{currentVersion}] 高于程序版本 [{DBTable.CURRENT_DB_VERSION}]，可能存在兼容性问题");
+                _logger.Critical("⚠️ 数据库版本 [{currentVersion}] 高于程序版本 [{DBTable.CURRENT_DB_VERSION}]，可能存在兼容性问题", currentVersion, DBTable.CURRENT_DB_VERSION);
                 throw new InvalidOperationException(
                     $"数据库文件 '{_dbFilePath}' 处于不一致的状态，本地数据库文件内部版本 [{currentVersion}] 高于程序版本 [{DBTable.CURRENT_DB_VERSION}] ，可能存在兼容性问题。" +
                     "为防止数据丢失，Bot将立即关闭。" +

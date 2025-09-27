@@ -72,7 +72,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error($"执行用户收藏的帖子类型查询时出错. SQL: {getUserFavoriteTypeSql}", ex);
+            _logger.Error(ex, "执行用户收藏的帖子类型查询时出错. SQL: {getUserFavoriteTypeSql}", getUserFavoriteTypeSql);
             return new HashSet<string>();
         }
     }
@@ -118,16 +118,16 @@ public partial class DatabaseService
                 favoriteResult = await connection.QueryAsync<FavoriteInfo>(getUserFavoriteListSql, new { userId = userId, favoriteAs = favorite });
 
             }
-            _logger.Debug($"allThreadIdsL {favoriteResult}");
+            _logger.Debug("allThreadIdsL {favoriteResult}", favoriteResult);
             // 如果查询结果为空，返回空列表
             if (!favoriteResult.Any())
             {
-                _logger.Info($"用户 {userId} 没有收藏任何帖子。");
+                _logger.Info("用户 {userId} 没有收藏任何帖子。", userId);
                 return new List<PostDisplayModel>();
             }
             // 提取出所有需要查询详情的 thread_id
             var allThreadIds = favoriteResult.Select(f => f.ThreadId).ToList();
-            _logger.Debug($"allThreadIdsL {allThreadIds}");
+            _logger.Debug("allThreadIdsL {allThreadIds}", allThreadIds);
 
             // 先尝试从 posts_main 中一次性获取所有能找到的帖子
             var mainPosts = await connection.QueryAsync<PostDisplayModel>(getMainPostsSql, new { threadIds = allThreadIds });
@@ -160,7 +160,7 @@ public partial class DatabaseService
                     finalResults.Add(postData);
                 }
             }
-            _logger.Info($"为用户 {userId} 成功获取 {finalResults.Count} 条收藏帖子。");
+            _logger.Info("为用户 {userId} 成功获取 {finalResults.Count} 条收藏帖子。", userId, finalResults.Count);
             return finalResults;
         }
         catch (Exception ex)

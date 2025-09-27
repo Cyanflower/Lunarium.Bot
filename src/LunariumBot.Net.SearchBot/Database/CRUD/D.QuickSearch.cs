@@ -23,7 +23,7 @@ public partial class DatabaseService
         using var connection = new SqliteConnection(_connectionString);
         var affectedRows = await connection.ExecuteAsync(quickSearchDeleteOneSqlCommand, new { UserId = userId, CommandName = commandName });
         
-        _logger.Info($"用户 {userId} 删除了快捷命令 '{commandName}', 影响行数: {affectedRows}");
+        _logger.Info("用户 {userId} 删除了快捷命令 '{commandName}', 影响行数: {affectedRows}", userId, commandName, affectedRows);
         return affectedRows;
     }
 }

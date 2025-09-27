@@ -131,7 +131,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
                 }
 
                 var selectedChannel = selectedValues.First();
-                _logger.Info($"用户 {interaction.User.Username} 正在通过快捷面板执行浏览, 分区: {selectedChannel}");
+                _logger.Info("用户 {interaction.User.Username} 正在通过快捷面板执行浏览, 分区: {selectedChannel}", interaction.User.Username, selectedChannel);
 
                 // 如果用户选择的是 "__ALL__", 那么 forumChannel 就是 null，会搜索所有分区
                 // 否则，就用用户选择的分区名作为搜索条件
@@ -148,7 +148,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
                     null, null, null,
                     "posted_date_desc", null, null, 200
                 );
-                _logger.Debug($"用户 {interaction.User.Username} 的搜索模型构建完毕...");
+                _logger.Debug("用户 {interaction.User.Username} 的搜索模型构建完毕...", interaction.User.Username);
 
                 await SearchUtils.ExecuteAndDisplaySearchAsync(_logger, _databaseService, _paginatorManager, criteria, interaction);
 
@@ -192,7 +192,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
     //                     .WithColor(Color.Blue)
     //                     .Build();
     //                 await FollowupAsync(embed: emptyEmbed, ephemeral: true);
-    //                 _logger.Info($"用户 {interaction.User.Id} 查询收藏夹 '{favorite ?? "未分类"}' 结果为空");
+    //                 _logger.Info("用户 {interaction.User.Id} 查询收藏夹 '{favorite}' 结果为空", interaction.User.Id, favorite ?? "未分类");
     //                 return;
     //             }
 
@@ -247,7 +247,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
     //     }
     //     catch (Exception ex)
     //     {
-    //         _logger.Error("DirectSearch {ex}", ex);
+    //         _logger.Error("DirectSearch", ex);
     //     }
     // }
 
@@ -314,7 +314,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
     //     }
     //     catch (Exception ex)
     //     {
-    //         _logger.Error("DirectSearch {ex}", ex);
+    //         _logger.Error("DirectSearch", ex);
     //     }
     // }
 
@@ -375,7 +375,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
         }
         catch (Exception ex)
         {
-            _logger.Error("GeneralCancelButton {ex}", ex);
+            _logger.Error("GeneralCancelButton", ex);
         }
     }
     
@@ -428,7 +428,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
         }
         catch (Exception ex)
         {
-            _logger.Error("GeneralCancelButton {ex}", ex);
+            _logger.Error("GeneralCancelButton", ex);
         }
     }
 }

@@ -60,7 +60,8 @@ public class ThreadProcessor
                         ? $"HttpException (StatusCode: {httpEx.HttpCode})"
                         : exception.GetType().Name;
 
-                    _logger.Error($"API请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试", exception);
+                    _logger.Error(exception, "API请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试",
+                        errorType, timespan.TotalSeconds, attempt);
                 }
             );
     }
@@ -74,14 +75,16 @@ public class ThreadProcessor
             // 1. 获取活跃的帖子
             await _apiRetryPolicy.ExecuteAsync(async () =>
             {
-                _logger.Info($"[{channel.Name}({channel.Id})] 正在获取活跃的帖子...");
+                _logger.Info("[{channel.Name}({channel.Id})] 正在获取活跃的帖子...",
+                    channel.Name, channel.Id);
                 var activeThreads = await channel.GetActiveThreadsAsync();
-                _logger.Info($"[{channel.Name}({channel.Id})] 成功获取了 {activeThreads.Count} 个活跃的帖子.");
+                _logger.Info("[{channel.Name}({channel.Id})] 成功获取了 {activeThreads.Count} 个活跃的帖子.",
+                    channel.Name, channel.Id, activeThreads.Count);
                 threads.AddRange(activeThreads);
             });
 
             // 2. 获取公开归档的帖子
-            _logger.Info($"[{channel.Name}({channel.Id})] 正在获取公开归档的帖子...");
+            _logger.Info("[{channel.Name}({channel.Id})] 正在获取公开归档的帖子...", channel.Name, channel.Id);
             var publicArchivedThreads = new List<IThreadChannel>();
             DateTimeOffset? beforeTimestamp = null;
             int page = 1;
@@ -92,7 +95,8 @@ public class ThreadProcessor
                 
                 await _apiRetryPolicy.ExecuteAsync(async () =>
                 {
-                    _logger.Debug($"[{channel.Name}({channel.Id})] 正在获取第 {page} 批公开归档帖子...");
+                    _logger.Debug("[{channel.Name}({channel.Id})] 正在获取第 {page} 批公开归档帖子...",
+                        channel.Name, channel.Id, page);
                     fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
                 });
 
@@ -104,22 +108,22 @@ public class ThreadProcessor
                 }
                 else
                 {
-                    _logger.Info($"[{channel.Name}({channel.Id})] 所有公开归档帖子已获取完毕.");
+                    _logger.Info("[{channel.Name}({channel.Id})] 所有公开归档帖子已获取完毕.", channel.Name, channel.Id);
                     break;
                 }
             }
             threads.AddRange(publicArchivedThreads);
-            _logger.Info($"[{channel.Name}({channel.Id})] 总共获取了 {publicArchivedThreads.Count} 个公开归档的帖子.");
+            _logger.Info("[{channel.Name}({channel.Id})] 总共获取了 {publicArchivedThreads.Count} 个公开归档的帖子.", channel.Name, channel.Id, publicArchivedThreads.Count);
 
             var uniqueThreads = threads.DistinctBy(t => t.Id).ToList();
-            _logger.Info($"[{channel.Name}({channel.Id})] 总计获取到 {uniqueThreads.Count} 个去重帖子。");
+            _logger.Info("[{channel.Name}({channel.Id})] 总计获取到 {uniqueThreads.Count} 个去重帖子。", channel.Name, channel.Id, uniqueThreads.Count);
 
             return uniqueThreads;
         }
         catch (Exception ex)
         {
             // 当 Polly 重试用尽后，这里会捕获到最终的异常
-            _logger.Error($"[{channel.Name}({channel.Id})] 获取全部帖子过程中发生最终失败", ex);
+            _logger.Error(ex, "[{channel.Name}({channel.Id})] 获取全部帖子过程中发生最终失败", channel.Name, channel.Id);
             throw;
         }
     }
@@ -127,7 +131,7 @@ public class ThreadProcessor
     public async Task<(List<ThreadDataModel>, ThreadProcessResult)> ProcessToThreadDataModelAsync(List<IThreadChannel> threads)
     {
         List<ThreadDataModel> threadDataModels = new List<ThreadDataModel>();
-        _logger.Info($"开始并发处理 {threads.Count} 个帖子");
+        _logger.Info("开始并发处理 {threads.Count} 个帖子", threads.Count);
         var semaphore = new SemaphoreSlim(26, 26);
         var results = new ConcurrentBag<ThreadDataModel>();
         var skippedCount = 0;
@@ -176,38 +180,39 @@ public class ThreadProcessor
                             var estimatedSecondsRemaining = avgSpeed > 0 ? remainingTasks / avgSpeed : 0;
                             var estimatedCompletionTime = currentTime.AddSeconds(estimatedSecondsRemaining);
 
-                            _logger.Debug($"第 {currentNum}/{threads.Count} 个帖子处理完成 - 平均速度: {avgSpeed:F2} 任务/秒，预计完成时间: {estimatedCompletionTime:HH:mm:ss}");
+                            _logger.Debug("第 {currentNum}/{threads.Count} 个帖子处理完成 - 平均速度: {avgSpeed:F2} 任务/秒，预计完成时间: {estimatedCompletionTime:HH:mm:ss}",
+                            currentNum, threads.Count, avgSpeed, estimatedCompletionTime);
                         }
                         else
                         {
-                            _logger.Debug($"第 {currentNum}/{threads.Count} 个帖子处理完成 - 收集性能数据中...");
+                            _logger.Debug("第 {currentNum}/{threads.Count} 个帖子处理完成 - 收集性能数据中...", currentNum, threads.Count);
                         }
                     }
                 }
                 else if (status == ProcessingStatus.Skipped)
                 {
                     var currentNum = Interlocked.Increment(ref num);
-                    _logger.Warning($"第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 被跳过");
+                    _logger.Warning("第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 被跳过", currentNum, threads.Count, thread.Id);
 
                     Interlocked.Increment(ref skippedCount);
                 }
                 else if (status == ProcessingStatus.Failed)
                 {
                     var currentNum = Interlocked.Increment(ref num);
-                    _logger.Warning($"第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理失败");
+                    _logger.Warning("第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理失败", currentNum, threads.Count, thread.Id);
                     Interlocked.Increment(ref failedCount);
                 }
             }
             catch (TimeoutException ex)
             {
                 var currentNum = Interlocked.Increment(ref num);
-                _logger.Warning($"第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理超时: {ex.Message}");
+                _logger.Warning("第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理超时: {ex.Message}", currentNum, threads.Count, thread.Id, ex.Message);
                 Interlocked.Increment(ref failedCount);
             }
             catch (Exception ex)
             {
                 var currentNum = Interlocked.Increment(ref num);
-                _logger.Error($"第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理时发生错误", ex);
+                _logger.Error(ex, "第 {currentNum}/{threads.Count} 个帖子: {thread.Id} 处理时发生错误", currentNum, threads.Count, thread.Id);
                 Interlocked.Increment(ref failedCount);
             }
             finally
@@ -223,7 +228,8 @@ public class ThreadProcessor
         var totalElapsed = (DateTime.Now - startTime).TotalSeconds;
         var overallAvgSpeed = totalElapsed > 0 ? successCount / totalElapsed : 0;
 
-        _logger.Info($"并发处理完成。成功: {successCount}，失败: {failedCount}，跳过: {skippedCount}，总计: {threads.Count}，总耗时: {totalElapsed:F2}秒，平均速度: {overallAvgSpeed:F2} 任务/秒");
+        _logger.Info("并发处理完成。成功: {successCount}，失败: {failedCount}，跳过: {skippedCount}，总计: {threads.Count}，总耗时: {totalElapsed:F2}秒，平均速度: {overallAvgSpeed:F2} 任务/秒",
+            successCount, failedCount, skippedCount, threads.Count, totalElapsed, overallAvgSpeed);
 
         // 构建结果数据
         var threadProcessResult = new ThreadProcessResult
@@ -253,13 +259,13 @@ public class ThreadProcessor
             // 规则检查: 跳过锁定或置顶的帖子
             if (thread.IsLocked)
             {
-                _logger.Info($"帖子 {thread.Name}({thread.Id}) 被锁定，已跳过");
+                _logger.Info("帖子 {thread.Name}({thread.Id}) 被锁定，已跳过", thread.Name, thread.Id);
                 return (ProcessingStatus.Skipped, null);
             }
-            // _logger.Debug($"thread.Flags {thread.Flags}");
+            // _logger.Debug("thread.Flags {thread.Flags}", thread.Flags);
             if (thread.Flags.HasFlag(ChannelFlags.Pinned))
             {
-                _logger.Info($"帖子 {thread.Name}({thread.Id}) 被置顶，已跳过");
+                _logger.Info("帖子 {thread.Name}({thread.Id}) 被置顶，已跳过", thread.Name, thread.Id);
                 return (ProcessingStatus.Skipped, null);
             }
 
@@ -279,7 +285,7 @@ public class ThreadProcessor
             // 验证消息有效性
             if (firstMessage == null || string.IsNullOrWhiteSpace(firstMessage.Content))
             {
-                _logger.Info($"帖子 {thread.Name}({thread.Id}) 没有有效首楼消息，已跳过");
+                _logger.Info("帖子 {thread.Name}({thread.Id}) 没有有效首楼消息，已跳过", thread.Name, thread.Id);
                 return (ProcessingStatus.Skipped, null);
             }
 
@@ -287,7 +293,7 @@ public class ThreadProcessor
             long lastActiveAt;
             if (recentMessages?.Any() != true)
             {
-                _logger.Info($"帖子 {thread.Name}({thread.Id}) 没有有效最新消息，使用首楼时间作为活跃时间");
+                _logger.Info("帖子 {thread.Name}({thread.Id}) 没有有效最新消息，使用首楼时间作为活跃时间", thread.Name, thread.Id);
                 lastActiveAt = firstMessage.CreatedAt.ToUnixTimeSeconds();
             }
             else
@@ -342,13 +348,14 @@ public class ThreadProcessor
                         }
                         else
                         {
-                            _logger.Warning("帖子 {thread.Name}({thread.Id}) 没有有效频道ID (forumChannel is null)， thread.CategoryId: {CategoryId}，已跳过");
+                            _logger.Warning("帖子 {thread.Name}({thread.Id}) 没有有效频道ID (forumChannel is null)， thread.CategoryId: {CategoryId}，已跳过",
+                            thread.Name, thread.Id, thread.CategoryId);
                             return (ProcessingStatus.Failed, null);
                         }
                 }
                 else
                 {
-                    _logger.Warning("帖子 {thread.Name}({thread.Id}) 没有有效频道ID (No Has Value)，已跳过");
+                    _logger.Warning("帖子 {thread.Name}({thread.Id}) 没有有效频道ID (No Has Value)，已跳过", thread.Name, thread.Id);
                     return (ProcessingStatus.Failed, null);
                 }
             }
@@ -384,7 +391,7 @@ public class ThreadProcessor
         // 捕获其他非 Polly 处理的未知异常
         catch (Exception ex)
         {
-            _logger.Error($"处理帖子 {thread.Name}({thread.Id}) 时发生未知错误", ex);
+            _logger.Error(ex, "处理帖子 {thread.Name}({thread.Id}) 时发生未知错误", thread.Name, thread.Id);
             return (ProcessingStatus.Failed, null);
         }
     }

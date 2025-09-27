@@ -43,7 +43,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (!InGuild(context.Guild.Id))
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
         // --- 是否具有任一管理员身份 ---
@@ -52,10 +52,10 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (guildUser == null || !IsAdmin(guildUser.RoleIds))
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能由管理员使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 非管理员角色 用户 {context.User.Username} 执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 非管理员角色 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
-        _logger.Info($"鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令");
+        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
         return true;
     }
 
@@ -66,7 +66,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (!InGuild(context.Guild.Id))
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
         // --- 是否在论坛频道的帖子中 ---
@@ -74,7 +74,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (context.Channel is not IThreadChannel threadChannel)
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
         // --- 是否在扫描的分区内 ---
@@ -84,17 +84,17 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
             {
                 var description = "该命令只能在以下分区内使用:\n" + string.Join("\n", _scanCategories.Select(s => $"> - {s}"));
                 await FollowupAsync(embed: EmbedUtils.AuthEmbed(description), ephemeral: true);
-                _logger.Info($"鉴权失败: 用户 {context.User.Username} 在分区外中执行了[/{command}]命令");
+                _logger.Info("鉴权失败: 用户 {context.User.Username} 在分区外中执行了[/{command}]命令", context.User.Username, command);
                 return false;
             }
         }
         else
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("出现网络错误, 请重试"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息", context.User.Username, command);
             return false;
         }
-        _logger.Info($"鉴权通过: 用户 {context.User.Username} 订阅了帖子 {threadChannel.Name}({threadChannel.Id})");
+        _logger.Info("鉴权通过: 用户 {context.User.Username} 订阅了帖子 {threadChannel.Name}({threadChannel.Id})", context.User.Username, threadChannel.Name, threadChannel.Id);
 
         return true;
     }
@@ -106,7 +106,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (!InGuild(context.Guild.Id))
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
         _logger.Debug($"context.Interaction.Channel: {context.Channel}", context.Channel.Name);
@@ -115,7 +115,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (context.Channel is not IThreadChannel threadChannel)
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
         if (threadChannel.CategoryId != null)
@@ -124,18 +124,18 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
             if (parentChannel is not IForumChannel)
             {
                 await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-                _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在文字频道的子区中执行了[/{command}]命令");
+                _logger.Warning("鉴权失败: 用户 {context.User.Username} 在文字频道的子区中执行了[/{command}]命令", context.User.Username, command);
                 return false;
             }
         }
         else
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("出现网络错误, 请重试"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息", context.User.Username, command);
             return false;
         }
 
-        _logger.Info($"鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令");
+        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
         return true;
     }
     public async Task<bool> InGuild(string command, IInteractionContext context)
@@ -145,10 +145,10 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
         if (!InGuild(context.Guild.Id))
         {
             await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning($"鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令");
+            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
             return false;
         }
-        _logger.Info($"鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令");
+        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
         return true;
     }
 }

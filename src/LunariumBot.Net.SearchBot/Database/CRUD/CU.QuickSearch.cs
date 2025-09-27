@@ -29,7 +29,7 @@ public partial class DatabaseService
     {
         using var connection = new SqliteConnection(_connectionString);
         var affectedRows = await connection.ExecuteAsync(quickSearchUpsertSqlCommand, command);
-        _logger.Info("用户 {command.UserId} 保存了快捷命令 '{command.CommandName}', 影响行数: {affectedRows}");
+        _logger.Info("用户 {command.UserId} 保存了快捷命令 '{command.CommandName}', 影响行数: {affectedRows}", command.UserId, command.CommandName, affectedRows);
         return affectedRows;
     }
 }

@@ -32,7 +32,7 @@ internal static class ConsoleFormatter
     // JSON 专用
     private const ConsoleColor JsonKeyColor = ConsoleColor.DarkCyan;
 
-    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.][a-zA-Z0-9_.]*)\}", RegexOptions.Compiled);
+    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.()][a-zA-Z0-9_.()]*)(?::([^}]+))?\}", RegexOptions.Compiled);
 
     /// <summary>
     /// 将日志条目格式化为适合控制台阅读的纯文本格式，并应用颜色。
@@ -63,15 +63,21 @@ internal static class ConsoleFormatter
                 sb.Append(suffix);
                 sb.Append(' ');
             }
-
-            // 渲染消息模板，并根据值的类型染色
+            
+            // 渲染消息模板
             var renderedMessage = _propertyRegex.Replace(entry.MessageTemplate, match =>
             {
+                // 捕获组 1 是属性名
                 var key = match.Groups[1].Value;
+                // 捕獲組 2 是格式化字符串 (可能为空)
+                var format = match.Groups[2].Success ? match.Groups[2].Value : null;
+
                 if (entry.Properties.TryGetValue(key, out var value))
                 {
-                    return ColorizeValue(value);
+                    // 把值和格式化字符串都传给 ColorizeValue
+                    return ColorizeValue(value, format);
                 }
+
                 // 找不到属性则保留原样
                 return match.Value;
             });
@@ -146,18 +152,49 @@ internal static class ConsoleFormatter
         };
     }
 
-    private static string ColorizeValue(object? value)
+    private static string ColorizeValue(object? value, string? format)
     {
-        var stringValue = value?.ToString() ?? "null";
+        // 1. 先根据值的原始类型确定颜色
+        ConsoleColor color;
+        if (value is null) color = NullColor;
+        else if (value is string) color = StringColor;
+        else if (value is bool) color = BooleanColor;
+        else if (value is short or int or long or ulong or float or double or decimal) color = NumberColor;
+        else color = OtherColor;
 
-        if (value is null) return stringValue.Color(NullColor);
-        // 字符串类型引号包裹版
-        // if (value is string) return $"\"{stringValue}\"".Color(StringColor);
-        // 字符串类型无引号包裹版
-        if (value is string) return $"{stringValue}".Color(StringColor);
-        if (value is bool) return stringValue.Color(BooleanColor);
-        if (value is short or int or long or float or double or decimal) return stringValue.Color(NumberColor);
+        // 2. 然后根据 format 参数来生成最终的字符串
+        var formattedString = GetFormattedString(value, format);
+        
+        // 3. 最后，用第一步确定的颜色来包裹第二步生成的字符串
+        return formattedString.Color(color);
+    }
+    
+    /// <summary>
+    /// 辅助方法，用于处理值的格式化。
+    /// </summary>
+    private static string GetFormattedString(object? value, string? format)
+    {
+        if (value is null)
+        {
+            return "null";
+        }
 
-        return stringValue.Color(OtherColor); // 其他类型
+        // 如果提供了格式化字符串，并且值实现了 IFormattable 接口 (大部分基础类型都实现了)
+        if (!string.IsNullOrEmpty(format) && value is IFormattable formattableValue)
+        {
+            try
+            {
+                // 使用指定的格式
+                return formattableValue.ToString(format, null);
+            }
+            catch (FormatException)
+            {
+                // 如果格式化失败，就回退到默认的 ToString()
+                return value.ToString() ?? "";
+            }
+        }
+        
+        // 否则，直接用默认的 ToString()
+        return value.ToString() ?? "";
     }
 }

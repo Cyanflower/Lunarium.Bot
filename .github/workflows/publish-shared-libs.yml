@@ -1,0 +1,67 @@
+# 工作流的名称
+name: 🚀 Publish Shared Libraries
+
+# 触发条件
+on:
+  push:
+    branches:
+      - main  # 当代码推送到 main 分支时
+    paths:
+      # 并且只有当这两个类库项目的文件发生变化时
+      - 'src/LunariumBot.Net.Logger/**'
+      - 'src/LunariumBot.Net.Extensions/**'
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  # 定义一个名为 'build-and-publish' 的任务
+  build-and-publish:
+    # 任务运行的环境
+    runs-on: debian-latest
+
+    # 任务的步骤
+    steps:
+      # 第1步：检出代码
+      - name:  checkout code
+        uses: actions/checkout@v4
+
+      # 第2步：安装 .NET SDK
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0' # 确保版本和你项目的一致
+
+      # 第3步：自动生成版本号
+      # 使用 GitVersion 工具根据你的 Git 历史（tag, 分支名等）生成语义化版本号
+      # 比如在 main 分支提交是 1.0.1, 1.0.2... 打个 v1.1.0 的 tag 就会生成 1.1.0
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v1.1.1
+        with:
+          versionSpec: '5.x'
+      - name: Determine Version
+        id: gitversion # 给这个步骤一个ID，方便后面引用它的输出
+        uses: gittools/actions/gitversion/execute@v1.1.1
+        
+      # 第4步：还原所有项目的依赖
+      - name: Restore dependencies
+        run: dotnet restore
+
+      # 第5步：构建解决方案
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+        
+      # 第6步：运行单元测试
+      - name: Test
+        run: dotnet test --no-build --verbosity normal
+
+      # 第7步：打包所有需要发布的类库
+      # 使用 GitVersion 生成的版本号来打包
+      - name: Pack Libraries
+        run: |
+          dotnet pack src/LunariumBot.Net.Logger/LunariumBot.Net.Logger.csproj --configuration Release --no-build -p:PackageVersion=${{ steps.gitversion.outputs.nuGetVersionV2 }} -o ./packages
+          dotnet pack src/LunariumBot.Net.Extensions/LunariumBot.Net.Extensions.csproj --configuration Release --no-build -p:PackageVersion=${{ steps.gitversion.outputs.nuGetVersionV2 }} -o ./packages
+
+      # 第8步：发布到 GitHub Packages
+      - name: Push to GitHub Packages
+        run: dotnet nuget push "./packages/*.nupkg" --source "https://nuget.pkg.github.com/YOUR_GITHUB_USERNAME" --api-key ${{ secrets.NUGET_TOKEN }}
+        # ！！！注意：把 YOUR_GITHUB_USERNAME 替换成你的 GitHub 用户名或组织名 ！！！

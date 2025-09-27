@@ -597,9 +597,9 @@ class Listener
             {
                 var fileSizeMB = headResponse.Content.Headers.ContentLength.Value / 1024.0 / 1024.0;
                 var sizeLimitMB = MAX_FILE_SIZE_BYTES / 1024.0 / 1024.0;
-                _logger.Debug("Skipping attachment '{attachment.Filename}' because its size ({fileSizeMB} MB) exceeds the {sizeLimitMB} MB limit.",
+                _logger.Debug("Skipping attachment '{attachment.Filename}' because its size ({fileSizeMB:F2} MB) exceeds the {sizeLimitMB:F2} MB limit.",
                     attachment.Filename,
-                    fileSizeMB.ToString("F2"),
+                    fileSizeMB,
                     sizeLimitMB
                     );
                 return false;

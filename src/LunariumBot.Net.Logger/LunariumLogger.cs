@@ -27,7 +27,7 @@ public class LunariumLogger : ILogger, IAsyncDisposable
     private readonly string _loggerName;
     // 所有输出目标的列表
     private readonly List<(ILogSink, SinkConfiguration)> _sinks;
-    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.][a-zA-Z0-9_.]*)\}", RegexOptions.Compiled);
+    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.()][a-zA-Z0-9_.()]*)(?::([^}]+))?\}", RegexOptions.Compiled);
 
     /// <summary>
     /// 初始化一个新的 LunariumLogger 实例。

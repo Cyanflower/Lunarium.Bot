@@ -28,7 +28,7 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             int affectedRows = await connection.ExecuteAsync(favoriteDeleteOneSqlCommand, new { UserId = userId, ThreadId = threadId });
             
-            _logger.Info($"用户 {userId} 的帖子 {threadId} 收藏已移除, 影响行数: {affectedRows}。");
+            _logger.Info("用户 {userId} 的帖子 {threadId} 收藏已移除, 影响行数: {affectedRows}。", userId, threadId, affectedRows);
         }
         catch (Exception ex)
         {
@@ -61,14 +61,14 @@ public partial class DatabaseService
             {
                 // 移除收藏: 从 user_favorite_posts 删除相关记录
                 totalAffectedRows += await connection.ExecuteAsync(favoritePostsByCategoryDeleteSqlCommand, new { UserId = userId, CategoryName = categoryName }, transaction);
-                 _logger.Info($"用户 {userId} 删除收藏夹 '{categoryName}' 并移除了其中的帖子。");
+                 _logger.Info("用户 {userId} 删除收藏夹 '{categoryName}' 并移除了其中的帖子。", userId, categoryName);
             }
             else
             {
                 // 保留收藏: 将 favorite_as 更新为 NULL
                 const string sql = "UPDATE user_favorite_posts SET favorite_as = NULL WHERE user_id = @UserId AND favorite_as = @CategoryName;";
                 totalAffectedRows += await connection.ExecuteAsync(sql, new { UserId = userId, CategoryName = categoryName }, transaction);
-                _logger.Info($"用户 {userId} 删除收藏夹 '{categoryName}' 并将帖子保留至未分类。");
+                _logger.Info("用户 {userId} 删除收藏夹 '{categoryName}' 并将帖子保留至未分类。", userId, categoryName);
             }
 
             await transaction.CommitAsync();
@@ -76,7 +76,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("删除用户 {userId} 的收藏夹 '{categoryName}' 时出错。", ex);
+            _logger.Error(ex, "删除用户 {userId} 的收藏夹 '{categoryName}' 时出错。", userId, categoryName);
             return 0;
         }
     }

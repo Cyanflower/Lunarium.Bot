@@ -135,7 +135,7 @@ public partial class DatabaseService
                 
                 // 成功: 提交事务
                 await transaction.CommitAsync();
-                _logger.Info($"事务成功提交, {dataList.Count} 条帖子数据处理完毕。");
+                _logger.Info("事务成功提交, {dataList.Count} 条帖子数据处理完毕。", dataList.Count);
                 
                 var insertPostResult = new InsertPostResult
                 {
@@ -167,7 +167,7 @@ public partial class DatabaseService
     private async Task<int> UpsertMainPostsAsync(SqliteConnection connection, System.Data.Common.DbTransaction transaction, List<ThreadDataModel> dataList)
     {
         int affectedRows = await connection.ExecuteAsync(mainUpsertSqlCommand, dataList, transaction);
-        _logger.Info($"处理 {dataList.Count} 条帖子, 影响主表 {affectedRows} 行。");
+        _logger.Info("处理 {dataList.Count} 条帖子, 影响主表 {affectedRows} 行。", dataList.Count, affectedRows);
         return affectedRows;
     }
 
@@ -184,7 +184,7 @@ public partial class DatabaseService
         }).ToList();
 
         int affectedRows = await connection.ExecuteAsync(ftsUpsertSql, ftsData, transaction);
-        _logger.Info($"处理 {ftsData.Count} 条FTS数据, 影响FTS表 {affectedRows} 行。");
+        _logger.Info("处理 {ftsData.Count} 条FTS数据, 影响FTS表 {affectedRows} 行。", ftsData.Count, affectedRows);
         return affectedRows;
     }
 
@@ -200,7 +200,7 @@ public partial class DatabaseService
         if (threadIdsToUpdate.Any())
         {
             deletedRows = await connection.ExecuteAsync(deletePostTagsJunctionByThreadIdsSql, new { ThreadIds = threadIdsToUpdate }, transaction);
-            _logger.Info($"为 {threadIdsToUpdate.Count} 个帖子清空旧标签关系, 删除了 {deletedRows} 条旧记录。");
+            _logger.Info("为 {threadIdsToUpdate.Count} 个帖子清空旧标签关系, 删除了 {deletedRows} 条旧记录。", threadIdsToUpdate.Count, deletedRows);
         }
 
         // 准备: 展平数据, 提取所有帖子与标签的关联关系
@@ -228,7 +228,7 @@ public partial class DatabaseService
         var invalidTagIds = allTagIdsInBatch.Where(id => !existingTagIds.Contains(id)).ToList();
         if (invalidTagIds.Any())
         {
-            _logger.Warning($"发现 {invalidTagIds.Count} 个无效标签ID (可能已被删除): [{string.Join(", ", invalidTagIds.OrderBy(id => id))}]");
+            _logger.Warning("发现 {invalidTagIds.Count} 个无效标签ID (可能已被删除): [{invalidTagIds}]", invalidTagIds.Count, string.Join(", ", invalidTagIds.OrderBy(id => id)));
             
             var invalidJunctionData = junctionData.Where(j => !existingTagIds.Contains(j.TagId)).ToList();
             var invalidPostsGrouped = invalidJunctionData.GroupBy(j => j.TagId);
@@ -239,10 +239,10 @@ public partial class DatabaseService
                     .Where(post => group.Select(j => j.ThreadId).Contains(post.ThreadId))
                     .OrderBy(post => post.ThreadId);
 
-                _logger.Warning($"无效标签 {group.Key} 被以下 {affectedPosts.Count()} 个帖子引用:");
+                _logger.Warning("无效标签 {group.Key} 被以下 {affectedPosts.Count()} 个帖子引用:", group.Key, affectedPosts.Count());
                 foreach (var post in affectedPosts)
                 {
-                    _logger.Warning($"  └─ 帖子ID: {post.ThreadId}, 标题: \"{post.Title.Slice(50, "...")}\", 链接: {post.JumpUrl}");
+                    _logger.Warning("  └─ 帖子ID: {post.ThreadId}, 标题: \"{post.Title}\", 链接: {post.JumpUrl}", post.ThreadId, post.Title.Slice(50, "..."), post.JumpUrl);
                 }
             }
         }
@@ -253,7 +253,7 @@ public partial class DatabaseService
         if (validJunctionData.Any())
         {
             insertedRows = await connection.ExecuteAsync(postTagsJunctionUpsertSqlCommand, validJunctionData, transaction);
-            _logger.Info($"处理 {validJunctionData.Count} 条新的帖子-标签关系, 影响关系表 {insertedRows} 行。");
+            _logger.Info("处理 {validJunctionData.Count} 条新的帖子-标签关系, 影响关系表 {insertedRows} 行。", validJunctionData.Count, insertedRows);
         }
         else
         {
@@ -307,7 +307,7 @@ public partial class DatabaseService
                 allTagData.AddRange(channelTagData);
             }
 
-            _logger.Info($"处理 {totalTagCount} 个标签, 有效标签 {validTagCount} 个。");
+            _logger.Info("处理 {totalTagCount} 个标签, 有效标签 {validTagCount} 个。", totalTagCount, validTagCount);
 
             // 校验: 若无有效标签则提前返回
             if (!allTagData.Any())
@@ -320,7 +320,7 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             // 执行: 批量插入或更新标签
             int affectedRows = await connection.ExecuteAsync(tagsUpsertSqlCommand, allTagData);
-            _logger.Info($"处理 {validTagCount} 个标签, 成功插入或更新 {affectedRows} 个新标签。");
+            _logger.Info("处理 {validTagCount} 个标签, 成功插入或更新 {affectedRows} 个新标签。", validTagCount, affectedRows);
         }
         catch (Exception ex)
         {
@@ -350,7 +350,7 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             // 执行: 批量插入或更新频道
             int affectedRows = await connection.ExecuteAsync(channelsUpsertSqlCommand, channelData);
-            _logger.Info($"处理 {channelList.Count} 个频道, 成功插入或更新 {affectedRows} 个新频道。");
+            _logger.Info("处理 {channelList.Count} 个频道, 成功插入或更新 {affectedRows} 个新频道。", channelList.Count, affectedRows);
         }
         catch (Exception ex)
         {
@@ -378,16 +378,16 @@ public partial class DatabaseService
 
             if (affectedRows > 0)
             {
-                _logger.Info($"成功更新帖子 {threadId} 的作品更新信息。");
+                _logger.Info("成功更新帖子 {threadId} 的作品更新信息。", threadId);
             }
             else
             {
-                _logger.Info($"尝试更新帖子 {threadId} 的作品信息, 但主表中未找到记录 (可能尚未同步), 跳过。");
+                _logger.Info("尝试更新帖子 {threadId} 的作品信息, 但主表中未找到记录 (可能尚未同步), 跳过。", threadId);
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"更新帖子 {threadId} 的作品更新信息时发生错误。", ex);
+            _logger.Error(ex, "更新帖子 {threadId} 的作品更新信息时发生错误。", threadId);
         }
     }
 }

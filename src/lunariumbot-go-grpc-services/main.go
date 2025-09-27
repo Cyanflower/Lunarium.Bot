@@ -202,7 +202,7 @@ func (s *monitoringServer) SubscribePerformanceData(req *pb.SubscriptionRequest,
 
 func main() {
 	// 监听一个端口
-	port := ":52001"
+	port := ":52002"
 	lis, err := gonet.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("监听失败: %v", err)

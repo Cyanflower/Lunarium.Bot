@@ -179,7 +179,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
     //     }
     //     catch (Exception ex)
     //     {
-    //         _logger.Error("CreateFavoriteConfirmButton {ex}", ex);
+    //         _logger.Error("CreateFavoriteConfirmButton", ex);
     //     }
     // }
     /// <summary>
@@ -240,7 +240,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
     //     }
     //     catch (Exception ex)
     //     {
-    //         _logger.Error("AddFavoriteConfirmButton {ex}", ex);
+    //         _logger.Error("AddFavoriteConfirmButton", ex);
     //     }
     // }
     /// <summary>

@@ -50,16 +50,16 @@ public partial class DatabaseService
 
             if (affectedRows > 0)
             {
-                _logger.Debug($"日期 {date} 在频道 {channelId} 的回复数 -1");
+                _logger.Debug("日期 {date} 在频道 {channelId} 的回复数 -1", date, channelId);
             }
             else
             {
-                _logger.Debug($"尝试为日期 {date} 频道 {channelId} 的回复数 -1, 但未找到匹配的统计行。");
+                _logger.Debug("尝试为日期 {date} 频道 {channelId} 的回复数 -1, 但未找到匹配的统计行。", date, channelId);
             }
         }
         catch (Exception ex)
         {
-            _logger.Error( $"更新每日回复数统计(-1)时发生错误。Date: {date}, Channel: {channelId}", ex);
+            _logger.Error( ex, "更新每日回复数统计(-1)时发生错误。Date: {date}, Channel: {channelId}", date, channelId);
         }
     }
 
@@ -93,11 +93,11 @@ public partial class DatabaseService
 
             if (affectedRows > 0)
             {
-                _logger.Info($"日期 {date} 在频道 {channelId} 的帖子数 -{postsRemoved}, 回复数 -{repliesRemoved}");
+                _logger.Info("日期 {date} 在频道 {channelId} 的帖子数 -{postsRemoved}, 回复数 -{repliesRemoved}", date, channelId, postsRemoved, repliesRemoved);
             }
             else
             {
-                _logger.Info($"尝试为日期 {date} 频道 {channelId} 的帖子统计-N, 但未找到匹配的统计行。");
+                _logger.Info("尝试为日期 {date} 频道 {channelId} 的帖子统计-N, 但未找到匹配的统计行。", date, channelId);
             }
 
             // 如果是自己创建的连接，需要手动关闭
@@ -108,7 +108,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error($"更新每日帖子和回复数统计(批量减少)时发生错误。Date: {date}, Channel: {channelId}", ex);
+            _logger.Error(ex, "更新每日帖子和回复数统计(批量减少)时发生错误。Date: {date}, Channel: {channelId}", date, channelId);
         }
     }
 }

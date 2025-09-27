@@ -53,14 +53,14 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
                 criteria.ExcludeAuthorIds.AddRange(blockedAuthors);
                 // 去重，防止快捷命令里已经排除了某个作者
                 criteria.ExcludeAuthorIds = criteria.ExcludeAuthorIds.Distinct().ToList();
-                _logger.Info($"为用户 {userId} 的快捷搜索 '{commandName}' 应用了 {blockedAuthors.Count} 个屏蔽作者。");
+                _logger.Info("为用户 {userId} 的快捷搜索 '{commandName}' 应用了 {blockedAuthors.Count} 个屏蔽作者。", userId, commandName, blockedAuthors.Count);
             }
             
             await SearchUtils.ExecuteAndDisplaySearchAsync(_logger, _databaseService, _paginatorManager, criteria, Context.Interaction);
         }
         catch (Exception ex)
         {
-            _logger.Error($"执行快捷搜索 {commandName} 时出错", ex);
+            _logger.Error(ex, "执行快捷搜索 {commandName} 时出错", commandName);
             await FollowupAsync(embed: EmbedUtils.FailedEmbed("执行失败", "执行快捷搜索时发生了意想不到的错误。"), ephemeral: true);
         }
     }

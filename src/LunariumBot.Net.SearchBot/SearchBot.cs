@@ -187,7 +187,6 @@ public class SearchBotService : IHostedService
         scheduler.Schedule<FullSyncJob>().Cron("0 4 * * 1").Zoned(TimeZone);
         scheduler.Schedule<AnalysisJob>().DailyAt(4, 30).Zoned(TimeZone);
         _logger.Info("✅ 定时任务已配置完成。");
-        
         // 登录和启动
         await _client.LoginAsync(TokenType.Bot, _token);
         await _client.StartAsync();

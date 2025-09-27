@@ -234,7 +234,7 @@ public class FavoriteCommands : InteractionModuleBase<SocketInteractionContext>
                     .WithColor(Color.Blue)
                     .Build();
                 await FollowupAsync(embed: emptyEmbed, ephemeral: true);
-                _logger.Info($"用户 {Context.User.Id} 查询收藏夹 '{favorite ?? "未分类"}' 结果为空");
+                _logger.Info("用户 {Context.User.Id} 查询收藏夹 '{favorite}' 结果为空", Context.User.Id, favorite ?? "未分类");
                 return;
             }
     

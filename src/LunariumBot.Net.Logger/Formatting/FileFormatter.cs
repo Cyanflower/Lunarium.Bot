@@ -9,8 +9,8 @@ namespace LunariumBot.Net.Logger.Formatting;
 /// </summary>
 internal static class FileFormatter
 {
-    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.][a-zA-Z0-9_.]*)\}", RegexOptions.Compiled);
-    
+    private static readonly Regex _propertyRegex = new(@"\{([a-zA-Z_.()][a-zA-Z0-9_.()]*)(?::([^}]+))?\}", RegexOptions.Compiled);
+
     /// <summary>
     /// 将日志条目格式化为适合文件存储的字符串。
     /// </summary>
@@ -33,17 +33,19 @@ internal static class FileFormatter
             return "";
         }
     }
-    
+
     private static string FormatPlainText(LogEntry entry)
     {
         // 渲染消息模板
         var renderedMessage = _propertyRegex.Replace(entry.MessageTemplate, match =>
         {
             var key = match.Groups[1].Value;
+            var format = match.Groups[2].Success ? match.Groups[2].Value : null;
+
             if (entry.Properties.TryGetValue(key, out var value))
             {
-                // 文件中我们不需要颜色，直接返回值
-                return value?.ToString() ?? "null";
+                // 文件中我们不需要颜色，直接调用格式化帮助方法
+                return GetFormattedString(value, format);
             }
             return match.Value;
         });
@@ -58,11 +60,11 @@ internal static class FileFormatter
             LogLevel.Critical => "CRT",
             _ => "UNK"
         };
-        
+
         // 构建日志消息
         var messageBuilder = new StringBuilder();
         messageBuilder.Append($"[{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{levelString}] [{entry.LoggerName}] [{entry.Context}] {renderedMessage}");
-        
+
         if (entry.Exception != null)
         {
             messageBuilder.AppendLine(); // 换行
@@ -70,5 +72,27 @@ internal static class FileFormatter
         }
 
         return messageBuilder.ToString();
+    }
+    
+    private static string GetFormattedString(object? value, string? format)
+    {
+        if (value is null)
+        {
+            return "null";
+        }
+
+        if (!string.IsNullOrEmpty(format) && value is IFormattable formattableValue)
+        {
+            try
+            {
+                return formattableValue.ToString(format, null);
+            }
+            catch (FormatException)
+            {
+                return value.ToString() ?? "";
+            }
+        }
+
+        return value.ToString() ?? "";
     }
 }

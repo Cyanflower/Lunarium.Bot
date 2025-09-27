@@ -68,7 +68,7 @@ public partial class DatabaseService
             
             if (!subscriptionResult.Any())
             {
-                _logger.Warning($"用户 {userId} 的订阅列表为空。");
+                _logger.Warning("用户 {userId} 的订阅列表为空。", userId);
                 return new List<PostDisplayModel>();
             }
 
@@ -101,7 +101,7 @@ public partial class DatabaseService
                 }
             }
             
-            _logger.Info($"为用户 {userId} 成功获取 {finalResults.Count} 条订阅帖子。");
+            _logger.Info("为用户 {userId} 成功获取 {finalResults.Count} 条订阅帖子。", userId, finalResults.Count);
             return finalResults;
         }
         catch(Exception ex)
@@ -127,7 +127,7 @@ public partial class DatabaseService
 
             if (!pushListResult.Any())
             {
-                _logger.Info($"用户 {userId} 的推送列表为空。");
+                _logger.Info("用户 {userId} 的推送列表为空。", userId);
                 return new List<PostDisplayModel>();
             }
 
@@ -163,7 +163,7 @@ public partial class DatabaseService
                 }
             }
 
-            _logger.Info($"为用户 {userId} 成功获取 {finalResults.Count} 条更新推送。");
+            _logger.Info("为用户 {userId} 成功获取 {finalResults.Count} 条更新推送。", userId, finalResults.Count);
             return finalResults;
         }
         catch(Exception ex)

@@ -143,7 +143,7 @@ public class SearchCommands : InteractionModuleBase<SocketInteractionContext>
             exAuthor1, exAuthor2, exAuthor3,
             order, startTime, endTime, resultLimit
         );
-        _logger.Debug($"用户 {Context.User.Username} 的搜索模型构建完毕...");
+        _logger.Debug("用户 {Context.User.Username} 的搜索模型构建完毕...", Context.User.Username);
 
         // === 2. 执行数据库查询 ===
         await SearchUtils.ExecuteAndDisplaySearchAsync(_logger, _databaseService, _paginatorManager, criteria, Context.Interaction);

@@ -64,11 +64,11 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             await connection.ExecuteAsync(serverDataUpsertCreatedPostSql, parameters);
 
-            _logger.Debug($"日期 {date} 在频道 {channelId} 的帖子创建数 +1");
+            _logger.Debug("日期 {date} 在频道 {channelId} 的帖子创建数 +1", date, channelId);
         }
         catch (Exception ex)
         {
-            _logger.Error($"更新每日帖子创建数统计时发生错误。Date: {date}, Channel: {channelId}",ex);
+            _logger.Error(ex, "更新每日帖子创建数统计时发生错误。Date: {date}, Channel: {channelId}", date, channelId);
         }
     }
 
@@ -97,11 +97,11 @@ public partial class DatabaseService
             using var connection = new SqliteConnection(_connectionString);
             await connection.ExecuteAsync(serverDataUpsertReplySql, parameters);
             
-            _logger.Debug("日期 {date} 在频道 {channelId} 的回复数 +1");
+            _logger.Debug("日期 {date} 在频道 {channelId} 的回复数 +1", date, channelId);
         }
         catch (Exception ex)
         {
-            _logger.Error("更新每日回复数统计时发生错误。Date: {date}, Channel: {channelId}",ex);
+            _logger.Error(ex, "更新每日回复数统计时发生错误。Date: {date}, Channel: {channelId}",date ,channelId);
         }
     }
 }
