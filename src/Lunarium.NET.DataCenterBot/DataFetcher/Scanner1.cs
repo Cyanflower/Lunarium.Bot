@@ -12,12 +12,12 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.DataCenter.Database;
 using LunariumBot.Net.DataCenter.Model;
 
-namespace LunariumBot.Net.DataCenter.DataProcess;
+namespace LunariumBot.Net.DataCenter.DataFetcher;
 
 /// <summary>
 /// 负责扫描指定服务器和频道中的帖子(Thread)。
 /// </summary>
-public class Scanner
+public class Scanner1
 {
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
@@ -28,7 +28,7 @@ public class Scanner
 
     public bool FullSyncLock { get; private set; } = false;
 
-    public Scanner(ILogger logger, ConfigLoader configLoader, DiscordSocketClient client, DatabaseService databaseService, ThreadProcessor threadProcessor)
+    public Scanner1(ILogger logger, ConfigLoader configLoader, DiscordSocketClient client, DatabaseService databaseService, ThreadProcessor threadProcessor)
     {
         _logger = logger.ForContext("Scanner");
         _configLoader = configLoader;

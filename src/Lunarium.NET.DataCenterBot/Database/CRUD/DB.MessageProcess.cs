@@ -7,7 +7,7 @@ namespace LunariumBot.Net.DataCenter.Database;
 
 public partial class DatabaseService
 {
-    public async Task ForumThreadMessageToDBAsync(MessageData messageData)
+    public async Task ForumThreadMessageToDBAsync(MessageData messageData, int replayCount)
     {
         const string SQLCommand = """
             -- 步骤 1: 插入新消息记录到 message_main 表
@@ -26,6 +26,7 @@ public partial class DatabaseService
             -- 对于回复记数, Thread 数据会带有来自Discord API的帖子回复准确记数, 用其数据覆盖简单精准
             UPDATE posts_main
             SET 
+                reply_count = @ReplayCount,
                 last_active_at = @CreatedAt,               -- 更新最后活跃时间
                 
                 -- 如果是楼主的“更新”操作, 则更新以下字段, 否则保持原样
@@ -77,6 +78,8 @@ public partial class DatabaseService
                 messageData.MessageJumpUrl,
                 messageData.IsCreateThread,
                 messageData.IsUpdate,
+
+                ReplayCount = replayCount
             };
             try
             {
@@ -258,63 +261,52 @@ public partial class DatabaseService
         }
 
         const string SQLCommand = """
-            -- 步骤 1: 软删除消息并获取详细信息
-            WITH deleted_messages AS (
-                UPDATE message_main
-                SET is_deleted = TRUE
-                WHERE message_id = ANY(@MessageIds) AND is_deleted = FALSE
-                RETURNING author_id, thread_id, is_update, message_id
-            ),
-            -- 步骤 2: 统计thread相关数据
-            thread_stats AS (
+            -- 步骤 1: 软删除消息
+            UPDATE message_main
+            SET is_deleted = TRUE
+            WHERE message_id = ANY(@MessageIds) AND is_deleted = FALSE;
+
+            -- 步骤 2: 更新 post_members（减少消息计数）
+            UPDATE post_members pm
+            SET message_count = pm.message_count - subq.deleted_count
+            FROM (
                 SELECT 
                     author_id,
                     thread_id,
                     COUNT(*) AS deleted_count
-                FROM deleted_messages
-                WHERE thread_id IS NOT NULL
+                FROM message_main
+                WHERE message_id = ANY(@MessageIds) 
+                AND is_deleted = TRUE 
+                AND thread_id IS NOT NULL
                 GROUP BY author_id, thread_id
-            ),
-            -- 步骤 3: 统计用户相关数据
-            user_stats AS (
+            ) subq
+            WHERE pm.user_id = subq.author_id AND pm.thread_id = subq.thread_id;
+
+            -- 步骤 3: 标记帖子为无效
+            UPDATE posts_main pm
+            SET is_valid = FALSE
+            WHERE pm.thread_id = ANY(@MessageIds)
+            AND EXISTS (
+                SELECT 1 FROM message_main mm 
+                WHERE mm.message_id = pm.thread_id AND mm.is_deleted = TRUE
+            );
+
+            -- 步骤 4: 更新 user_data
+            UPDATE user_data ud
+            SET
+                user_message_count = ud.user_message_count - subq.total_count,
+                user_credit_lv1 = ud.user_credit_lv1 - subq.total_count,
+                user_update_count = ud.user_update_count - subq.update_count
+            FROM (
                 SELECT 
                     author_id,
                     COUNT(*) AS total_count,
                     COUNT(*) FILTER (WHERE is_update = TRUE) AS update_count
-                FROM deleted_messages
+                FROM message_main
+                WHERE message_id = ANY(@MessageIds) AND is_deleted = TRUE
                 GROUP BY author_id
-            ),
-            -- 步骤 4: 更新 post_members
-            post_members_update AS (
-                UPDATE post_members pm
-                SET message_count = pm.message_count - ts.deleted_count
-                FROM thread_stats ts
-                WHERE pm.user_id = ts.author_id AND pm.thread_id = ts.thread_id
-                RETURNING pm.user_id
-            ),
-            -- 步骤 5: 标记帖子为无效（如果删除的是首楼消息）
-            posts_invalidate AS (
-                UPDATE posts_main pm
-                SET is_valid = FALSE
-                FROM deleted_messages dm
-                WHERE pm.thread_id = dm.message_id  -- Discord中帖子ID通常等于首楼消息ID
-                RETURNING pm.thread_id
-            )
-            -- 步骤 6: 更新 user_data
-            UPDATE user_data ud
-            SET
-                user_message_count = ud.user_message_count - us.total_count,
-                user_credit_lv1 = ud.user_credit_lv1 - us.total_count,
-                user_update_count = ud.user_update_count - us.update_count
-            FROM user_stats us
-            WHERE ud.user_id = us.author_id;
-
-            -- 返回影响的行数和无效化的帖子数
-            SELECT 
-                COUNT(*) as deleted_count,
-                (SELECT COUNT(*) FROM posts_invalidate) as invalidated_posts_count
-            FROM message_main 
-            WHERE message_id = ANY(@MessageIds) AND is_deleted = TRUE;
+            ) subq
+            WHERE ud.user_id = subq.author_id;
             """;
 
         try
@@ -327,7 +319,7 @@ public partial class DatabaseService
 
             try
             {
-                var deletedCount = await connection.QuerySingleAsync<int>(SQLCommand, parameters, transaction);
+                var deletedCount = await connection.ExecuteAsync(SQLCommand, parameters, transaction);
                 await transaction.CommitAsync();
                 _logger.Info("成功软删除 {DeletedCount} 条消息（共尝试删除 {TotalCount} 条），并同步更新了用户和成员的统计数据。", 
                             deletedCount, messageIds.Count);

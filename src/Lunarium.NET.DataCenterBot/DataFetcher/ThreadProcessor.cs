@@ -15,9 +15,9 @@ using LunariumBot.Net.Logger;
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Model;
 
-namespace LunariumBot.Net.DataCenter.DataProcess;
+namespace LunariumBot.Net.DataCenter.DataFetcher;
 
-public partial class DataProcessService
+public partial class DataProcessService1
 {
 
     // 频道缓存

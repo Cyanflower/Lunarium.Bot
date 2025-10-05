@@ -17,6 +17,14 @@ public class DbInfo
     public long InitializeAt { get; set; }
 }
 
+public class ChannelData
+{
+    public ulong ChannelId { get; set; }
+    public string ChannelName { get; set; } = "";
+    public ulong GuildId { get; set; }
+    public string GuildName { get; set; } = "";
+}
+
 /// <summary>
 /// 帖子数据模型
 /// 从IThreadChannel解析填入而来
@@ -93,18 +101,6 @@ public class PostMemberData
     public ulong MessageCount { get; set; } = 0;
     public ulong? LastMessageId { get; set; } = null;
     public DateTimeOffset? LastMessageAt { get; set; } = null;
-}
-
-/// <summary>
-/// 一个轻量级模型，用于在删除帖子前从数据库获取必要的统计信息。
-/// </summary>
-public class PostInfoForStats
-{
-    public ulong ThreadId { get; set; }
-    public long CreatedAt { get; set; }
-    public ulong GuildId { get; set; }
-    public ulong ChannelId { get; set; }
-    public int ReplyCount { get; set; }
 }
 
 public class TagInfo

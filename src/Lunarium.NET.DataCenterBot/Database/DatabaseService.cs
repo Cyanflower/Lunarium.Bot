@@ -180,7 +180,7 @@ public partial class DatabaseService : IDisposable
 
     /// <summary>
     /// 查找、解析并排序所有需要应用的迁移脚本文件。
-    //  这个方法的返回值类型签名是公开的，所以它内部使用的类型不能是 file-local 的。
+    ///  这个方法的返回值类型签名是公开的，所以它内部使用的类型不能是 file-local 的。
     /// </summary>
     private List<MigrationScript> FindAndSortMigrationFiles(int currentVersion)
     {

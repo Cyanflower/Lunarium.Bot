@@ -32,10 +32,7 @@ public partial class DataProcessService
         }
         catch (Exception ex)
         {
-            _logger.Critical(ex, "");
-            // 即使如此仍然无法获得首楼消息
-            // 放弃, 并将该帖子加入等待处理列表, 以期在 UpdateThread 中处理
-            return;
+            _logger.Critical(ex, "首楼消息未找到");
         }
         finally
         {
@@ -153,7 +150,50 @@ public partial class DataProcessService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "CreateThreadProcessAsync");
+            _logger.Error(ex, "UpdateThreadProcessAsync");
+        }
+    }
+
+    public async Task UpdateTheradReactionProcessAsync(SocketThreadChannel socketThreadChannel)
+    {
+        IMessage? firstMessage = null;
+        // 使用重试策略进行尝试从API获取首楼消息内容
+        try
+        {
+            await _semaphore.WaitAsync();
+            await _httpRetryPolicy.ExecuteAsync(async () =>
+            {
+                // 获取首楼消息
+                firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Critical(ex, "首楼消息未找到");
+            return;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+        int highestReactionCount = 0;
+        if (firstMessage != null)
+        {
+            highestReactionCount = firstMessage.Reactions.Values
+                .Select(r => r.ReactionCount)
+                .DefaultIfEmpty(0)
+                .Max();
+        }
+        try
+        {
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await _databaseService.UpdateThreadReactionToDBAsync(socketThreadChannel.Id, highestReactionCount);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "UpdateTheradReactionProcessAsync");
         }
     }
 

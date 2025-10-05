@@ -29,7 +29,7 @@ public partial class DataProcessService
         {
             IMessage? refreshMessage;
             bool isUpdate = false;
-            if (message.Author.Id == threadChannel.Owner.Id && message.Id == threadChannel.Id)
+            if (message.Author.Id == threadChannel.Owner.Id && message.Id != threadChannel.Id)
             {
                 // 等待 1 s
                 await Task.Delay(1000);
@@ -64,7 +64,7 @@ public partial class DataProcessService
                 IsUpdate = isUpdate
             };
             // 如果是首楼消息
-            // 将 posts_main 相关数据完全交由 CreateThreadProcessAsync 侧进行处理, 调用不处理 posts_main 表的方法
+            // 将 posts_main 相关数据完全交由 CreateThreadProcessAsync 侧进行处理, 调用不处理 posts_main 表的数据库方法
             if (message.Id == threadChannel.Id)
             {
                 await _dbRetryPolicy.ExecuteAsync(async () =>
@@ -75,12 +75,12 @@ public partial class DataProcessService
             }
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.ForumThreadMessageToDBAsync(messageData);
+                await _databaseService.ForumThreadMessageToDBAsync(messageData, threadChannel.MessageCount);
             });
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "ThreadMessageProcessAsync");
         }
     }
 
@@ -127,7 +127,7 @@ public partial class DataProcessService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "ThreadMessageProcessAsync");
         }
     }
 
@@ -164,7 +164,7 @@ public partial class DataProcessService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "TextChannelMessageProcess");
         }
     }
 
@@ -179,7 +179,7 @@ public partial class DataProcessService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "MessagesDeleteProcess");
         }
     }
 
@@ -206,7 +206,7 @@ public partial class DataProcessService
                 return false;
             }
 
-            // --- 步骤 1: 检查 JSON 附件 (这个开销很小，可以先做) ---
+            // --- 步骤 1: 检查 JSON 附件 ---
             if (message.Attachments.Any(a => a.Filename.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.Info("JSON 检查: 在消息 {message.Id} 中检测到 JSON 附件，判定为更新。", message.Id);
@@ -265,7 +265,7 @@ public partial class DataProcessService
 
         try
         {
-            // 1. 【优化】预检文件大小
+            // 预检文件大小
             using var headRequest = new HttpRequestMessage(HttpMethod.Head, attachment.Url);
             using var headResponse = await _httpClient.SendAsync(headRequest, HttpCompletionOption.ResponseHeadersRead);
 
@@ -281,7 +281,7 @@ public partial class DataProcessService
                 return false;
             }
 
-            // 2. 【优化】流式下载到临时文件
+            // 流式下载到临时文件
             tempFilePath = Path.GetTempFileName();
             _logger.Debug("Downloading '{attachment.Filename}' to temporary file: {tempFilePath}", attachment.Filename, tempFilePath);
 
@@ -292,7 +292,7 @@ public partial class DataProcessService
             }
             _logger.Debug("Successfully downloaded '{attachment.Filename}'.", attachment.Filename);
 
-            // 3. 【优化】使用 Image.Identify 仅读取元数据
+            // 使用 Image.Identify 仅读取元数据
             _logger.Debug("Identifying metadata for '{tempFilePath}' without decoding the image.", tempFilePath);
             var imageInfo = await SixLabors.ImageSharp.Image.IdentifyAsync(tempFilePath);
 
@@ -325,7 +325,7 @@ public partial class DataProcessService
         }
         finally
         {
-            // 4. 关键：清理临时文件
+            // 清理临时文件
             if (tempFilePath != null && File.Exists(tempFilePath))
             {
                 try

@@ -96,13 +96,13 @@ CREATE TABLE IF NOT EXISTS posts_main (
     content_tokenized TEXT,
 
     -- 用于全文搜索的 tsvector 列，将由 tokenized 列生成
-    search_vector TSVECTOR,
+    search_vector TSVECTOR
 
     -- 外键: 关联频道表
-    CONSTRAINT fk_channel
-        FOREIGN KEY (channel_id) 
-        REFERENCES channels(channel_id) 
-        ON DELETE CASCADE
+    -- CONSTRAINT fk_channel
+    --     FOREIGN KEY (channel_id) 
+    --     REFERENCES channels(channel_id) 
+    --     ON DELETE CASCADE
 );
 
 -- 创建主表索引
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS message_main (
 );
 
 CREATE INDEX IF NOT EXISTS idx_message_main_author_id ON message_main (author_id);
-CREATE INDEX IF NOT EXISTS idx_message_main_send_at ON message_main (send_at);
+CREATE INDEX IF NOT EXISTS idx_message_main_created_at ON message_main (created_at);
 CREATE INDEX IF NOT EXISTS idx_message_main_channel_id ON message_main (channel_id);
 CREATE INDEX IF NOT EXISTS idx_message_main_thread_id ON message_main (thread_id);
 
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS post_members (
     message_count INTEGER DEFAULT 0,
     -- 一些非发送消息事件也可以导致用户被添加到帖子里, 所以消息相关非必须
     last_message_id BIGINT,
-    last_message_at TIMESTAMPTZ
+    last_message_at TIMESTAMPTZ,
 
     PRIMARY KEY (user_id, thread_id)
 )

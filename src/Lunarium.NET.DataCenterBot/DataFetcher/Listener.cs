@@ -15,7 +15,7 @@ using LunariumBot.Net.DataCenter.Database;
 using LunariumBot.Net.DataCenter.Model;
 using LunariumBot.Net.DataCenter.DataProcess;
 
-namespace LunariumBot.Net.DataCenter.ThreadFetcher;
+namespace LunariumBot.Net.DataCenter.DataFetcher;
 
 /// <summary>
 /// 负责监听 Discord 服务器中的实时事件（如消息、帖子创建/更新/删除等），
@@ -23,67 +23,29 @@ namespace LunariumBot.Net.DataCenter.ThreadFetcher;
 /// 它将相关事件暂存起来，在适当的时机（达到阈值或延迟时间到）统一更新到数据库，
 /// 同时也能检测特定类型的消息（如包含特殊元数据的PNG或JSON文件）以触发用户订阅推送。
 /// </summary>
-class Listener
+public class Listener
 {
     private readonly ILogger _logger;
     private readonly DiscordSocketClient _client;
-    private readonly DatabaseService _databaseService;
     private readonly ConfigLoader _configLoader;
-    private readonly Scanner _scanner;
-    private readonly ThreadProcessor _threadProcessor;
 
     // 监控的频道ID列表
     private readonly HashSet<ulong> _channelIds;
 
-    /// <summary>
-    /// 线程安全的暂存区，用于存放待处理的帖子。
-    /// Key: 帖子ID (ThreadId), Value: 帖子对象 (IThreadChannel)
-    /// 使用 ConcurrentDictionary 保证了同一帖子的更新是原子性的。
-    /// </summary>
-    private readonly ConcurrentDictionary<ulong, IThreadChannel> _pendingThreads = new();
-
-    /// <summary>
-    /// 防抖器，用于延迟和批量处理帖子更新。
-    /// </summary>
-    private readonly Debouncer _threadProcessorDebouncer;
-
-    /// <summary>
-    /// 批量处理的阈值。当待处理帖子数量达到此值时，立即触发处理。
-    /// </summary>
-    private const int BATCH_PROCESS_THRESHOLD = 100;
-
     private readonly DataProcessService _dataProcessService;
-
-    /// <summary>
-    /// 论坛频道缓存字典
-    /// </summary>
-    private readonly ConcurrentDictionary<ulong, IForumChannel> forumCache = new();
 
     public Listener(
         ILogger logger,
         DiscordSocketClient client,
-        DatabaseService databaseService,
         ConfigLoader configLoader,
-        Scanner scanner,
-        ThreadProcessor threadProcessor,
-        ProxyConfig proxyConfig,
         DataProcessService dataProcessService
     )
     {
         _logger = logger.ForContext("Listener");
         _client = client;
-        _databaseService = databaseService;
         _configLoader = configLoader;
-        _scanner = scanner;
-        _threadProcessor = threadProcessor;
         _channelIds = _configLoader.Config.GuildsConfig.ScanChannelIDS.Values.SelectMany(ids => ids).ToHashSet();
-
         _dataProcessService = dataProcessService;
-        // 初始化防抖器，设置1秒延迟，并将要执行的操作指向我们的处理方法
-        _threadProcessorDebouncer = new Debouncer(
-            ProcessPendingThreadsAsync, // 防抖后要调用的方法
-            TimeSpan.FromSeconds(10)     // 设定的秒延迟
-        );
     }
 
     /// <summary>
@@ -99,9 +61,11 @@ class Listener
         _client.ThreadCreated += ThreadCreatedAsync;
         _client.ThreadUpdated += ThreadUpdateAsync;
         _client.ThreadDeleted += DeleteThreadAsync;
-        _client.ReactionAdded += ;
-        _client.ReactionRemoved += ;
-        _client.
+        _client.ReactionAdded += ReactionAddedAsync;
+        _client.ReactionRemoved += ReactionRemovedAsync;
+        _client.ChannelCreated += ChannelCreatedAsync;
+        _client.ChannelUpdated += ChannelUpdatedAsync;
+        _client.ChannelDestroyed += ChannelDestroyedAsync;
         _logger.Info("✅ 监听器事件处理方法已添加。");
     }
 
@@ -113,12 +77,15 @@ class Listener
     {
         _client.MessageReceived -= MessageReceivedAsync;
         _client.MessageDeleted -= MessageDeleteAsync;
-        _client.MessagesBulkDeleted += MessageBulkDeleteAsync;
+        _client.MessagesBulkDeleted -= MessageBulkDeleteAsync;
         _client.ThreadCreated -= ThreadCreatedAsync;
         _client.ThreadUpdated -= ThreadUpdateAsync;
         _client.ThreadDeleted -= DeleteThreadAsync;
-        _client.ReactionAdded -= ;
-        _client.ReactionRemoved -= ;
+        _client.ReactionAdded -= ReactionAddedAsync;
+        _client.ReactionRemoved -= ReactionRemovedAsync;
+        _client.ChannelCreated -= ChannelCreatedAsync;
+        _client.ChannelUpdated -= ChannelUpdatedAsync;
+        _client.ChannelDestroyed -= ChannelDestroyedAsync;
         _logger.Info("✅ 监听器事件处理方法已移除。");
     }
 
@@ -250,5 +217,69 @@ class Listener
         await _dataProcessService.DeleteThreadProcessAsync(cacheableChannel.Id);
     }
 
+    #endregion
+
+    #region ReactionAddedAsync
+    public async Task ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction socketReaction)
+    {
+        // 获取消息所在频道对象
+        var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
+        // 如果是帖子频道且在监听目标集合范围内
+        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && _channelIds.Contains(threadChannel.ParentChannel.Id))
+        {
+            // 是帖子的首楼消息
+            if (cacheableMessage.Id == cacheableChannel.Id)
+            {
+                await _dataProcessService.UpdateTheradReactionProcessAsync(threadChannel);
+            }
+        }
+    }
+    #endregion
+
+    #region ReactionRemovedAsync
+    public async Task ReactionRemovedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction socketReaction)
+    {
+        // 获取消息所在频道对象
+        var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
+        // 如果是帖子频道且在监听目标集合范围内
+        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && _channelIds.Contains(threadChannel.ParentChannel.Id))
+        {
+            // 是帖子的首楼消息
+            if (cacheableMessage.Id == cacheableChannel.Id)
+            {
+                await _dataProcessService.UpdateTheradReactionProcessAsync(threadChannel);
+            }
+        }
+    }
+    #endregion
+
+    #region ChannelCreatedAsync
+    public async Task ChannelCreatedAsync(SocketChannel socketChannel)
+    {
+        if (socketChannel is SocketForumChannel socketForumChannel)
+        {
+            await _dataProcessService.CreateOrUpdateChannelProcessAsync(socketForumChannel);
+        }
+    }
+    #endregion
+
+    #region ChannelUpdatedAsync
+    public async Task ChannelUpdatedAsync(SocketChannel socketBeforeChannel, SocketChannel socketAfterChannel)
+    {
+        if (socketAfterChannel is SocketForumChannel socketForumChannel)
+        {
+            await _dataProcessService.CreateOrUpdateChannelProcessAsync(socketForumChannel);
+        }
+    }
+    #endregion
+
+    #region ChannelDestroyedAsync
+    public async Task ChannelDestroyedAsync(SocketChannel socketChannel)
+    {
+        if (socketChannel is SocketForumChannel socketForumChannel)
+        {
+            await _dataProcessService.DeleteChannelProcessAsync(socketForumChannel);
+        }
+    }
     #endregion
 }

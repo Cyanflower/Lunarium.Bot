@@ -20,7 +20,7 @@ public class GuildsConfig
 {
     public List<ulong> DeployGuildIds { get; set; } = new();
     public List<ulong> DashboardChannels { get; set; } = new();
-    public Dictionary<string, List<ulong>> ScanChannelIDS { get; set; } = new();
+    public Dictionary<string, List<ulong>> ScanChannelIDs { get; set; } = new();
 }
 
 public class BannerConfig
