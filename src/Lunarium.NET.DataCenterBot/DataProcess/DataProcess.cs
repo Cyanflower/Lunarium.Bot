@@ -27,7 +27,7 @@ public partial class DataProcessService
     private readonly SemaphoreSlim _semaphore;
     private readonly ITokenizerService _tokenizerService;
     private readonly ConcurrentDictionary<ulong, (string MessageContent, TaskCompletionSource<bool> TaskCompletionSource)> _messageDataToThreadDataForCreateThread = new();
-    public DataProcessService(ILogger logger, DatabaseService databaseService, ProxyConfig proxyConfig, ITokenizerService tokenizerService)
+    public DataProcessService(ILogger logger, DatabaseService databaseService, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
     {
         _logger = logger.ForContext("DataProcessService");
         _databaseService = databaseService;
@@ -36,7 +36,7 @@ public partial class DataProcessService
         _httpClient = HttpClientConfig(proxyConfig);
         _httpRetryPolicy = HttpRetryPolicyConfig();
         _dbRetryPolicy = DbRetryPolicy();
-        _semaphore = new SemaphoreSlim(25, 25);
+        _semaphore = semaphore;
     }
 
     private static HttpClient HttpClientConfig(ProxyConfig proxyConfig)

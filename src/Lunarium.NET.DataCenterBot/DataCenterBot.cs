@@ -20,7 +20,7 @@ using LunariumBot.Net.Logger;
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Database;
 using LunariumBot.Net.DataCenter.Scheduler;
-using LunariumBot.Net.DataCenter.ThreadFetcher;
+using LunariumBot.Net.DataCenter.DataFetcher;
 using LunariumBot.Net.DataCenter.Utils;
 using LunariumBot.Net.DataCenter.Model;
 using LunariumBot.Net.DataCenter.AppInteractionService;
@@ -43,7 +43,9 @@ public class DataCenterBotService : IHostedService
     private readonly Scanner _scanner;
     private readonly Listener _listener;
     private bool _isFirstTime = true;
+    public bool Initialized { get; private set; } = true;
     private readonly AuthUtils _authUtils;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(25, 25);
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "重新注册",
@@ -71,6 +73,8 @@ public class DataCenterBotService : IHostedService
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
         _logger.Info("✅ SearchBot 服务初始化完成。");
     }
+
+
 
     // 封装的私有服务配置方法
     private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, ILogger logger)
@@ -141,7 +145,7 @@ public class DataCenterBotService : IHostedService
             .AddSingleton<AdminCommands>()
             .BuildServiceProvider();
 
-        
+
         return services;
     }
 

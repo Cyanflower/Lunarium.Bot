@@ -44,7 +44,7 @@ public class Listener
         _logger = logger.ForContext("Listener");
         _client = client;
         _configLoader = configLoader;
-        _channelIds = _configLoader.Config.GuildsConfig.ScanChannelIDS.Values.SelectMany(ids => ids).ToHashSet();
+        _channelIds = _configLoader.Config.GuildsConfig.ScanChannelIDs.Values.SelectMany(ids => ids).ToHashSet();
         _dataProcessService = dataProcessService;
     }
 
@@ -54,7 +54,6 @@ public class Listener
     /// </summary>
     public void AddEventHandlers()
     {
-        // _client.MessageReceived += CreatorAutomatic;
         _client.MessageReceived += MessageReceivedAsync;
         _client.MessageDeleted += MessageDeleteAsync;
         _client.MessagesBulkDeleted += MessageBulkDeleteAsync;

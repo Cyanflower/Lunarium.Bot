@@ -33,16 +33,28 @@ public partial class DataProcessService
             {
                 // 等待 1 s
                 await Task.Delay(1000);
-                // 傻逼 dc api 的 MessageReceived 不会附带附件, 附件是后续 Update 上去的, 得重新获取一下 Update 的消息
-                refreshMessage = await threadChannel.GetMessageAsync(message.Id);
-                if (refreshMessage == null)
+                try
                 {
-                    _logger.Warning("无法从频道缓存中获取到最新的消息对象 (ID: {message.Id})，将使用事件参数中的消息对象。", message.Id);
-                    refreshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
+                    await _semaphore.WaitAsync();
+                    // 傻逼 dc api 的 MessageReceived 不会附带附件, 附件是后续 Update 上去的, 得重新获取一下 Update 的消息
+                    refreshMessage = await threadChannel.GetMessageAsync(message.Id);
+                    if (refreshMessage == null)
+                    {
+                        _logger.Warning("无法从频道缓存中获取到最新的消息对象 (ID: {message.Id})，将使用事件参数中的消息对象。", message.Id);
+                        refreshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
+                    }
+                    else
+                    {
+                        isUpdate = await CheckUpdateAsync(refreshMessage);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    isUpdate = await CheckUpdateAsync(refreshMessage);
+                    _logger.Error(ex);
+                }
+                finally
+                {
+                    _semaphore.Release();
                 }
             }
 
@@ -102,7 +114,7 @@ public partial class DataProcessService
                 // 如果是该消息创建了子区
                 // 等待 1 s
                 // 即使比 Created 事件先接收, 也尽量确保在 Created 事件之后
-                await Task.Delay(1000);
+                await Task.Delay(2000);
             }
             // 准备更新消息数据
             var messageData = new MessageData()

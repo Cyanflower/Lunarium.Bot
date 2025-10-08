@@ -271,20 +271,22 @@ public class ArchiverService : IDisposable
     {
         // 1. 获取服务器的所有相关频道
         (var allActiveThreads, var guildName) = await GetEligibleChannelsFromGuild(guildId);
-        _logger.Info("[{guildName}({GuildId})] 步骤1/5: 从服务器中共获取到 {ThreadCount} 个活跃线程", guildName, guildId, allActiveThreads.Count, allActiveThreads.Count);
+        _logger.Info("[{guildName}({GuildId})] 步骤1/6: 从服务器中共获取到 {ThreadCount} 个活跃线程", guildName, guildId, allActiveThreads.Count, allActiveThreads.Count);
 
         // 2. 分类处理置顶线程和普通线程
         var (pinnedThreads, regularThreads) = ClassifyThreadsByPinnedStatus(allActiveThreads, guildId);
-        _logger.Info("[{guildName}({GuildId})] 步骤2/5: 线程分类完成 -> {PinnedCount} 个置顶线程, {RegularCount} 个普通线程", guildName, guildId, pinnedThreads.Count, regularThreads.Count);
+        _logger.Info("[{guildName}({GuildId})] 步骤2/6: 线程分类完成 -> {PinnedCount} 个置顶线程, {RegularCount} 个普通线程", guildName, guildId, pinnedThreads.Count, regularThreads.Count);
 
-        // 3. 维护置顶线程状态
-        await MaintainPinnedThreadsStatus();
-
-        // 4. 处理需要归档的线程
+        // 3. 处理需要归档的线程 (获取后活跃时间信息)
         var threadsWithLastActivity = await GetThreadsWithLastActivityTime(regularThreads, guildId, guildName);
+
+        // 4. 处理需要归档的线程 (进行归档)
         var archiveResults = await ArchiveExcessiveThreads(threadsWithLastActivity, activeThreadLimit, guildId, guildName);
 
-        // 5. 发送或更新状态日志
+        // 5. 维护置顶线程状态
+        await MaintainPinnedThreadsStatus();
+
+        // 6. 发送或更新状态日志
         await UpdateArchiveStatusLog(guildId, guildName, allActiveThreads.Count, activeThreadLimit, archiveResults, taskStartTime);
     }
 
@@ -383,7 +385,7 @@ public class ArchiverService : IDisposable
             }
 
             // 打印日志，表明开始维护指定服务器的置顶帖
-            _logger.Info("[{guildName}({GuildId})] 步骤3/5: 开始维护 {PinnedCount} 个已缓存的置顶线程状态...", 
+            _logger.Info("[{guildName}({GuildId})] 步骤5/6: 开始维护 {PinnedCount} 个已缓存的置顶线程状态...", 
                 guild.Name, guildId, channelThreadPairs.Count);
             
             // 遍历该服务器内所有“记忆中”的置顶线程
@@ -408,20 +410,20 @@ public class ArchiverService : IDisposable
 
                     // 维护成功，将此线程加入到新的缓存中，以便下一轮继续维护
                     updatedPinnedCache[guildId][channelId] = pinnedThread;
-                    _logger.Debug("[{guildName}({GuildId})] 步骤3/5: 成功维持置顶线程 {ThreadName}({ThreadId}) 的活跃状态", 
+                    _logger.Debug("[{guildName}({GuildId})] 步骤5/6: 成功维持置顶线程 {ThreadName}({ThreadId}) 的活跃状态", 
                         guild.Name, guildId, pinnedThread.Name, pinnedThread.Id);
                 }
                 catch (HttpException httpEx) when (httpEx.HttpCode == HttpStatusCode.NotFound)
                 {
                     // 捕获“404 Not Found”异常，这意味着该线程已被用户或管理员删除
-                    _logger.Warning("[{guildName}({GuildId})] 步骤3/5: 置顶线程 {ThreadId} 已不存在，从维护列表中移除", 
+                    _logger.Warning("[{guildName}({GuildId})] 步骤5/6: 置顶线程 {ThreadId} 已不存在，从维护列表中移除", 
                         guild.Name, guildId, pinnedThread.Id);
                     // 不将此线程添加到新缓存中，相当于实现了自动清理
                 }
                 catch (Exception ex)
                 {
                     // 捕获其他所有异常（如权限问题、网络超时等）
-                    _logger.Error(ex, "[{guildName}({GuildId})] 步骤3/5: 维护置顶线程 {ThreadId} 状态时发生异常", 
+                    _logger.Error(ex, "[{guildName}({GuildId})] 步骤5/6: 维护置顶线程 {ThreadId} 状态时发生异常", 
                         guild.Name, guildId, pinnedThread.Id);
                     // 发生未知错误时，选择保守策略：依然将它保留在缓存中，以便下次任务周期时重试
                     updatedPinnedCache[guildId][channelId] = pinnedThread;
@@ -432,7 +434,7 @@ public class ArchiverService : IDisposable
                     _apiRequestSemaphore.Release();
                 }
             }
-            _logger.Info("[{guildName}({GuildId})] 步骤3/5: 置顶线程维护完成，共 {updatedPinnedCacheCount} 个线程状态被确认", 
+            _logger.Info("[{guildName}({GuildId})] 步骤5/6: 置顶线程维护完成，共 {updatedPinnedCacheCount} 个线程状态被确认", 
                 guild.Name, guildId, updatedPinnedCache[guildId].Count);
         }
         // 用本轮验证过的新缓存，完全替换掉旧的缓存
@@ -446,7 +448,7 @@ public class ArchiverService : IDisposable
     /// <returns>包含最后活跃时间的线程信息数组</returns>
     private async Task<(DateTimeOffset LastMessageAt, Discord.Rest.RestThreadChannel Thread)[]> GetThreadsWithLastActivityTime(List<Discord.Rest.RestThreadChannel> threads, ulong guildId, string guildName)
     {
-        _logger.Info("[{guildName}({GuildId})] 步骤4/5: 开始获取 {ThreadCount} 个普通线程的最后活跃时间...", guildName, guildId, threads.Count);
+        _logger.Info("[{guildName}({GuildId})] 步骤3/6: 开始获取 {ThreadCount} 个普通线程的最后活跃时间...", guildName, guildId, threads.Count);
         int count = 0;
         var lastActivityTasks = threads.Select(async thread =>
         {
@@ -455,7 +457,7 @@ public class ArchiverService : IDisposable
             {
                 Interlocked.Increment(ref count);
                 DateTimeOffset lastMessageTime = thread.CreatedAt;
-                _logger.Debug("[{guildName}({GuildId})] 步骤4/5: 开始获取第 {count}/{ThreadCount} 个普通线程的最后活跃时间...", guildName, guildId, count, threads.Count);
+                _logger.Debug("[{guildName}({GuildId})] 步骤3/6: 开始获取第 {count}/{ThreadCount} 个普通线程的最后活跃时间...", guildName, guildId, count, threads.Count);
                 await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
                     // 优先归档帖子
@@ -479,7 +481,7 @@ public class ArchiverService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "[{guildName}({GuildId})] 步骤4/5: 获取线程 {ThreadId} 最后消息时间时发生异常", guildName, guildId, thread.Id);
+                _logger.Error(ex, "[{guildName}({GuildId})] 步骤3/6: 获取线程 {ThreadId} 最后消息时间时发生异常", guildName, guildId, thread.Id);
                 // 出错时使用线程创建时间作为备选
                 return (LastMessageAt: thread.CreatedAt, Thread: thread);
             }
@@ -494,7 +496,7 @@ public class ArchiverService : IDisposable
         // 按最后活跃时间降序排序（最活跃的在前）
         Array.Sort(threadsWithActivity, (a, b) => b.LastMessageAt.CompareTo(a.LastMessageAt));
 
-        _logger.Info("[{guildName}({GuildId})] 步骤4/5: 获取线程最后活跃时间完成, 并已按降序排序", guildName, guildId);
+        _logger.Info("[{guildName}({GuildId})] 步骤3/6: 获取线程最后活跃时间完成, 并已按降序排序", guildName, guildId);
 
         return threadsWithActivity;
     }
@@ -515,7 +517,7 @@ public class ArchiverService : IDisposable
         // 如果线程总数未超过限制，无需归档
         if (totalActiveThreads <= activeThreadLimit)
         {
-            _logger.Info("[{guildName}({GuildId})] 步骤5/5: 活跃线程数 {ActiveCount} 未超过上限 {Limit}, 无需归档", guildName, guildId, totalActiveThreads, activeThreadLimit);
+            _logger.Info("[{guildName}({GuildId})] 步骤4/6: 活跃线程数 {ActiveCount} 未超过上限 {Limit}, 无需归档", guildName, guildId, totalActiveThreads, activeThreadLimit);
             return new ArchiveOperationResult
             {
                 TotalActiveThreads = totalActiveThreads,
@@ -527,7 +529,7 @@ public class ArchiverService : IDisposable
 
         // 需要归档的线程（排序后超出限制的部分）
         var threadsToArchive = sortedThreads.Skip(activeThreadLimit - pinnedCount).ToList();
-        _logger.Info("[{guildName}({GuildId})] 步骤5/5: {ActiveCount} 个活跃线程超出上限 {Limit}, 准备归档 {ArchiveCount} 个最不活跃的线程", guildName, guildId, totalActiveThreads, activeThreadLimit, threadsToArchive.Count);
+        _logger.Info("[{guildName}({GuildId})] 步骤4/6: {ActiveCount} 个活跃线程超出上限 {Limit}, 准备归档 {ArchiveCount} 个最不活跃的线程", guildName, guildId, totalActiveThreads, activeThreadLimit, threadsToArchive.Count);
 
         var archiveTasks = threadsToArchive.Select(async threadInfo =>
         {
@@ -617,11 +619,11 @@ public class ArchiverService : IDisposable
     {
         if (_logChannel == null)
         {
-            _logger.Warning("[{guildName}({GuildId})] 步骤5/5: 由于日志频道未初始化, 跳过发送状态报告", guildName, guildId);
+            _logger.Warning("[{guildName}({GuildId})] 步骤6/6: 由于日志频道未初始化, 跳过发送状态报告", guildName, guildId);
             return;
         }
 
-        _logger.Info("[{guildName}({GuildId})] 步骤5/5: 正在生成并发送/更新 Discord 状态报告...", guildName, guildId);
+        _logger.Info("[{guildName}({GuildId})] 步骤6/6: 正在生成并发送/更新 Discord 状态报告...", guildName, guildId);
 
         var taskEndTime = DateTimeOffset.UtcNow;
         var taskDuration = taskEndTime - taskStartTime;
@@ -642,13 +644,13 @@ public class ArchiverService : IDisposable
         if (_guildLogMessageCache.TryGetValue(guildId, out IUserMessage? cachedMessage) && cachedMessage != null)
         {
             await cachedMessage.ModifyAsync(props => { props.Embed = statusEmbed; });
-            _logger.Info("[{guildName}({GuildId})] 步骤5/5: 状态报告更新成功", guildName, guildId);
+            _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告更新成功", guildName, guildId);
         }
         else
         {
             var newLogMessage = await _logChannel!.SendMessageAsync(embed: statusEmbed);
             _guildLogMessageCache[guildId] = newLogMessage;
-            _logger.Info("[{guildName}({GuildId})] 步骤5/5: 状态报告发送成功", guildName, guildId);
+            _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告发送成功", guildName, guildId);
         }
     }
 
@@ -697,7 +699,7 @@ public class ArchiverService : IDisposable
 
             var description = $"""
                 服务器: {guildName}({guildId})
-                📊 **当前状态概览**
+                📊 **当前状态概览** (<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>)
                 > 📈 当前活跃线程数: **{totalActiveThreads}**
                 > 📌 置顶线程数量: **{pinnedCount}**
                 > 🎯 活跃线程上限: **{activeThreadLimit}**
@@ -716,7 +718,7 @@ public class ArchiverService : IDisposable
             // 情况2: 正好达到限制，处于临界状态
             var description = $"""
                 服务器: {guildName}({guildId})
-                📊 **当前状态概览**
+                📊 **当前状态概览** (<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>)
                 > 📈 当前活跃线程数: **{totalActiveThreads}**
                 > 📌 置顶线程数量: **{pinnedCount}**
                 > 🎯 活跃线程上限: **{activeThreadLimit}**
@@ -738,7 +740,7 @@ public class ArchiverService : IDisposable
 
             var description = $"""
                 服务器: {guildName}({guildId})
-                📊 **归档操作概览**
+                📊 **归档操作概览** (<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>)
                 > 📈 当前活跃线程数: **{totalActiveThreads}**
                 > 📌 置顶线程数量: **{pinnedCount}**
                 > 🎯 活跃线程上限: **{activeThreadLimit}**
@@ -900,7 +902,7 @@ public class ArchiverService : IDisposable
                         ? $"HttpException (StatusCode: {httpEx.HttpCode})"
                         : exception.GetType().Name;
 
-                    _logger.Error(exception, "HTTP请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试",
+                    _logger.Warning("HTTP请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试, 如果没有后续次数累计增长日志, 则代表本次重试已成功",
                         errorType, timespan.TotalSeconds, attempt);
                 }
             );
