@@ -95,14 +95,22 @@ public class Program
                 proxyConfig.Enable = false;
                 proxyConfig.ProxyUrl = "";
             }
+            
+            var initializationService =  new InitializationService(_rootLogger);
 
             // === Token 读取 ===
-            var token = Environment.GetEnvironmentVariable("SEARCH_BOT_TOKEN");
-            if (string.IsNullOrWhiteSpace(token))
+            var mainBotToken = Environment.GetEnvironmentVariable("DATACENTER_MAIN_BOT_TOKEN");
+            if (string.IsNullOrWhiteSpace(mainBotToken))
             {
                 var ex = new InvalidOperationException();
-                _mainLogger.Critical("环境变量 SEARCH_BOT_TOKEN 未设置！");
+                _mainLogger.Critical("💥 环境变量 DATACENTER_MAIN_BOT_TOKEN 未设置！");
                 throw ex;
+            }
+            var assistBotToken = Environment.GetEnvironmentVariable("DATACENTER_ASSIST_BOT_TOKEN");
+            if (string.IsNullOrWhiteSpace(assistBotToken))
+            {     
+                initializationService.Failed();
+                _mainLogger.Warning("⚠️ 环境变量 DATACENTER_ASSIST_BOT_TOKEN 未设置！将以 禁用 >> 初始化与校准功能 模式运行");
             }
 
             // 配置主机服务
@@ -124,13 +132,30 @@ public class Program
                         .AddSingleton(proxyConfig)
                         // 添加日志实例到容器
                         .AddSingleton(_rootLogger)
+                        .AddSingleton(initializationService)
                         // 添加 Bot 服务
-                        .AddHostedService<DataCenterBotService>(provider =>
+                        .AddHostedService<DataCenterMainBotService>(provider =>
                         {
                             var logger = provider.GetRequiredService<ILogger>();
                             var proxy = provider.GetRequiredService<ProxyConfig>();
-                            return new DataCenterBotService(token, logger, proxy);
+                            var initializationService = provider.GetRequiredService<InitializationService>();
+                            return new DataCenterMainBotService(mainBotToken, logger, proxy, initializationService);
                         });
+                    if (initializationService.NeedInitialization && !string.IsNullOrWhiteSpace(assistBotToken))
+                    {
+                        services.AddHostedService<DataCenterAssistBotService>(provider =>
+                        {
+                            var logger = provider.GetRequiredService<ILogger>();
+                            var proxy = provider.GetRequiredService<ProxyConfig>();
+                            var initializationService = provider.GetRequiredService<InitializationService>();
+                            return new DataCenterAssistBotService(assistBotToken, logger, proxy, initializationService);
+                        });
+                        _mainLogger.Info("✅ 辅助 Bot 服务已启用");
+                    }
+                    else
+                    {
+                        _mainLogger.Info("ℹ️ 辅助 Bot 服务未启用 (初始化功能禁用)");
+                    }
                 })
                 .Build();
 

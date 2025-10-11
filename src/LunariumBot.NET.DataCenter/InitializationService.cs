@@ -3,14 +3,24 @@ using LunariumBot.Net.Logger;
 
 namespace LunariumBot.Net.DataCenter;
 
-public class Initialization
+public class InitializationService
 {
     private readonly ILogger _logger;
     public bool NeedInitialization { get; private set; } = false;
-    public Initialization(ILogger logger)
+    public InitializationService(ILogger logger)
     {
         _logger = logger.ForContext("Initialization");
         NeedInitialization = CheckingInitialization();
+    }
+
+    public void Failed()
+    {
+        NeedInitialization = false;
+    }
+
+    public void Complete()
+    {
+        NeedInitialization = false;
     }
     
     private bool CheckingInitialization()

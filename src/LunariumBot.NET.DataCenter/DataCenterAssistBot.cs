@@ -29,16 +29,17 @@ using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.DataCenter;
 
-public class DataCenterBotService : IHostedService
+public class DataCenterAssistBotService : IHostedService
 {
-    // --- token ---
     private readonly string _token;
-    // --- 私有依赖服务 ---
     private readonly ILogger _logger;
+    private readonly ConfigLoader _configLoader;
+    private readonly InitializationService _initializationService;
+
     private readonly IServiceProvider _privateServices;
+
     private readonly DiscordSocketClient _client;
     private readonly InteractionService _interactions;
-    private readonly ConfigLoader _configLoader;
     private readonly DatabaseService _databaseService;
     private readonly Scanner _scanner;
     private readonly Listener _listener;
@@ -54,12 +55,16 @@ public class DataCenterBotService : IHostedService
     };
     
     // 构造函数
-    public DataCenterBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig)
+    public DataCenterAssistBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig, InitializationService initializationService)
     {
         _token = token;
         // 本地日志上下文
         _logger = runtimeRootLogger.ForContext("SearchBotService");
         _logger.Info("初始化 SearchBot 服务...");
+
+        // 检查初始化
+        _initializationService = initializationService;
+
         // 构建私有DI容器
         _privateServices = ConfigurePrivateServices(proxyConfig, _logger);
 
@@ -87,6 +92,11 @@ public class DataCenterBotService : IHostedService
             .AddSingleton(logger)
             // 注册 ConfigLoader
             .AddSingleton<ConfigLoader>()
+            // 注册 InitializationService
+            .AddSingleton(_initializationService)
+            // 注册全局并发控制器
+            .AddSingleton(_semaphore)
+            
             // 注册 Discord 客户端，并使用从全局传入的代理配置
             .AddSingleton<DiscordSocketClient>(provider =>
             {

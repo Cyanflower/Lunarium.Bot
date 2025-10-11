@@ -31,7 +31,7 @@ public partial class DataProcessService
             bool isUpdate = false;
             if (message.Author.Id == threadChannel.Owner.Id && message.Id != threadChannel.Id)
             {
-                // 等待 1 s
+                // 等待 1 s,
                 await Task.Delay(1000);
                 try
                 {

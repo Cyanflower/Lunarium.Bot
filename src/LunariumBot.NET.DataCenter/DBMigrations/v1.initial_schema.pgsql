@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS post_members (
     last_message_at TIMESTAMPTZ,
 
     PRIMARY KEY (user_id, thread_id)
-)
+);
 
 -- ===================================================================
 -- 5. 用户订阅收藏表

@@ -2,6 +2,7 @@
 using System.Text;
 // NuGet 包依赖
 using Discord;
+using Discord.Rest;
 using Discord.Interactions;
 
 namespace LunariumBot.Net.DataCenter.Model;
@@ -111,6 +112,13 @@ public class TagInfo
     public string ChannelName { get; set; } = "";
     public string GuildName { get; set; } = "";
     public int UsageCount { get; set; }
+}
+
+public class ProcessingResult
+{
+    public ProcessingStatus Status { get; set; } = ProcessingStatus.Success;
+    public ThreadData? Data { get; set; } = null;
+    public RestThreadChannel? RestThreadChannel { get; set; } = null;
 }
 
 /// <summary>
