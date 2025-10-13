@@ -1,6 +1,7 @@
 // .NET 核心库
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 
 // NuGet 包依赖
@@ -24,7 +25,6 @@ using LunariumBot.Net.DataCenter.DataFetcher;
 using LunariumBot.Net.DataCenter.Utils;
 using LunariumBot.Net.DataCenter.Model;
 using LunariumBot.Net.DataCenter.AppInteractionService;
-using System.Text;
 using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.DataCenter;

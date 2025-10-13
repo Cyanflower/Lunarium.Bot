@@ -12,45 +12,59 @@ using LunariumBot.Net.DataCenter.Model;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
+/// <summary>
+/// DataProcessService 的部分类，专门负责消息的处理逻辑。
+/// </summary>
 public partial class DataProcessService
 {
     #region 消息处理
     /// <summary>
-    /// 处理接受消息数据: 帖子重载
-    /// 处理论坛频道帖子内的消息
+    /// 处理论坛频道帖子内的消息。
+    /// 该方法会检查消息是否为首楼消息，如果是作者本人发送的非首楼消息，还会检查是否包含作品更新附件。
+    /// 对于首楼消息，仅记录消息数据；对于其他消息，会更新帖子的回复计数。
     /// </summary>
-    /// <param name="message"></param>
-    /// <param name="threadChannel"></param>
-    /// <param name="parentChannel"></param>
-    /// <returns></returns>
+    /// <param name="message">接收到的消息对象</param>
+    /// <param name="threadChannel">消息所在的帖子频道</param>
+    /// <param name="parentChannel">帖子所属的父论坛频道</param>
     public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel threadChannel, SocketForumChannel parentChannel)
     {
         try
         {
-            IMessage? refreshMessage;
+            _logger.Debug("处理论坛帖子消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
+                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id, message.Author.GlobalName);
+
+            IMessage? refreshMessage = message;
             bool isUpdate = false;
+
+            // 如果消息是帖子作者发送的，且不是首楼消息，则检查是否包含作品更新附件
             if (message.Author.Id == threadChannel.Owner.Id && message.Id != threadChannel.Id)
             {
-                // 等待 1 s,
+                // 等待 1 秒，因为 Discord API 的 MessageReceived 事件不会立即附带附件
+                // 附件是后续异步上传的，需要重新获取消息以获得完整的附件列表
                 await Task.Delay(1000);
                 try
                 {
                     await _semaphore.WaitAsync();
-                    // 傻逼 dc api 的 MessageReceived 不会附带附件, 附件是后续 Update 上去的, 得重新获取一下 Update 的消息
                     refreshMessage = await threadChannel.GetMessageAsync(message.Id);
                     if (refreshMessage == null)
                     {
-                        _logger.Warning("无法从频道缓存中获取到最新的消息对象 (ID: {message.Id})，将使用事件参数中的消息对象。", message.Id);
+                        _logger.Warning("⚠️ 无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
                         refreshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
                     }
                     else
                     {
+                        // 检查消息是否包含作品更新附件
                         isUpdate = await CheckUpdateAsync(refreshMessage);
+                        if (isUpdate)
+                        {
+                            _logger.Info("✨ 检测到作品更新: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
+                                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex);
+                    _logger.Error(ex, "❌ 刷新消息对象时发生错误: 消息ID {MessageId}", message.Id);
                 }
                 finally
                 {
@@ -75,45 +89,52 @@ public partial class DataProcessService
                 IsCreateThread = message.Id == threadChannel.Id,
                 IsUpdate = isUpdate
             };
-            // 如果是首楼消息
-            // 将 posts_main 相关数据完全交由 CreateThreadProcessAsync 侧进行处理, 调用不处理 posts_main 表的数据库方法
+            // 如果是首楼消息，仅记录消息数据，不更新 posts_main 表
+            // posts_main 表的数据由 CreateThreadProcessAsync 负责处理
             if (message.Id == threadChannel.Id)
             {
                 await _dbRetryPolicy.ExecuteAsync(async () =>
                 {
                     await _databaseService.TextThreadMessageToDBAsync(messageData);
                 });
+                _logger.Debug("✅ 成功记录首楼消息: 消息ID {MessageId}", message.Id);
                 return;
             }
+
+            // 处理非首楼消息，同时更新帖子的回复计数
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
                 await _databaseService.ForumThreadMessageToDBAsync(messageData, threadChannel.MessageCount);
             });
+            _logger.Debug("✅ 成功记录消息: 消息ID {MessageId}, 回复数: {MessageCount}", message.Id, threadChannel.MessageCount);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "ThreadMessageProcessAsync");
+            _logger.Error(ex, "❌ 处理论坛帖子消息失败: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
+                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
         }
     }
 
     /// <summary>
-    /// 处理接受消息数据: 子区重载
-    /// 处理论坛频道子区内的消息
+    /// 处理文字频道子区（Thread）内的消息。
+    /// 子区是从文字频道的某条消息创建的讨论线程。
+    /// 如果消息ID等于帖子ID，说明该消息创建了子区，会延迟2秒以确保在 Created 事件之后处理。
     /// </summary>
-    /// <param name="message"></param>
-    /// <param name="threadChannel"></param>
-    /// <param name="parentChannel"></param>
-    /// <returns></returns>
-    /// 
+    /// <param name="message">接收到的消息对象</param>
+    /// <param name="threadChannel">消息所在的子区频道</param>
+    /// <param name="parentChannel">子区所属的父文字频道</param>
     public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel threadChannel, SocketTextChannel parentChannel)
     {
         try
         {
+            _logger.Debug("处理文字频道子区消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
+                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id, message.Author.GlobalName);
+
             if (message.Id == threadChannel.Id)
             {
-                // 如果是该消息创建了子区
-                // 等待 1 s
-                // 即使比 Created 事件先接收, 也尽量确保在 Created 事件之后
+                // 如果是该消息创建了子区，等待 2 秒
+                // 即使 MessageReceived 事件比 ThreadCreated 事件先到达，也尽量确保在 Created 事件之后处理
+                _logger.Debug("检测到创建子区的消息，延迟 2 秒后处理: 消息ID {MessageId}", message.Id);
                 await Task.Delay(2000);
             }
             // 准备更新消息数据
@@ -136,24 +157,28 @@ public partial class DataProcessService
             {
                 await _databaseService.TextThreadMessageToDBAsync(messageData);
             });
+            _logger.Debug("✅ 成功记录文字频道子区消息: 消息ID {MessageId}", message.Id);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "ThreadMessageProcessAsync");
+            _logger.Error(ex, "❌ 处理文字频道子区消息失败: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
+                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
         }
     }
 
     /// <summary>
-    /// 处理消息数据: 文字频道
+    /// 处理普通文字频道中的消息（不在子区内）。
     /// </summary>
-    /// <param name="message"></param>
-    /// <param name="parentChannel"></param>
-    /// <returns></returns>
+    /// <param name="message">接收到的消息对象</param>
+    /// <param name="parentChannel">消息所在的文字频道</param>
     public async Task TextChannelMessageProcess(SocketMessage message, SocketTextChannel parentChannel)
     {
         try
         {
-            // 准备更新消息数据
+            _logger.Debug("处理文字频道消息: [{GuildName}.{ChannelName}] 消息ID: {MessageId}, 作者: {AuthorName}",
+                parentChannel.Guild.Name, parentChannel.Name, message.Id, message.Author.GlobalName);
+
+            // 准备消息数据
             var messageData = new MessageData()
             {
                 MessageId = message.Id,
@@ -169,35 +194,47 @@ public partial class DataProcessService
                 IsCreateThread = false,
                 IsUpdate = false
             };
+
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
                 await _databaseService.TextChannelMessageToDB(messageData);
             });
+            _logger.Debug("✅ 成功记录文字频道消息: 消息ID {MessageId}", message.Id);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "TextChannelMessageProcess");
+            _logger.Error(ex, "❌ 处理文字频道消息失败: [{GuildName}.{ChannelName}] 消息ID: {MessageId}",
+                parentChannel.Guild.Name, parentChannel.Name, message.Id);
         }
     }
 
+    /// <summary>
+    /// 批量处理消息删除事件。
+    /// 将删除的消息ID列表传递给数据库服务进行处理。
+    /// </summary>
+    /// <param name="deletedMessage">被删除的消息ID列表</param>
     public async Task MessagesDeleteProcess(List<ulong> deletedMessage)
     {
         try
         {
+            _logger.Debug("处理批量消息删除: 数量 {Count}", deletedMessage.Count);
+
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
                 await _databaseService.MessagesDeleteToDB(deletedMessage);
             });
+
+            _logger.Info("✅ 成功处理批量消息删除: 数量 {Count}", deletedMessage.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "MessagesDeleteProcess");
+            _logger.Error(ex, "❌ 处理批量消息删除失败: 数量 {Count}", deletedMessage.Count);
         }
     }
 
     #endregion
 
-    #region 辅助方法-更新附件的检查
+    #region 辅助方法 - 作品更新检查
     /// <summary>
     /// 检查一条消息是否包含可被视为“作品更新”的附件。
     /// 优化策略：
@@ -209,19 +246,19 @@ public partial class DataProcessService
     /// <returns>如果消息包含更新，则返回 true；否则返回 false。</returns>
     public async Task<bool> CheckUpdateAsync(IMessage message)
     {
-        _logger.Debug("CheckUpdateAsync started for message ID: {message.Id}", message.Id);
+        _logger.Debug("开始检查消息更新: 消息ID {MessageId}", message.Id);
         try
         {
             if (message.Attachments.Count == 0)
             {
-                _logger.Debug("No attachments found on message {message.Id}. Returning false.", message.Id);
+                _logger.Debug("消息 {MessageId} 没有附件，返回 false", message.Id);
                 return false;
             }
 
             // --- 步骤 1: 检查 JSON 附件 ---
             if (message.Attachments.Any(a => a.Filename.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
             {
-                _logger.Info("JSON 检查: 在消息 {message.Id} 中检测到 JSON 附件，判定为更新。", message.Id);
+                _logger.Info("✨ JSON 检查: 在消息 {MessageId} 中检测到 JSON 附件，判定为更新", message.Id);
                 return true;
             }
 
@@ -232,34 +269,34 @@ public partial class DataProcessService
 
             if (pngAttachments.Count == 0)
             {
-                _logger.Debug("Message {message.Id} has no PNG attachments. All checks complete.", message.Id);
+                _logger.Debug("消息 {MessageId} 没有 PNG 附件，所有检查完成", message.Id);
                 return false;
             }
 
             if (pngAttachments.Count >= 3)
             {
-                _logger.Debug("Message {message.Id} has no PNG attachments. But >= 3, ", message.Id);
+                _logger.Debug("消息 {MessageId} 的 PNG 附件数量 >= 3，跳过检查", message.Id);
                 return false;
             }
 
-            _logger.Debug("Found {pngAttachments.Count} PNG attachments. Starting sequential processing with optimizations.", pngAttachments.Count);
+            _logger.Debug("发现 {Count} 个 PNG 附件，开始逐个处理", pngAttachments.Count);
 
             // 使用 for-loop 逐个处理，避免并行下载带来的瞬时内存/IO高峰
             foreach (var attachment in pngAttachments)
             {
                 if (await IsUpdatePngAsync(attachment))
                 {
-                    _logger.Info("PNG 检查: 在附件 '{attachment.Filename}' 中检测到角色卡更新。", attachment.Filename);
+                    _logger.Info("✨ PNG 检查: 在附件 '{FileName}' 中检测到角色卡更新", attachment.Filename);
                     return true; // 找到一个就够了，直接返回
                 }
             }
 
-            _logger.Debug("No update-triggering PNGs found after checking all. Returning false.");
+            _logger.Debug("所有 PNG 附件检查完毕，未发现更新标记，返回 false");
             return false;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "An unexpected error occurred in CheckUpdateAsync for message ID {message.Id}.", message.Id);
+            _logger.Error(ex, "❌ 检查消息更新时发生意外错误: 消息ID {MessageId}", message.Id);
             return false;
         }
     }
@@ -285,7 +322,7 @@ public partial class DataProcessService
             {
                 var fileSizeMB = headResponse.Content.Headers.ContentLength.Value / 1024.0 / 1024.0;
                 var sizeLimitMB = MAX_FILE_SIZE_BYTES / 1024.0 / 1024.0;
-                _logger.Debug("Skipping attachment '{attachment.Filename}' because its size ({fileSizeMB:F2} MB) exceeds the {sizeLimitMB:F2} MB limit.",
+                _logger.Debug("跳过附件 '{FileName}'，文件大小 ({FileSizeMB:F2} MB) 超过限制 ({SizeLimitMB:F2} MB)",
                     attachment.Filename,
                     fileSizeMB,
                     sizeLimitMB
@@ -295,44 +332,44 @@ public partial class DataProcessService
 
             // 流式下载到临时文件
             tempFilePath = Path.GetTempFileName();
-            _logger.Debug("Downloading '{attachment.Filename}' to temporary file: {tempFilePath}", attachment.Filename, tempFilePath);
+            _logger.Debug("开始下载附件 '{FileName}' 到临时文件: {TempFilePath}", attachment.Filename, tempFilePath);
 
             using (var fileStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var httpStream = await _httpClient.GetStreamAsync(attachment.Url))
             {
                 await httpStream.CopyToAsync(fileStream);
             }
-            _logger.Debug("Successfully downloaded '{attachment.Filename}'.", attachment.Filename);
+            _logger.Debug("✅ 附件 '{FileName}' 下载完成", attachment.Filename);
 
             // 使用 Image.Identify 仅读取元数据
-            _logger.Debug("Identifying metadata for '{tempFilePath}' without decoding the image.", tempFilePath);
+            _logger.Debug("正在识别 '{TempFilePath}' 的图片元数据（不解码图像）", tempFilePath);
             var imageInfo = await SixLabors.ImageSharp.Image.IdentifyAsync(tempFilePath);
 
             if (imageInfo == null)
             {
-                _logger.Warning("ImageSharp could not identify image info for '{attachment.Filename}'.", attachment.Filename);
+                _logger.Warning("⚠️ ImageSharp 无法识别图片信息: '{FileName}'", attachment.Filename);
                 return false;
             }
 
             var pngMetadata = imageInfo.Metadata.GetPngMetadata();
-            _logger.Debug("Found {pngMetadata.TextData.Count} text chunks in '{attachment.Filename}'.", pngMetadata.TextData.Count, attachment.Filename);
+            _logger.Debug("在附件 '{FileName}' 中发现 {Count} 个文本块", attachment.Filename, pngMetadata.TextData.Count);
 
             foreach (var textData in pngMetadata.TextData)
             {
                 if (textData.Keyword.Equals("ccv3", StringComparison.OrdinalIgnoreCase) ||
                     textData.Keyword.Equals("chara", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.Debug("Success! Found update keyword '{textData.Keyword}' in '{attachment.Filename}'.", textData.Keyword, attachment.Filename);
+                    _logger.Debug("✅ 成功！在附件 '{FileName}' 中找到更新关键字 '{Keyword}'", attachment.Filename, textData.Keyword);
                     return true;
                 }
             }
 
-            _logger.Debug("No update keywords found in '{attachment.Filename}'.", attachment.Filename);
+            _logger.Debug("在附件 '{FileName}' 中未找到更新关键字", attachment.Filename);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Failed to process PNG attachment '{attachment.Filename}'. It will be skipped.", attachment.Filename);
+            _logger.Error(ex, "❌ 处理 PNG 附件 '{FileName}' 时失败，将跳过", attachment.Filename);
             return false;
         }
         finally
@@ -343,11 +380,11 @@ public partial class DataProcessService
                 try
                 {
                     File.Delete(tempFilePath);
-                    _logger.Debug("Cleaned up temporary file: {tempFilePath}", tempFilePath);
+                    _logger.Debug("已清理临时文件: {TempFilePath}", tempFilePath);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "Failed to delete temporary file '{tempFilePath}'.", tempFilePath);
+                    _logger.Error(ex, "❌ 删除临时文件失败: '{TempFilePath}'", tempFilePath);
                 }
             }
         }

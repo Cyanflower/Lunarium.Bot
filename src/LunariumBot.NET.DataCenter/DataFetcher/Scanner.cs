@@ -83,18 +83,25 @@ public class Scanner
     /// <returns>异步任务</returns>
     public async Task SyncScan()
     {
-        _logger.Info("扫描任务开始.");
+        _logger.Info("🚀 开始执行同步扫描任务...");
+
         // 数据收集处理
         var allForumChannels = GetAllForumChannels();
         var allRestThreads = await GetAllRestThreads(allForumChannels);
+
         // 获取全部论坛频道和标签数据
         var allForumChannelsData = GetForumAndTagData(allForumChannels);
+
         // 获取全部帖子数据
         var allThreadsData = await GetAllThreadsData(allRestThreads);
 
         // 写入数据库
+        // TODO: 实现数据库写入逻辑
 
         // 如果需要初始化
+        // TODO: 实现初始化逻辑
+
+        _logger.Info("✅ 同步扫描任务完成。");
     }
 
     /// <summary>
@@ -133,7 +140,7 @@ public class Scanner
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetAllForumChannel");
+            _logger.Error(ex, "❌ 获取论坛频道列表时发生错误");
             return new();
         }
     }
@@ -167,17 +174,20 @@ public class Scanner
                             // 1. 获取活跃的帖子
                             await _httpRetryPolicy.ExecuteAsync(async () =>
                             {
-                                _logger.Info("[{GuildName}.{channelName}({channelId})] 正在获取活跃的帖子...", guild.Name, channel.Name, channel.Id);
+                                _logger.Info("📥 正在获取活跃帖子: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                                    guild.Name, channel.Name, channel.Id);
 
                                 var activeThreads = await channel.GetActiveThreadsAsync();
 
-                                _logger.Info("[{GuildName}.{channelName}({channelId})] 成功获取了 {activeThreadsCount} 个活跃的帖子.", guild.Name, channel.Name, channel.Id, activeThreads.Count);
+                                _logger.Info("✅ 成功获取活跃帖子: [{GuildName}.{ChannelName}] 数量 {Count}",
+                                    guild.Name, channel.Name, channel.Id, activeThreads.Count);
 
                                 restThreads.AddRange(activeThreads);
                             });
 
                             // 2. 获取公开归档的帖子（分页获取）
-                            _logger.Info("[{GuildName}.{channelName}({channelId})] 正在获取公开归档的帖子...", guild.Name, channel.Name, channel.Id);
+                            _logger.Info("📥 正在获取公开归档帖子: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                                guild.Name, channel.Name, channel.Id);
 
                             var publicArchivedThreads = new List<RestThreadChannel>();
                             DateTimeOffset? beforeTimestamp = null;
@@ -190,7 +200,8 @@ public class Scanner
 
                                 await _httpRetryPolicy.ExecuteAsync(async () =>
                                 {
-                                    _logger.Debug("[{GuildName}.{channelName}({channelId})] 正在获取第 {page} 批公开归档帖子...", guild.Name, channel.Name, channel.Id, page);
+                                    _logger.Debug("📄 正在获取第 {Page} 批公开归档帖子: [{GuildName}.{ChannelName}]",
+                                        page, guild.Name, channel.Name, channel.Id);
                                     // 每次获取最多 100 个帖子
                                     fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
                                 });
@@ -205,22 +216,26 @@ public class Scanner
                                 else
                                 {
                                     // 没有更多帖子了，退出循环
-                                    _logger.Info("[{GuildName}.{channelName}({channelId})] 所有公开归档帖子已获取完毕.", guild.Name, channel.Name, channel.Id);
+                                    _logger.Info("✅ 所有公开归档帖子已获取完毕: [{GuildName}.{ChannelName}]",
+                                        guild.Name, channel.Name, channel.Id);
                                     break;
                                 }
                             }
                             restThreads.AddRange(publicArchivedThreads);
-                            _logger.Info("[{GuildName}.{channelName}({channelId})] 总共获取了 {publicArchivedThreadsCount} 个公开归档的帖子.", guild.Name, channel.Name, channel.Id, publicArchivedThreads.Count);
+                            _logger.Info("✅ 总共获取 {Count} 个公开归档帖子: [{GuildName}.{ChannelName}]",
+                                publicArchivedThreads.Count, guild.Name, channel.Name, channel.Id);
 
                             // 去重（活跃帖子可能与归档帖子有重复）
                             var uniqueRestThreads = restThreads.DistinctBy(t => t.Id).ToList();
-                            _logger.Info("[{GuildName}.{channelName}({channelId})] 总计获取到 {uniqueThreadsCount} 个去重帖子。", guild.Name, channel.Name, channel.Id, uniqueRestThreads.Count);
+                            _logger.Info("📊 总计获取 {Count} 个去重帖子: [{GuildName}.{ChannelName}]",
+                                uniqueRestThreads.Count, guild.Name, channel.Name, channel.Id);
 
                             return uniqueRestThreads;
                         }
                         catch (Exception ex)
                         {
-                            _logger.Error(ex);
+                            _logger.Error(ex, "❌ 获取论坛频道帖子时发生错误: [{GuildName}.{ChannelName}]",
+                                guild.Name, channel.Name);
                             return new();
                         }
                         finally
@@ -240,7 +255,7 @@ public class Scanner
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetAllSocketThreads");
+            _logger.Error(ex, "❌ 获取所有帖子时发生错误");
             return new();
         }
     }
@@ -266,7 +281,7 @@ public class Scanner
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex);
+                    _logger.Error(ex, "❌ 获取帖子数据时发生错误");
                     return new()
                     {
                         Status = ProcessingStatus.Failed
@@ -281,11 +296,12 @@ public class Scanner
 
             // 等待所有任务完成
             var allThreadsData = await Task.WhenAll(tasks);
+            _logger.Info("✅ 成功获取所有帖子数据，总计 {Count} 个", allThreadsData.Length);
             return allThreadsData.ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetAllRestThreads");
+            _logger.Error(ex, "❌ 获取所有帖子数据时发生错误");
             return new();
         }
     }
@@ -335,7 +351,7 @@ public class Scanner
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetForumAndTagData");
+            _logger.Error(ex, "❌ 获取论坛频道和标签数据时发生错误");
             return (new(), new());
         }
     }
@@ -356,7 +372,8 @@ public class Scanner
             // 规则检查: 跳过锁定的帖子
             if (restThreadChannel.IsLocked)
             {
-                _logger.Info("帖子 {threadName}({threadId}) 被锁定，已跳过", restThreadChannel.Name, restThreadChannel.Id);
+                _logger.Debug("🔒 帖子已锁定，跳过处理: {ThreadName} (ID: {ThreadId})",
+                    restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 isLocked = true;
                 result.Status = ProcessingStatus.Skipped;
@@ -365,7 +382,8 @@ public class Scanner
             // 规则检查: 跳过置顶的帖子
             if (restThreadChannel.Flags.HasFlag(ChannelFlags.Pinned))
             {
-                _logger.Info("帖子 {threadName}({threadId}) 被置顶，已跳过", restThreadChannel.Name, restThreadChannel.Id);
+                _logger.Debug("📌 帖子已置顶，跳过处理: {ThreadName} (ID: {ThreadId})",
+                    restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 result.Status = ProcessingStatus.Skipped;
             }
@@ -391,7 +409,8 @@ public class Scanner
             // 验证首楼消息是否有效
             if (firstMessage == null || string.IsNullOrWhiteSpace(firstMessage.Content))
             {
-                _logger.Info("帖子 {threadName}({threadId}) 没有有效首楼消息", restThreadChannel.Name, restThreadChannel.Id);
+                _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId})",
+                    restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 result.Status = ProcessingStatus.Skipped;
             }
@@ -411,8 +430,8 @@ public class Scanner
             if (!_socketForumChannels.TryGetValue(restThreadChannel.ParentChannelId, out var parentChannel))
             {
                 // 如果因为某些极其罕见的原因找不到父频道
-                _logger.Error("数据不一致错误！无法为帖子 {ThreadName}({ThreadId}) 找到其父频道缓存，ID: {ParentChannelId}",
-                            restThreadChannel.Name, restThreadChannel.Id, restThreadChannel.ParentChannelId);
+                _logger.Error("❌ 数据不一致错误！无法找到父频道缓存: 帖子 {ThreadName} (ID: {ThreadId}), 父频道ID {ParentChannelId}",
+                    restThreadChannel.Name, restThreadChannel.Id, restThreadChannel.ParentChannelId);
                 isValid = false;
                 result.Status = ProcessingStatus.Failed;
             }
@@ -472,7 +491,8 @@ public class Scanner
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "❌ 获取帖子数据时发生错误: {ThreadName} (ID: {ThreadId})",
+                restThreadChannel.Name, restThreadChannel.Id);
             return new()
             {
                 Status = ProcessingStatus.Failed,
@@ -521,7 +541,7 @@ public class Scanner
                         ? $"HttpException (StatusCode: {httpEx.HttpCode})"
                         : exception.GetType().Name;
 
-                    _logger.Error(exception, "HTTP请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试",
+                    _logger.Warning("⚠️ HTTP 请求失败 ({ErrorType})，将在 {Seconds:F1} 秒后进行第 {Attempt}/3 次重试",
                         errorType, timespan.TotalSeconds, attempt);
                 }
             );

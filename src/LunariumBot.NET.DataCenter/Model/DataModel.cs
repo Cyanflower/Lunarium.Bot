@@ -1,5 +1,7 @@
 // .NET 核心库
 using System.Text;
+using System.Collections.Immutable;
+
 // NuGet 包依赖
 using Discord;
 using Discord.Rest;
@@ -25,11 +27,6 @@ public class ChannelData
     public ulong GuildId { get; set; }
     public string GuildName { get; set; } = "";
 }
-
-/// <summary>
-/// 帖子数据模型
-/// 从IThreadChannel解析填入而来
-/// </summary>
 /// <summary>
 /// 数据模型: 帖子信息
 /// 用于封装和传递从数据库或API获取的帖子数据。
@@ -569,4 +566,28 @@ public class ForumInfo
     public List<PostDisplayModel> ReactionTopHistory = new();
     // [焦点帖子] 历史前三回复
     public List<PostDisplayModel> ReplyTopHistory = new();
+}
+
+public record DatabaseInfo
+{
+    public required int Version { get; init; }
+    public required DateTimeOffset AppliedAt { get; init; }
+    public required DateTimeOffset LastSyncAt { get; init; }
+    public required DateTimeOffset InitializeAt { get; init; }
+}
+
+public record DatabaseMigrationScript
+{
+    public required string ScriptFileName { get; init; }
+    public required string ScriptSQLCommandContent { get; init; }
+}
+
+public record DatabaseMigrationInfo
+{
+    public required DatabaseInfo CurrentVersionInfo { get; init; }
+    public required DatabaseInfo PredictVersionInfo { get; init; }
+    
+    // 使用不可变集合
+    public ImmutableList<DatabaseMigrationScript> MigrationScripts { get; init; } 
+        = ImmutableList<DatabaseMigrationScript>.Empty;
 }

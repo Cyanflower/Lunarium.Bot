@@ -91,7 +91,7 @@ public class ArchiverService : IDisposable
         _priorityArchive = new(_priorityArchiveDataLoader.LoadData());
 
         // 配置HTTP重试策略
-        _httpRetryPolicy = ConfigureHttpRetryPolicy();
+        _httpRetryPolicy = HttpRetryPolicyConfig();
     }
 
     public void EnsureTimerIsRunning()
@@ -875,34 +875,30 @@ public class ArchiverService : IDisposable
     /// 处理网络异常和临时性的Discord API错误
     /// </summary>
     /// <returns>配置好的异步重试策略</returns>
-    private AsyncRetryPolicy ConfigureHttpRetryPolicy()
+    private AsyncRetryPolicy HttpRetryPolicyConfig()
     {
         return Policy
-            // 定义需要重试的异常类型
-            .Handle<Discord.Net.HttpException>(httpEx =>
-                // 不对以下HTTP状态码进行重试:
-                // 404 (Not Found) - 资源不存在
-                // 403 (Forbidden) - 权限不足  
-                // 400 (Bad Request) - 请求格式错误
-                (int)httpEx.HttpCode != 404 &&
-                (int)httpEx.HttpCode != 403 &&
-                (int)httpEx.HttpCode != 400)
-            // 处理一般的HTTP请求异常
+            // 定义需要处理的异常:
+            // - Discord.HttpException: 处理 5xx 服务器错误和 429 速率限制
+            //   不重试: 404(资源不存在)、403(权限不足)、400(请求格式错误)
+            .Handle<Discord.Net.HttpException>(ex => (int)ex.HttpCode != 404 && (int)ex.HttpCode != 403 && (int)ex.HttpCode != 400)
+            // - HttpRequestException: 处理网络层级异常（SSL 握手失败、连接被重置等）
             .Or<HttpRequestException>()
-            // 处理超时异常
+            // - TaskCanceledException: 处理 HttpClient 超时
             .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
-            // 定义重试逻辑
+
+            // 定义重试逻辑：指数退避
             .WaitAndRetryAsync(
-                retryCount: 3, // 最多重试3次
-                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)), // 等待时长: 2s, 4s, 8s
-                onRetry: (exception, timespan, attempt, context) => // 每次重试时执行的回调
+                retryCount: 3, // 最多重试 3 次
+                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)), // 2秒、4秒、8秒
+                onRetry: (exception, timespan, attempt, context) =>
                 {
-                    // 在日志中可以更清晰地看到是哪种异常触发了重试
+                    // 在日志中清晰显示触发重试的异常类型
                     string errorType = exception is HttpException httpEx
                         ? $"HttpException (StatusCode: {httpEx.HttpCode})"
                         : exception.GetType().Name;
 
-                    _logger.Warning("HTTP请求失败 ({errorType})，在 {timespan.TotalSeconds}秒 后进行第 {attempt}/3 次重试, 如果没有后续次数累计增长日志, 则代表本次重试已成功",
+                    _logger.Warning("⚠️ HTTP 请求失败 ({ErrorType})，将在 {Seconds:F1} 秒后进行第 {Attempt}/3 次重试",
                         errorType, timespan.TotalSeconds, attempt);
                 }
             );

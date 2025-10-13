@@ -11,10 +11,23 @@ using LunariumBot.Net.DataCenter.Model;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
+/// <summary>
+/// DataProcessService 的部分类，专门负责论坛频道的处理逻辑。
+/// </summary>
 public partial class DataProcessService
 {
+    /// <summary>
+    /// 创建或更新论坛频道及其标签信息到数据库。
+    /// 该方法会提取频道的基本信息和所有标签，然后通过数据库服务将其持久化。
+    /// 如果频道已存在，则更新其信息；如果不存在，则创建新记录。
+    /// </summary>
+    /// <param name="socketForumChannel">Discord 论坛频道对象。</param>
     public async Task CreateOrUpdateChannelProcessAsync(SocketForumChannel socketForumChannel)
     {
+        _logger.Debug("开始处理论坛频道创建/更新: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+            socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
+
+        // 构建频道数据对象
         var channelData = new ChannelData()
         {
             ChannelId = socketForumChannel.Id,
@@ -22,6 +35,8 @@ public partial class DataProcessService
             GuildId = socketForumChannel.Guild.Id,
             GuildName = socketForumChannel.Guild.Name
         };
+
+        // 收集频道下的所有标签信息
         List<TagInfo> tagInfos = new();
         foreach (var tag in socketForumChannel.Tags)
         {
@@ -35,32 +50,55 @@ public partial class DataProcessService
                 UsageCount = 0
             });
         }
+
+        _logger.Debug("论坛频道 {ChannelName} (ID: {ChannelId}) 包含 {TagCount} 个标签",
+            socketForumChannel.Name, socketForumChannel.Id, tagInfos.Count);
+
         try
         {
+            // 使用数据库重试策略执行数据库操作
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
                 await _databaseService.CreateOrUpdateChannelToDB(channelData, tagInfos);
             });
+
+            _logger.Info("✅ 成功处理论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 标签数: {TagCount}",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, tagInfos.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "CreateOrUpdateChannelProcessAsync");
+            _logger.Error(ex, "❌ 处理论坛频道创建/更新失败: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
         }
     }
 
+    /// <summary>
+    /// 从数据库中删除论坛频道及其所有关联的标签和帖子。
+    /// 该操作会触发数据库的级联删除，自动清理所有相关数据。
+    /// </summary>
+    /// <param name="socketForumChannel">要删除的 Discord 论坛频道对象。</param>
     public async Task DeleteChannelProcessAsync(SocketForumChannel socketForumChannel)
     {
+        _logger.Info("开始处理论坛频道删除: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+            socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
+
         List<ulong> TagIds = socketForumChannel.Tags.Select(tag => tag.Id).ToList();
+
         try
         {
+            // 使用数据库重试策略执行删除操作
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
                 await _databaseService.DeleteChannelToDB(socketForumChannel.Id, TagIds);
             });
+
+            _logger.Info("✅ 成功删除论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 已清理 {TagCount} 个标签",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, TagIds.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "DeleteChannelProcessAsync");
+            _logger.Error(ex, "❌ 删除论坛频道失败: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
         }
     }
 }

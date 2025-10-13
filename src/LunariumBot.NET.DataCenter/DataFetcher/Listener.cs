@@ -19,7 +19,6 @@ namespace LunariumBot.Net.DataCenter.DataFetcher;
 
 /// <summary>
 /// 负责监听 Discord 服务器中的实时事件（如消息、帖子创建/更新/删除等），
-/// 并通过防抖机制（Debouncer）对这些事件进行高效、批量的处理。
 /// 它将相关事件暂存起来，在适当的时机（达到阈值或延迟时间到）统一更新到数据库，
 /// 同时也能检测特定类型的消息（如包含特殊元数据的PNG或JSON文件）以触发用户订阅推送。
 /// </summary>
@@ -28,11 +27,13 @@ public class Listener
     private readonly ILogger _logger;
     private readonly DiscordSocketClient _client;
     private readonly ConfigLoader _configLoader;
+    private readonly DataProcessService _dataProcessService;
 
     // 监控的频道ID列表
-    private readonly HashSet<ulong> _channelIds;
-
-    private readonly DataProcessService _dataProcessService;
+    private HashSet<ulong> ChannelIds => _configLoader.Config.GuildsConfig.ScanChannelIDs.Values.SelectMany(ids => ids).ToHashSet();
+    // 论坛帖子ID缓存列表
+    // K: ThreadId, V: FroumId
+    private readonly ConcurrentDictionary<ulong, ulong> _forumThreadIds = new();
 
     public Listener(
         ILogger logger,
@@ -44,7 +45,6 @@ public class Listener
         _logger = logger.ForContext("Listener");
         _client = client;
         _configLoader = configLoader;
-        _channelIds = _configLoader.Config.GuildsConfig.ScanChannelIDs.Values.SelectMany(ids => ids).ToHashSet();
         _dataProcessService = dataProcessService;
     }
 
@@ -118,14 +118,14 @@ public class Listener
                     case SocketStageChannel:
                     case SocketVoiceChannel:
                     case SocketNewsChannel:
-                        _logger.Debug("收到一条来自非常规频道消息, 略过处理, 消息ID:{MessageId}, 消息链接:{MessageUrl}, 消息频道ID:{ChannelId}, 消息频道名称:{ChannelName}, 消息父频道ID:{ParentChannelId}, 消息父频道名称:{ParentChannelName}, 消息父频道服务器ID:{GuildId}, 消息父频道服务器名称:{GuildName}",
-                message.Id, message.GetJumpUrl(), threadChannel.Id, threadChannel.Name, threadChannel.ParentChannel.Id, threadChannel.ParentChannel.Name, threadChannel.Guild.Id, threadChannel.Guild.Name);
+                        _logger.Debug("⏭️ 收到非常规频道子区消息，跳过处理: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}",
+                            threadChannel.Guild.Name, threadChannel.ParentChannel.Name, threadChannel.Name, message.Id);
                         break;
 
                     // 最后的默认情况
                     default:
-                        _logger.Warning("未能归类消息所处位置的父频道, 消息ID:{MessageId}, 消息链接:{MessageUrl}, 消息频道ID:{ChannelId}, 消息频道名称:{ChannelName}, 消息父频道ID:{ParentChannelId}, 消息父频道名称:{ParentChannelName}, 消息父频道类型:{ParentChannelType}, 消息父频道服务器ID:{GuildId}, 消息父频道服务器名称:{GuildName}",
-                message.Id, message.GetJumpUrl(), threadChannel.Id, threadChannel.Name, threadChannel.ParentChannel.Id, threadChannel.ParentChannel.Name, threadChannel.ParentChannel.GetType().Name, threadChannel.Guild.Id, threadChannel.Guild.Name);
+                        _logger.Warning("⚠️ 未能归类子区消息的父频道: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}, 父频道类型 {ParentChannelType}",
+                            threadChannel.Guild.Name, threadChannel.ParentChannel.Name, threadChannel.Name, message.Id, threadChannel.ParentChannel.GetType().Name);
                         break;
                 }
                 break;
@@ -137,146 +137,198 @@ public class Listener
                 await _dataProcessService.TextChannelMessageProcess(message, textChannel);
                 break;
 
-            // 其他类型
+            // 其他类型 - 非监控的频道类型
             case SocketStageChannel:
             case SocketVoiceChannel:
             case SocketNewsChannel:
-                _logger.Debug("收到一条来自非常规频道消息, 略过处理, 消息ID:{MessageId}, 消息链接:{MessageUrl}, 消息频道ID:{ChannelId}, 消息频道名字:{ChannelName}, 消息频道类型:{ChannelType}",
-            message.Id, message.GetJumpUrl(), channel.Id, (channel as IGuildChannel)?.Name, channel.GetType().Name);
+                _logger.Debug("⏭️ 收到非常规频道消息，跳过处理: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
+                    message.Id, channel.Id, (channel as IGuildChannel)?.Name, channel.GetType().Name);
                 break;
             case SocketDMChannel:
-                _logger.Debug("收到一条来自私聊消息, 略过处理, 消息作者ID:{MessageAuthorId}, 消息作者:{MessageAuthorName}", message.Author.Id, message.Author.GlobalName);
+                _logger.Debug("⏭️ 收到私聊消息，跳过处理: 作者ID {AuthorId}, 作者 {AuthorName}",
+                    message.Author.Id, message.Author.GlobalName);
                 break;
 
-            // 最后的默认情况
+            // 最后的默认情况 - 未知频道类型
             default:
-                _logger.Warning("未能归类消息所处的频道, 消息ID:{MessageId}, 消息链接:{MessageUrl}, 消息频道ID:{ChannelId}, 消息频道名字:{ChannelName}, 消息频道类型:{ChannelType}",
-            message.Id, message.GetJumpUrl(), channel.Id, (channel as IGuildChannel)?.Name ?? "未知或无名称", channel.GetType().Name);
+                _logger.Warning("⚠️ 未能归类消息所处的频道: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
+                    message.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知或无名称", channel.GetType().Name);
                 break;
         }
     }
     #endregion
 
+    #region 消息删除
+
+    /// <summary>
+    /// 处理单条消息删除事件。
+    /// </summary>
+    /// <param name="cacheableMessage">可能缓存的消息对象</param>
+    /// <param name="cacheableMessageChannel">可能缓存的消息频道对象</param>
     public async Task MessageDeleteAsync(Cacheable<IMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableMessageChannel)
     {
+        _logger.Debug("处理单条消息删除: 消息ID {MessageId}", cacheableMessage.Id);
         await _dataProcessService.MessagesDeleteProcess([cacheableMessage.Id]);
     }
 
+    /// <summary>
+    /// 处理批量消息删除事件（如频道清理）。
+    /// </summary>
+    /// <param name="cacheableMessages">可能缓存的消息集合</param>
+    /// <param name="cacheableMessageChannel">可能缓存的消息频道对象</param>
     public async Task MessageBulkDeleteAsync(IReadOnlyCollection<Cacheable<IMessage, ulong>> cacheableMessages, Cacheable<IMessageChannel, ulong> cacheableMessageChannel)
     {
         var messageIds = cacheableMessages.Select(msg => msg.Id).ToList();
+        _logger.Debug("处理批量消息删除: 数量 {Count}", messageIds.Count);
         await _dataProcessService.MessagesDeleteProcess(messageIds);
     }
+    #endregion
 
-    #region ThreadCreated
+    #region 帖子事件
     /// <summary>
     /// 处理帖子创建事件。
+    /// 仅处理监控频道列表中的论坛频道。
     /// </summary>
-    /// <param name="socketThreadChannel">创建或更新的帖子频道对象。</param>
+    /// <param name="socketThreadChannel">创建的帖子频道对象</param>
     private async Task ThreadCreatedAsync(SocketThreadChannel socketThreadChannel)
     {
-        // === 前置条件检查 (Guards) ===
-        // 检查父频道ID是否在资源区频道的列表中。
-        if (_channelIds.Contains(socketThreadChannel.ParentChannel.Id))
+        // 检查父频道ID是否在监控的频道列表中
+        if (ChannelIds.Contains(socketThreadChannel.ParentChannel.Id))
         {
-
+            _logger.Debug("⚡ 检测到新帖子创建: [{GuildName}.{ChannelName}] 帖子ID {ThreadId}",
+                socketThreadChannel.Guild.Name, socketThreadChannel.ParentChannel.Name, socketThreadChannel.Id);
             await _dataProcessService.CreateThreadProcessAsync(socketThreadChannel);
         }
-        // 这个帖子不属于资源区的任何一个论坛频道, 忽略。
     }
-    #endregion
 
-    #region ThreadUpdated
     /// <summary>
-    /// 处理帖子更新事件的重载版本。
-    /// 将发生变动的帖子加入待处理队列，并触发防抖/批量处理逻辑。
+    /// 处理帖子更新事件。
+    /// 仅处理监控频道列表中的论坛频道。
     /// </summary>
-    /// <param name="cacheableThreadChannel">可能在缓存中的帖子对象。</param>
-    /// <param name="socketThreadChannel">更新后的帖子频道对象。</param>
+    /// <param name="cacheableThreadChannel">可能缓存的旧帖子对象</param>
+    /// <param name="socketThreadChannel">更新后的帖子频道对象</param>
     private async Task ThreadUpdateAsync(Cacheable<SocketThreadChannel, ulong> cacheableThreadChannel, SocketThreadChannel socketThreadChannel)
     {
-        // === 前置条件检查 (Guards) ===
-        // 检查父频道ID是否在资源区频道的列表中。
-        if (_channelIds.Contains(socketThreadChannel.ParentChannel.Id))
+        // 检查父频道ID是否在监控的频道列表中
+        if (ChannelIds.Contains(socketThreadChannel.ParentChannel.Id))
         {
+            _logger.Debug("🔄 检测到帖子更新: [{GuildName}.{ChannelName}] 帖子ID {ThreadId}",
+                socketThreadChannel.Guild.Name, socketThreadChannel.ParentChannel.Name, socketThreadChannel.Id);
             await _dataProcessService.UpdateThreadProcessAsync(socketThreadChannel);
         }
-        // 这个帖子不属于资源区的任何一个论坛频道, 忽略。
     }
-    #endregion
 
-    #region TrheadDelete
     /// <summary>
-    /// 处理帖子删除事件
+    /// 处理帖子删除事件。
     /// </summary>
-    /// <param name=""></param>
-    /// <returns></returns>
+    /// <param name="cacheableChannel">可能缓存的帖子对象</param>
     public async Task DeleteThreadAsync(Cacheable<SocketThreadChannel, ulong> cacheableChannel)
     {
+        _logger.Debug("🗑️ 检测到帖子删除: 帖子ID {ThreadId}", cacheableChannel.Id);
         await _dataProcessService.DeleteThreadProcessAsync(cacheableChannel.Id);
     }
-
     #endregion
 
-    #region ReactionAddedAsync
+    #region 反应事件
+    /// <summary>
+    /// 处理反应添加事件。
+    /// 仅处理监控频道列表中帖子的首楼消息反应。
+    /// </summary>
+    /// <param name="cacheableMessage">可能缓存的消息对象</param>
+    /// <param name="cacheableChannel">可能缓存的频道对象</param>
+    /// <param name="socketReaction">添加的反应对象</param>
     public async Task ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction socketReaction)
     {
-        // 获取消息所在频道对象
-        var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
-        // 如果是帖子频道且在监听目标集合范围内
-        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && _channelIds.Contains(threadChannel.ParentChannel.Id))
+        if (cacheableMessage.Id == cacheableChannel.Id)
         {
-            // 是帖子的首楼消息
-            if (cacheableMessage.Id == cacheableChannel.Id)
+            if (_forumThreadIds.TryGetValue(cacheableChannel.Id, out var forumId))
             {
-                await _dataProcessService.UpdateTheradReactionProcessAsync(threadChannel);
+                if (!ChannelIds.Contains(forumId)) return;
             }
+            else
+            {
+                var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
+
+                
+
+                _forumThreadIds.TryAdd(cacheableChannel.Id, channel.Id);
+                if (!ChannelIds.Contains(channel.Id)) return;
+            }
+            _logger.Debug("👍 检测到首楼消息反应添加: 帖子ID {ThreadId}, 反应 {Emote}",
+                cacheableChannel.Id, socketReaction.Emote.Name);
+            await _dataProcessService.UpdateTheradReactionProcessAsync(cacheableChannel.Id);
         }
     }
-    #endregion
 
-    #region ReactionRemovedAsync
+    /// <summary>
+    /// 处理反应移除事件。
+    /// 仅处理监控频道列表中帖子的首楼消息反应。
+    /// </summary>
+    /// <param name="cacheableMessage">可能缓存的消息对象</param>
+    /// <param name="cacheableChannel">可能缓存的频道对象</param>
+    /// <param name="socketReaction">移除的反应对象</param>
     public async Task ReactionRemovedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction socketReaction)
     {
         // 获取消息所在频道对象
         var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
+
         // 如果是帖子频道且在监听目标集合范围内
-        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && _channelIds.Contains(threadChannel.ParentChannel.Id))
+        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && ChannelIds.Contains(threadChannel.ParentChannel.Id))
         {
-            // 是帖子的首楼消息
+            // 仅处理首楼消息的反应（消息ID等于频道ID）
             if (cacheableMessage.Id == cacheableChannel.Id)
             {
+                _logger.Debug("👎 检测到首楼消息反应移除: 帖子ID {ThreadId}, 反应 {Emote}",
+                    threadChannel.Id, socketReaction.Emote.Name);
                 await _dataProcessService.UpdateTheradReactionProcessAsync(threadChannel);
             }
         }
     }
     #endregion
 
-    #region ChannelCreatedAsync
+    #region 频道事件
+    /// <summary>
+    /// 处理频道创建事件。
+    /// 仅处理论坛频道的创建。
+    /// </summary>
+    /// <param name="socketChannel">创建的频道对象</param>
     public async Task ChannelCreatedAsync(SocketChannel socketChannel)
     {
         if (socketChannel is SocketForumChannel socketForumChannel)
         {
+            _logger.Info("🆕 检测到新论坛频道创建: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
             await _dataProcessService.CreateOrUpdateChannelProcessAsync(socketForumChannel);
         }
     }
-    #endregion
 
-    #region ChannelUpdatedAsync
+    /// <summary>
+    /// 处理频道更新事件。
+    /// 仅处理论坛频道的更新。
+    /// </summary>
+    /// <param name="socketBeforeChannel">更新前的频道对象</param>
+    /// <param name="socketAfterChannel">更新后的频道对象</param>
     public async Task ChannelUpdatedAsync(SocketChannel socketBeforeChannel, SocketChannel socketAfterChannel)
     {
         if (socketAfterChannel is SocketForumChannel socketForumChannel)
         {
+            _logger.Debug("🔄 检测到论坛频道更新: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
             await _dataProcessService.CreateOrUpdateChannelProcessAsync(socketForumChannel);
         }
     }
-    #endregion
 
-    #region ChannelDestroyedAsync
+    /// <summary>
+    /// 处理频道删除事件。
+    /// 仅处理论坛频道的删除。
+    /// </summary>
+    /// <param name="socketChannel">删除的频道对象</param>
     public async Task ChannelDestroyedAsync(SocketChannel socketChannel)
     {
         if (socketChannel is SocketForumChannel socketForumChannel)
         {
+            _logger.Info("🗑️ 检测到论坛频道删除: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
             await _dataProcessService.DeleteChannelProcessAsync(socketForumChannel);
         }
     }

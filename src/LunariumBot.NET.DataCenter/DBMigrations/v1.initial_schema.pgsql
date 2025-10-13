@@ -11,9 +11,13 @@
 CREATE TABLE IF NOT EXISTS db_info (
     version INT PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL,
-    last_save_at TIMESTAMPTZ NOT NULL,
+    last_sync_at TIMESTAMPTZ NOT NULL,
     initialize_at TIMESTAMPTZ NOT NULL
 );
+
+INSERT INTO db_info (version, applied_at, last_sync_at, initialize_at)
+VALUES (1, NOW(), NOW(), NOW())
+ON CONFLICT (version) DO NOTHING;
 
 -- ===================================================================
 -- 1. 基础实体表
