@@ -76,15 +76,11 @@ public partial class DataProcessService
             var messageData = new MessageData()
             {
                 MessageId = message.Id,
-                AuthorName = message.Author.GlobalName,
                 AuthorId = message.Author.Id,
                 CreatedAt = message.CreatedAt,
                 GuildId = parentChannel.Guild.Id,
-                GuildName = parentChannel.Guild.Name,
                 ChannelId = parentChannel.Id,
-                ChannelName = parentChannel.Name,
                 ThreadId = threadChannel.Id,
-                ThreadTitle = threadChannel.Name,
                 MessageJumpUrl = message.GetJumpUrl(),
                 IsCreateThread = message.Id == threadChannel.Id,
                 IsUpdate = isUpdate

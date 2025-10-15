@@ -64,11 +64,21 @@ public class RotatingFileSink : ILogSink
             throw new ArgumentException("Invalid configuration: When maxFile is limited, maxFileSizeMB must also be greater than 0.");
         }
 
-        _flushTimer = new Timer(
-            callback: FlushTimerCallback, 
-            state: null, 
-            dueTime: TimeSpan.FromSeconds(10), 
-            period: TimeSpan.FromSeconds(10));
+        try
+        {
+            _flushTimer = new Timer(
+                callback: FlushTimerCallback, 
+                state: null, 
+                dueTime: TimeSpan.FromSeconds(10), 
+                period: TimeSpan.FromSeconds(10)
+            );
+        }
+        catch
+        {
+            // 如果Timer创建失败，清理已分配的资源
+            Dispose();
+            throw;
+        }
     }
 
     private void FlushTimerCallback(object? state)

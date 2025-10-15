@@ -110,19 +110,69 @@ public partial class DataProcessService
             IsValid = firstMessage != null,
             IsDeleted = false
         };
+
+        var postMemberData = new PostMemberData()
+        {
+            UserId = socketThreadChannel.Owner.Id,
+            UserName = socketThreadChannel.Owner.DisplayName,
+            ThreadId = socketThreadChannel.Id,
+            ThreadName = socketThreadChannel.Name,
+            IsThreadOwner = true,
+            FirstJoinAt = socketThreadChannel.CreatedAt,
+            LastJoinAt = socketThreadChannel.CreatedAt,
+            LeaveAt = null,
+            IsLeave = false,
+            MessageCount = 1,
+            LastMessageId = socketThreadChannel.Id,
+            LastMessageAt = socketThreadChannel.CreatedAt,
+        };
+
+        var userData = new UserData()
+        {
+            UserId = socketThreadChannel.Owner.Id,
+            UserThreadCount = 1,
+            UserMessageCount = 1,
+            UserUpdateCount = 0,
+            UserCreditLv1 = _configLoader.Config.CreditConfig.ThreadCreditLv1,
+            UserCreditLv2 = _configLoader.Config.CreditConfig.ThreadCreditLv2,
+            UserCreditLv3 = _configLoader.Config.CreditConfig.ThreadCreditLv3,
+        };
+
         try
         {
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.ForumThreadToDBAsync(threadData, tagInfos);
+
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.InsertThreadAsync(transaction, threadData);
+
+                    await _databaseService.InsertTagsJunction(transaction, threadData);
+
+                    await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+
+                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
-            _logger.Info("✅ 成功创建帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 有效性: {IsValid}",
+            _logger.Info("✅ 成功插入帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 有效性: {IsValid}",
                 socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name,
                 socketThreadChannel.Id, threadData.IsValid);
         }
         catch (Exception ex)
         {
+
             _logger.Error(ex, "❌ 创建帖子失败: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
                 socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
         }
@@ -161,6 +211,7 @@ public partial class DataProcessService
         // 构建数据
         var threadData = new ThreadData()
         {
+            ThreadId = socketThreadChannel.Id,
             // 标题更新
             Title = socketThreadChannel.Name,
             TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
@@ -175,7 +226,23 @@ public partial class DataProcessService
         {
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.ForumThreadUpdateToDBAsync(threadData, tagInfos);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpdateThreadAsync(transaction, threadData);
+
+                    await _databaseService.ReplaceTagsJunction(transaction, threadData);
+                    
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
             _logger.Info("✅ 成功更新帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 锁定状态: {IsLocked}",
@@ -191,63 +258,37 @@ public partial class DataProcessService
 
     /// <summary>
     /// 更新论坛帖子首楼消息的反应（Reaction）计数。
-    /// 该方法会获取首楼消息的所有反应，并找出最高的反应数量更新到数据库。
     /// </summary>
     /// <param name="socketThreadChannel">Discord 帖子频道对象。</param>
-    public async Task UpdateTheradReactionProcessAsync(SocketThreadChannel socketThreadChannel)
+    public async Task UpdateTheradReactionProcessAsync(ulong threadId, NumericUpdateType reactionUpdateType)
     {
-        _logger.Debug("开始更新帖子反应计数: 帖子 {ThreadName} (ID: {ThreadId})",
-            socketThreadChannel.Name, socketThreadChannel.Id);
-
-        IMessage? firstMessage = null;
-        // 使用重试策略从 Discord API 获取首楼消息内容
-        try
-        {
-            await _semaphore.WaitAsync();
-            await _httpRetryPolicy.ExecuteAsync(async () =>
-            {
-                // 获取首楼消息（帖子ID等于首楼消息ID）
-                firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.Critical(ex, "❌ 获取首楼消息失败，无法更新反应计数: 帖子 {ThreadName} (ID: {ThreadId})",
-                socketThreadChannel.Name, socketThreadChannel.Id);
-            return;
-        }
-        finally
-        {
-            _semaphore.Release();
-        }
-
-        // 计算最高反应数
-        int highestReactionCount = 0;
-        if (firstMessage != null)
-        {
-            highestReactionCount = firstMessage.Reactions.Values
-                .Select(r => r.ReactionCount)
-                .DefaultIfEmpty(0)
-                .Max();
-        }
-
-        _logger.Debug("帖子 {ThreadName} (ID: {ThreadId}) 的最高反应数: {ReactionCount}",
-            socketThreadChannel.Name, socketThreadChannel.Id, highestReactionCount);
+        _logger.Debug("开始更新帖子反应计数: 帖子 ID: ThreadId}", threadId);
 
         try
         {
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.UpdateThreadReactionToDBAsync(socketThreadChannel.Id, highestReactionCount);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpdateThreadReactionAsync(transaction, threadId, reactionUpdateType);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
-            _logger.Info("✅ 成功更新帖子反应计数: 帖子 {ThreadName} (ID: {ThreadId}), 反应数: {ReactionCount}",
-                socketThreadChannel.Name, socketThreadChannel.Id, highestReactionCount);
+            _logger.Info("✅ 成功更新帖子反应计数: 帖子 ID: ThreadId}", threadId);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ 更新帖子反应计数失败: 帖子 {ThreadName} (ID: {ThreadId})",
-                socketThreadChannel.Name, socketThreadChannel.Id);
+            _logger.Error(ex, "❌ 更新帖子反应计数失败: 帖子 ID: {ThreadId}", threadId);
         }
     }
 
@@ -262,8 +303,33 @@ public partial class DataProcessService
 
         try
         {
-            await _databaseService.SoftDeleteThreadAsync(threadId);
-            _logger.Info("✅ 成功软删除帖子 (ID: {ThreadId})", threadId);
+            int affectedRows = 0;
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    affectedRows = await _databaseService.SoftDeleteThreadAsync(transaction, threadId);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            if (affectedRows > 0)
+            {
+                _logger.Info("✅ 成功软删除帖子 (ID: {ThreadId})", threadId);
+            }
+            else
+            {
+                _logger.Warning("⚠️ 尝试软删除帖子 {ThreadId}，但该帖子未找到或已被删除。", threadId);
+            }
         }
         catch (Exception ex)
         {

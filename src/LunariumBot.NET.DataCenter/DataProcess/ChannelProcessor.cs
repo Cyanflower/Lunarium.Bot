@@ -59,7 +59,19 @@ public partial class DataProcessService
             // 使用数据库重试策略执行数据库操作
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.CreateOrUpdateChannelToDB(channelData, tagInfos);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction) await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpsertForumChannelAsync(transaction, channelData, tagInfos);
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
             _logger.Info("✅ 成功处理论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 标签数: {TagCount}",
@@ -86,12 +98,36 @@ public partial class DataProcessService
 
         try
         {
+            int affectedRows = 0;
             // 使用数据库重试策略执行删除操作
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.DeleteChannelToDB(socketForumChannel.Id, TagIds);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                // 数据库级联规则会自动处理其关联的标签和帖子
+                try
+                {
+                    affectedRows = await _databaseService.DeleteForumChannelAsync(transaction, socketForumChannel.Id);
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
+            if (affectedRows > 0)
+            {
+                _logger.Info("✅ 成功删除论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 已清理 {TagCount} 个标签",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, TagIds.Count);
+            }
+            else
+            {
+                _logger.Warning("⚠️ 尝试删除频道 [{GuildName}.{ChannelName}] (ID: {ChannelId})，但该频道在数据库中未找到。",
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id);
+            }
             _logger.Info("✅ 成功删除论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 已清理 {TagCount} 个标签",
                 socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, TagIds.Count);
         }

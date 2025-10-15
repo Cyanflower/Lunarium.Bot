@@ -12,7 +12,7 @@ namespace LunariumBot.Net.DataCenter;
 
 public class ConfigLoader
 {
-    public SearchBotConfig Config { get; private set; }
+    public DataCenterBotConfig Config { get; private set; }
     private readonly object _lockObject = new();
     private readonly ILogger _logger;
 
@@ -84,7 +84,7 @@ public class ConfigLoader
     /// <summary>
     /// 从文件加载配置
     /// </summary>
-    private static SearchBotConfig LoadConfigFromFile()
+    private static DataCenterBotConfig LoadConfigFromFile()
     {
         try
         {
@@ -94,12 +94,12 @@ public class ConfigLoader
                 throw new FileNotFoundException($"配置文件不存在: {configPath}");
 
             string jsonContent = File.ReadAllText(configPath);
-            var searchBotConfig = JsonSerializer.Deserialize<SearchBotConfig>(jsonContent, new JsonSerializerOptions
+            var DataCenterBotConfig = JsonSerializer.Deserialize<DataCenterBotConfig>(jsonContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 ReadCommentHandling = JsonCommentHandling.Skip // 支持JSONC注释
             });
-            return searchBotConfig ?? throw new InvalidOperationException("配置文件中未找到对应配置的数据");
+            return DataCenterBotConfig ?? throw new InvalidOperationException("配置文件中未找到对应配置的数据");
         }
         catch (Exception ex)
         {
@@ -110,7 +110,7 @@ public class ConfigLoader
     /// <summary>
     /// 验证配置
     /// </summary>
-    public static (bool IsValid, List<string> Errors) ValidateConfig(SearchBotConfig config)
+    public static (bool IsValid, List<string> Errors) ValidateConfig(DataCenterBotConfig config)
     {
         var errors = new List<string>();
 

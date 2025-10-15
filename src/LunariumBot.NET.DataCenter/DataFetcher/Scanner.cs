@@ -96,10 +96,8 @@ public class Scanner
         var allThreadsData = await GetAllThreadsData(allRestThreads);
 
         // 写入数据库
-        // TODO: 实现数据库写入逻辑
+        // TODO: 实现数据库写入 allForumChannelsData 和 allThreadsData 逻辑
 
-        // 如果需要初始化
-        // TODO: 实现初始化逻辑
 
         _logger.Info("✅ 同步扫描任务完成。");
     }

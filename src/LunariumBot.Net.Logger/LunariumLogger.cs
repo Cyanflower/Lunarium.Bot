@@ -128,6 +128,10 @@ public class LunariumLogger : ILogger, IAsyncDisposable
         {
             // 这是正常关闭时预期的异常，无需处理
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LunariumLogger.InternalError] {message}");
+        }
     }
 
     /// <summary>
@@ -214,16 +218,32 @@ public class LunariumLogger : ILogger, IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        // 标记 Channel 不再接受新的写入
         _queue.Writer.Complete();
-        // 发出取消信号，以便 ProcessQueueAsync 可以在处理完现有条目后退出
         _cancellationTokenSource.Cancel();
-        // 等待后台任务完成（处理完队列中剩余的所有日志）
-        await _processTask;
-        // 释放所有 Sink 的资源
+        
+        try
+        {
+            await _processTask;
+        }
+        catch (Exception ex)
+        {
+            // 记录任务异常，但继续清理
+            SafeWriteError($"ProcessTask ended with error: {ex.Message}");
+        }
+        
+        // 即使任务失败，也要释放Sinks
         foreach (var (sink, _) in _sinks)
         {
-            sink.Dispose();
+            try
+            {
+                sink.Dispose();
+            }
+            catch (Exception ex)
+            {
+                SafeWriteError($"Sink disposal failed: {ex.Message}");
+            }
         }
+        
+        _cancellationTokenSource.Dispose();
     }
 }

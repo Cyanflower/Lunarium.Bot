@@ -248,9 +248,6 @@ public class Listener
             else
             {
                 var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
-
-                
-
                 _forumThreadIds.TryAdd(cacheableChannel.Id, channel.Id);
                 if (!ChannelIds.Contains(channel.Id)) return;
             }
@@ -269,19 +266,21 @@ public class Listener
     /// <param name="socketReaction">移除的反应对象</param>
     public async Task ReactionRemovedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction socketReaction)
     {
-        // 获取消息所在频道对象
-        var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
-
-        // 如果是帖子频道且在监听目标集合范围内
-        if (channel is SocketThreadChannel threadChannel && threadChannel.ParentChannel != null && ChannelIds.Contains(threadChannel.ParentChannel.Id))
+        if (cacheableMessage.Id == cacheableChannel.Id)
         {
-            // 仅处理首楼消息的反应（消息ID等于频道ID）
-            if (cacheableMessage.Id == cacheableChannel.Id)
+            if (_forumThreadIds.TryGetValue(cacheableChannel.Id, out var forumId))
             {
-                _logger.Debug("👎 检测到首楼消息反应移除: 帖子ID {ThreadId}, 反应 {Emote}",
-                    threadChannel.Id, socketReaction.Emote.Name);
-                await _dataProcessService.UpdateTheradReactionProcessAsync(threadChannel);
+                if (!ChannelIds.Contains(forumId)) return;
             }
+            else
+            {
+                var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
+                _forumThreadIds.TryAdd(cacheableChannel.Id, channel.Id);
+                if (!ChannelIds.Contains(channel.Id)) return;
+            }
+            _logger.Debug("👎 检测到首楼消息反应移除: 帖子ID {ThreadId}, 反应 {Emote}",
+                cacheableChannel.Id, socketReaction.Emote.Name);
+            await _dataProcessService.RemoveTheradReactionProcessAsync(cacheableChannel.Id);
         }
     }
     #endregion

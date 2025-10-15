@@ -1,19 +1,32 @@
 namespace LunariumBot.Net.DataCenter.Model;
 
-public class SearchBotConfig
+public class DataCenterBotConfig
 {
     public string DatabaseConnection { get; set; } = "";
     public AuthConfig AuthConfig { get; set; } = new();
     public GuildsConfig GuildsConfig { get; set; } = new();
     public BannerConfig BannerConfig { get; set; } = new();
+    public CreditConfig CreditConfig { get; set; } = new();
     public Dictionary<string, int> ChannelOrder { get; set; } = new();
-    public CreatorAutomatic CreatorAutomatic { get; set; } = new();
 }
 
 public class AuthConfig
 {
     public List<ulong> AdminRoleIds { get; set; } = new();
     public ulong LogChannel { get; set; }
+}
+
+public class CreditConfig
+{
+    public int MessageCreditLv1 { get; set; }
+    public int MessageCreditLv2 { get; set; }
+    public int MessageCreditLv3 { get; set; }
+    public int ThreadCreditLv1 { get; set; }
+    public int ThreadCreditLv2 { get; set; }
+    public int ThreadCreditLv3 { get; set; }
+    public int UpdateCreditLv1 { get; set; }
+    public int UpdateCreditLv2 { get; set; }
+    public int UpdateCreditLv3 { get; set; }
 }
 
 public class GuildsConfig

@@ -30,6 +30,9 @@ public partial class DataProcessService
     /// <summary>日志记录器</summary>
     public readonly ILogger _logger;
 
+    /// <summary>配置</summary>
+    public readonly ConfigLoader _configLoader;
+
     /// <summary>数据库服务，用于执行数据库操作</summary>
     private readonly DatabaseService _databaseService;
 
@@ -67,9 +70,10 @@ public partial class DataProcessService
     /// <param name="proxyConfig">代理配置</param>
     /// <param name="tokenizerService">分词服务</param>
     /// <param name="semaphore">信号量</param>
-    public DataProcessService(ILogger logger, DatabaseService databaseService, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
+    public DataProcessService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
     {
         _logger = logger.ForContext("DataProcessService");
+        _configLoader = configLoader;
         _databaseService = databaseService;
         _tokenizerService = tokenizerService;
         _requestOptions = RequestOptionsConfig();

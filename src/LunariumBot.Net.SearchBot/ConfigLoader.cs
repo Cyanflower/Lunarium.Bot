@@ -94,12 +94,12 @@ public class ConfigLoader
                 throw new FileNotFoundException($"配置文件不存在: {configPath}");
 
             string jsonContent = File.ReadAllText(configPath);
-            var searchBotConfig = JsonSerializer.Deserialize<SearchBotConfig>(jsonContent, new JsonSerializerOptions
+            var SearchBotConfig = JsonSerializer.Deserialize<SearchBotConfig>(jsonContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 ReadCommentHandling = JsonCommentHandling.Skip // 支持JSONC注释
             });
-            return searchBotConfig ?? throw new InvalidOperationException("配置文件中未找到对应配置的数据");
+            return SearchBotConfig ?? throw new InvalidOperationException("配置文件中未找到对应配置的数据");
         }
         catch (Exception ex)
         {

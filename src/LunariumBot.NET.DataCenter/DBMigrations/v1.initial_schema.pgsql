@@ -124,14 +124,10 @@ CREATE INDEX IF NOT EXISTS idx_posts_main_search_vector ON posts_main USING GIN(
 CREATE TABLE IF NOT EXISTS message_main (
     message_id BIGINT PRIMARY KEY,
     author_id BIGINT NOT NULL,
-    author_name TEXT,
     created_at TIMESTAMPTZ NOT NULL,
     guild_id BIGINT NOT NULL,
-    guild_name TEXT NOT NULL,
     channel_id BIGINT NOT NULL,
-    channel_name TEXT NOT NULL,
     thread_id BIGINT,
-    thread_title TEXT,
     message_jump_url TEXT NOT NULL,
     is_create_thread BOOLEAN NOT NULL,
     is_update BOOLEAN NOT NULL,
@@ -151,6 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_message_main_thread_id ON message_main (thread_id
 -- 描述: 存储用户统计数据
 CREATE TABLE IF NOT EXISTS user_data (
     user_id BIGINT PRIMARY KEY,
+    user_name TEXT NOT NULL,
     user_thread_count INTEGER DEFAULT 0,
     user_message_count INTEGER DEFAULT 0,
     user_update_count INTEGER DEFAULT 0,
@@ -173,9 +170,10 @@ CREATE TABLE IF NOT EXISTS autocreator_data (
 -- 表: post_tags_junction
 -- 描述: 建立帖子与标签的多对多关系
 CREATE TABLE IF NOT EXISTS post_tags_junction (
-    thread_id BIGINT,
-    tag_id BIGINT,
-    channel_id BIGINT DEFAULT 0,
+    thread_id BIGINT NOT NULL,
+    tag_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (thread_id, tag_id),
     CONSTRAINT fk_thread
         FOREIGN KEY (thread_id) 
@@ -185,17 +183,21 @@ CREATE TABLE IF NOT EXISTS post_tags_junction (
         REFERENCES tags(tag_id) 
         ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_post_tags_junction_thread_id ON post_tags_junction (thread_id);
 CREATE INDEX IF NOT EXISTS idx_post_tags_junction_tag_id ON post_tags_junction (tag_id);
 
 -- 表: post_members
 -- 描述: 帖子内的成员表
 CREATE TABLE IF NOT EXISTS post_members (
     user_id BIGINT NOT NULL,
-    user_name TEXT,
     thread_id BIGINT NOT NULL,
-    thread_name TEXT,
-    join_at TIMESTAMPTZ NOT NULL,
+    is_thread_owner BOOLEAN NOT NULL,
+    first_join_at TIMESTAMPTZ NOT NULL, 
+    last_join_at TIMESTAMPTZ NOT NULL,
+    last_leave_at TIMESTAMPTZ,
+    is_leave BOOLEAN NOT NULL,
     message_count INTEGER DEFAULT 0,
+    message_edit_history JSONB,
     -- 一些非发送消息事件也可以导致用户被添加到帖子里, 所以消息相关非必须
     last_message_id BIGINT,
     last_message_at TIMESTAMPTZ,
