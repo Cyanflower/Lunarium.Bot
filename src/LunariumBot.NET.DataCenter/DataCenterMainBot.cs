@@ -20,6 +20,7 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Database;
+using LunariumBot.Net.DataCenter.DataProcess;
 using LunariumBot.Net.DataCenter.Scheduler;
 using LunariumBot.Net.DataCenter.DataFetcher;
 using LunariumBot.Net.DataCenter.Utils;
@@ -34,7 +35,6 @@ public class DataCenterMainBotService : IHostedService
     private readonly string _token;
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
-    private readonly InitializationService _initializationService;
 
     private readonly IServiceProvider _privateServices;
 
@@ -55,15 +55,12 @@ public class DataCenterMainBotService : IHostedService
     };
     
     // 构造函数
-    public DataCenterMainBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig, InitializationService initializationService)
+    public DataCenterMainBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig)
     {
         _token = token;
         // 本地日志上下文
         _logger = runtimeRootLogger.ForContext("SearchBotService");
         _logger.Info("初始化 SearchBot 服务...");
-
-        // 检查初始化
-        _initializationService = initializationService;
 
         // 构建私有DI容器
         _privateServices = ConfigurePrivateServices(proxyConfig, _logger);
@@ -88,15 +85,10 @@ public class DataCenterMainBotService : IHostedService
 
         var services = new ServiceCollection()
 
+            // ==================== BOT 基础功能与配置 ====================
             // 注册日志
             .AddSingleton(logger)
-            // 注册 ConfigLoader
-            .AddSingleton<ConfigLoader>()
-            // 注册 InitializationService
-            .AddSingleton(_initializationService)
-            // 注册全局并发控制器
-            .AddSingleton(_semaphore)
-            
+
             // 注册 Discord 客户端，并使用从全局传入的代理配置
             .AddSingleton<DiscordSocketClient>(provider =>
             {
@@ -117,11 +109,26 @@ public class DataCenterMainBotService : IHostedService
                 }
             })
 
+            // 注册 ConfigLoader
+            .AddSingleton<ConfigLoader>()
+
             // 注册交互服务
             .AddSingleton<InteractionService>(provider =>
                 new InteractionService(provider.GetRequiredService<DiscordSocketClient>())
             )
 
+            // ==================== 业务逻辑 ====================
+            // ====  ====
+            // 注册鉴权工具
+            .AddSingleton<AuthUtils>()
+            // 注册全局并发控制器
+            .AddSingleton(_semaphore)
+            // 注册数据库服务
+            .AddSingleton<DatabaseService>()
+            // 注册分词器
+            .AddSingleton<ITokenizerService, JiebaTokenizerService>()
+
+            // ====  ====
             // 注册扫描服务
             .AddSingleton<Scanner>()
             // 注册监听器
@@ -134,12 +141,9 @@ public class DataCenterMainBotService : IHostedService
                 provider.GetRequiredService<ThreadProcessor>(),
                 proxyConfig
             ))
+
             // 注册线程处理器
             .AddSingleton<ThreadProcessor>()
-            // 注册数据库服务
-            .AddSingleton<DatabaseService>()
-            // 注册鉴权服务
-            .AddSingleton<AuthUtils>()
 
             // 注册分析器
             .AddSingleton<DataAnalysis>()
@@ -147,10 +151,6 @@ public class DataCenterMainBotService : IHostedService
             // 定时任务和调度器
             .AddSingleton<AnalysisJob>()
             .AddSingleton<FullSyncJob>()
-            .AddScheduler()
-
-            // 注册分词器
-            .AddSingleton<ITokenizerService, JiebaTokenizerService>()
 
             .AddSingleton<AdminCommands>()
             .BuildServiceProvider();
@@ -301,7 +301,7 @@ public class DataCenterMainBotService : IHostedService
             sendMessage.Append("- 全局命令已清除。");
 
             // 7. 清除各个服务器中的命令
-            foreach (var guildId in _configLoader.Config.GuildsConfig.DeployGuildIds)
+            foreach (var guildId in _configLoader.Config.DeployConfig.DeployGuildIds)
             {
                 try
                 {
@@ -356,7 +356,7 @@ public class DataCenterMainBotService : IHostedService
             _logger.Info("命令总数: {_interactions.SlashCommands.Count}", _interactions.SlashCommands.Count);
 
             // 同步命令到部署服务器列表
-            foreach (var guildId in _configLoader.Config.GuildsConfig.DeployGuildIds)
+            foreach (var guildId in _configLoader.Config.DeployConfig.DeployGuildIds)
             {
                 var guild = _client.GetGuild(guildId);
                 if (guild != null)

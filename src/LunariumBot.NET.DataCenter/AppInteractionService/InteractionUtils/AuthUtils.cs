@@ -20,8 +20,8 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
     {
         _logger = logger.ForContext("CommandAuth");
         _configLoader = configLoader;
-        _scanCategories = _configLoader.Config.GuildsConfig.ScanChannelIDS.Keys.ToHashSet();
-        _allScanChannelIds = _configLoader.Config.GuildsConfig.ScanChannelIDS.Values
+        _scanCategories = _configLoader.Config.DeployConfig.ScanChannelIDS.Keys.ToHashSet();
+        _allScanChannelIds = _configLoader.Config.DeployConfig.ScanChannelIDS.Values
             .SelectMany(ids => ids)
             .ToHashSet();
     }
@@ -33,7 +33,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
 
     public bool InGuild(ulong guildId)
     {
-        return _configLoader.Config.GuildsConfig.DeployGuildIds.Contains(guildId);
+        return _configLoader.Config.DeployConfig.DeployGuildIds.Contains(guildId);
     }
 
     public async Task<bool> IsAdmin(string command, IInteractionContext context)

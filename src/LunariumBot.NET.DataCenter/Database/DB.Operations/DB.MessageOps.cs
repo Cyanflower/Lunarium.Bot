@@ -8,7 +8,7 @@ namespace LunariumBot.Net.DataCenter.Database;
 
 public partial class DatabaseService
 {
-    public async Task InsertForumThreadMessageAsync(NpgsqlTransaction transaction, MessageData messageData)
+    public async Task InsertMessageAsync(NpgsqlTransaction transaction, MessageData messageData)
     {
         const string SqlCommand = """
             INSERT INTO message_main (
@@ -42,18 +42,28 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex,"❌ InsertMessageAsync: 插入消息 {MessageId} 时数据库操作失败！", messageData.MessageId);
             throw;
         }
     }
 
-    public async Task TextChannelMessageToDB(MessageData messageData)
+    public async Task DeleteMessagesAsync(NpgsqlTransaction transaction, List<ulong> messageIds)
     {
-        
-    }
-
-    public async Task MessagesDeleteToDB(List<ulong> messageIds)
-    {
-        
+        const string SqlCommand = """
+            UPDATE message_main
+            SET
+                is_deleted = true
+            WHERE
+                message_id = ANY(@MessageIds)
+            """;
+        try
+        {
+            await transaction.Connection.ExecuteAsync(SqlCommand, new { MessageIds = messageIds.ToArray() }, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex,"❌ InsertMessageAsync: 批量删除以下消息 {MessageIds} 时数据库操作失败！", messageIds);
+            throw;
+        }
     }
 }

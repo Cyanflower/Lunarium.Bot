@@ -82,7 +82,7 @@ public class AnalysisJob : IInvocable
 
             // --- 2. 并发推送阶段 ---
             // 使用 LINQ 的 Select 创建一个异步任务列表，每个任务负责处理一个Dashboard频道。
-            var tasks = _configLoader.Config.GuildsConfig.DashboardChannels.Select(async channelId =>
+            var tasks = _configLoader.Config.DeployConfig.DashboardChannels.Select(async channelId =>
             {
                 // 在进入任务处理前，等待信号量。如果并发数已满，这里会异步等待。
                 await _semaphore.WaitAsync();

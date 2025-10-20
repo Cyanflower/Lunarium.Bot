@@ -36,7 +36,7 @@ public class DataAnalysis
             dataList.Add(overallData);
 
             // 根据配置的各个分类进行分析
-            foreach (var category in _configLoader.Config.GuildsConfig.ScanChannelIDS.Keys)
+            foreach (var category in _configLoader.Config.DeployConfig.ScanChannelIDS.Keys)
             {
                 _logger.Info("开始执行分类 '{category}' 的数据分析...", category);
                 var categoryData = await Analysis(category);
@@ -64,7 +64,7 @@ public class DataAnalysis
 
             if (channelName != null)
             {
-                if (_configLoader.Config.GuildsConfig.ScanChannelIDS.TryGetValue(channelName, out var ids))
+                if (_configLoader.Config.DeployConfig.ScanChannelIDS.TryGetValue(channelName, out var ids))
                 {
                     channelIds = ids;
                 }

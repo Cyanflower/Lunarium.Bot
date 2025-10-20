@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS posts_main (
     guild_id BIGINT NOT NULL,
     guild_name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    member_count INT DEFAULT 0,
     reaction_count INT DEFAULT 0,
     reply_count INT DEFAULT 0,
     last_active_at TIMESTAMPTZ NOT NULL,
@@ -89,6 +88,7 @@ CREATE TABLE IF NOT EXISTS posts_main (
     is_valid BOOLEAN NOT NULL,
     is_locked BOOLEAN NOT NULL,
     is_deleted BOOLEAN NOT NULL,
+    in_forum BOOLEAN NOT NULL,
     delete_at TIMESTAMPTZ,
     
     -- 标题和首楼内容
@@ -354,10 +354,6 @@ BEGIN
     SET 
         is_deleted = TRUE,
         is_valid = FALSE, -- 逻辑上，被删除的帖子也应该是无效的
-        search_vector = NULL,
-        title_tokenized = NULL,
-        content_tokenized = NULL,
-        first_message_content = NULL,
         delete_at = NOW() -- 记录一下软删除的时间
     WHERE channel_id = OLD.channel_id; -- 关键的关联条件
 

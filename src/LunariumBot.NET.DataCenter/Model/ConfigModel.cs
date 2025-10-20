@@ -4,7 +4,7 @@ public class DataCenterBotConfig
 {
     public string DatabaseConnection { get; set; } = "";
     public AuthConfig AuthConfig { get; set; } = new();
-    public GuildsConfig GuildsConfig { get; set; } = new();
+    public DeployConfig DeployConfig { get; set; } = new();
     public BannerConfig BannerConfig { get; set; } = new();
     public CreditConfig CreditConfig { get; set; } = new();
     public Dictionary<string, int> ChannelOrder { get; set; } = new();
@@ -12,28 +12,45 @@ public class DataCenterBotConfig
 
 public class AuthConfig
 {
-    public List<ulong> AdminRoleIds { get; set; } = new();
+    public HashSet<ulong> AdminRoleIds { get; set; } = new();
     public ulong LogChannel { get; set; }
 }
 
 public class CreditConfig
 {
-    public int MessageCreditLv1 { get; set; }
-    public int MessageCreditLv2 { get; set; }
-    public int MessageCreditLv3 { get; set; }
-    public int ThreadCreditLv1 { get; set; }
-    public int ThreadCreditLv2 { get; set; }
-    public int ThreadCreditLv3 { get; set; }
-    public int UpdateCreditLv1 { get; set; }
-    public int UpdateCreditLv2 { get; set; }
-    public int UpdateCreditLv3 { get; set; }
+    /// <summary>
+    /// 发送消息所获得的积分设置
+    /// </summary>
+    public CreditLevelSettings ForMessage { get; set; } = new();
+
+    /// <summary>
+    /// 创建主题（帖子）所获得的积分设置
+    /// </summary>
+    public CreditLevelSettings ForThread { get; set; } = new();
+
+    /// <summary>
+    /// 更新内容所获得的积分设置
+    /// </summary>
+    public CreditLevelSettings ForUpdate { get; set; } = new();
+
+    public Dictionary<ulong, int> ChannelFactor { get; set; } = new();
 }
 
-public class GuildsConfig
+public class CreditLevelSettings
 {
-    public List<ulong> DeployGuildIds { get; set; } = new();
-    public List<ulong> DashboardChannels { get; set; } = new();
-    public Dictionary<string, List<ulong>> ScanChannelIDs { get; set; } = new();
+    public int Level1 { get; set; }
+    public int Level2 { get; set; }
+    public int Level3 { get; set; }
+}
+
+public class DeployConfig
+{
+    public HashSet<ulong> DeployGuildIds { get; set; } = new();
+    public HashSet<ulong> DashboardChannels { get; set; } = new();
+    public Dictionary<string, List<ulong>> ScanChannelIds { get; set; } = new();
+    public HashSet<ulong> ExcludeChannelIds { get; set; } = new();
+    public HashSet<ulong> ExcludeCategoryIds { get; set; } = new();
+    public HashSet<ulong> ExcludeGuildIds { get; set; } = new();
 }
 
 public class BannerConfig

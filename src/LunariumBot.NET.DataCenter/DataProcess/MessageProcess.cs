@@ -24,20 +24,20 @@ public partial class DataProcessService
     /// 对于首楼消息，仅记录消息数据；对于其他消息，会更新帖子的回复计数。
     /// </summary>
     /// <param name="message">接收到的消息对象</param>
-    /// <param name="threadChannel">消息所在的帖子频道</param>
+    /// <param name="socketThreadChannel">消息所在的帖子频道</param>
     /// <param name="parentChannel">帖子所属的父论坛频道</param>
-    public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel threadChannel, SocketForumChannel parentChannel)
+    public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel socketThreadChannel, SocketForumChannel parentChannel)
     {
         try
         {
             _logger.Debug("处理论坛帖子消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id, message.Author.GlobalName);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName);
 
             IMessage? refreshMessage = message;
             bool isUpdate = false;
 
             // 如果消息是帖子作者发送的，且不是首楼消息，则检查是否包含作品更新附件
-            if (message.Author.Id == threadChannel.Owner.Id && message.Id != threadChannel.Id)
+            if (message.Author.Id == socketThreadChannel.Owner.Id && message.Id != socketThreadChannel.Id)
             {
                 // 等待 1 秒，因为 Discord API 的 MessageReceived 事件不会立即附带附件
                 // 附件是后续异步上传的，需要重新获取消息以获得完整的附件列表
@@ -45,7 +45,7 @@ public partial class DataProcessService
                 try
                 {
                     await _semaphore.WaitAsync();
-                    refreshMessage = await threadChannel.GetMessageAsync(message.Id);
+                    refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
                     if (refreshMessage == null)
                     {
                         _logger.Warning("⚠️ 无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
@@ -58,7 +58,7 @@ public partial class DataProcessService
                         if (isUpdate)
                         {
                             _logger.Info("✨ 检测到作品更新: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
-                                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
+                                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id);
                         }
                     }
                 }
@@ -80,34 +80,95 @@ public partial class DataProcessService
                 CreatedAt = message.CreatedAt,
                 GuildId = parentChannel.Guild.Id,
                 ChannelId = parentChannel.Id,
-                ThreadId = threadChannel.Id,
+                ThreadId = socketThreadChannel.Id,
                 MessageJumpUrl = message.GetJumpUrl(),
-                IsCreateThread = message.Id == threadChannel.Id,
+                IsCreateThread = message.Id == socketThreadChannel.Id,
                 IsUpdate = isUpdate
             };
-            // 如果是首楼消息，仅记录消息数据，不更新 posts_main 表
-            // posts_main 表的数据由 CreateThreadProcessAsync 负责处理
-            if (message.Id == threadChannel.Id)
+
+            var postMemberData = new PostMemberData()
             {
-                await _dbRetryPolicy.ExecuteAsync(async () =>
-                {
-                    await _databaseService.TextThreadMessageToDBAsync(messageData);
-                });
-                _logger.Debug("✅ 成功记录首楼消息: 消息ID {MessageId}", message.Id);
-                return;
+                UserId = message.Author.Id,
+                ThreadId = socketThreadChannel.Id,
+                IsThreadOwner = message.Author.Id == socketThreadChannel.Owner.Id,
+                FirstJoinAt = message.CreatedAt,
+                LastJoinAt = message.CreatedAt,
+                LeaveAt = null,
+                IsLeave = false,
+                MessageCount = 1,
+                LastMessageId = message.Id,
+                LastMessageAt = message.CreatedAt,
+            };
+
+            var userData = new UserData();
+            userData.UserId = message.Author.Id;
+            userData.UserName = message.Author.GlobalName;
+            if (isUpdate)
+            {
+                userData.UserMessageCountDelta = 1;
+                userData.UserUpdateCountDelta = 1;
+                userData.UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForUpdate.Level1;
+                userData.UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForUpdate.Level2;
+                userData.UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForUpdate.Level3;
+            }
+            else
+            {
+                userData.UserMessageCountDelta = 1;
+                userData.UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1;
+                userData.UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2;
+                userData.UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3;
             }
 
-            // 处理非首楼消息，同时更新帖子的回复计数
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.ForumThreadMessageToDBAsync(messageData, threadChannel.MessageCount);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.InsertMessageAsync(transaction, messageData);
+
+                    await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+                    
+                    // 基于回复记数的更新原理:
+                    // - 直接将 API 附带的数据中的准确的总数覆盖写入
+                    // - 而非在数据库内的原值上做加减
+                    // - 会在成功的时候直接覆盖正确的的当时总数
+                    // 某次单纯更新记数失败是可接受的, 使用保存点隔离 UpdateThreadReplayCountAsync 操作
+                    await transaction.SaveAsync("before_update_count");
+                    try
+                    {
+                        await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, socketThreadChannel.MessageCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error(ex, "更新帖子回复数失败 (可接受), ThreadId: {ThreadId}", socketThreadChannel.Id);
+                        // 回滚到保存点
+                        await transaction.RollbackAsync("before_update_count");
+                    }
+    
+                    // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
+                    if (message.Id != socketThreadChannel.Id)
+                    {
+                        await _databaseService.UpsertUserDataAsync(transaction, userData);
+                    }
+    
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+
             });
-            _logger.Debug("✅ 成功记录消息: 消息ID {MessageId}, 回复数: {MessageCount}", message.Id, threadChannel.MessageCount);
+            _logger.Debug("✅ 成功记录消息: 消息ID {MessageId}, 回复数: {MessageCount}", message.Id, socketThreadChannel.MessageCount);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ 处理论坛帖子消息失败: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
-                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id);
         }
     }
 
@@ -117,22 +178,15 @@ public partial class DataProcessService
     /// 如果消息ID等于帖子ID，说明该消息创建了子区，会延迟2秒以确保在 Created 事件之后处理。
     /// </summary>
     /// <param name="message">接收到的消息对象</param>
-    /// <param name="threadChannel">消息所在的子区频道</param>
+    /// <param name="socketThreadChannel">消息所在的子区频道</param>
     /// <param name="parentChannel">子区所属的父文字频道</param>
-    public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel threadChannel, SocketTextChannel parentChannel)
+    public async Task ThreadMessageProcessAsync(SocketMessage message, SocketThreadChannel socketThreadChannel, SocketTextChannel parentChannel)
     {
         try
         {
             _logger.Debug("处理文字频道子区消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id, message.Author.GlobalName);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName);
 
-            if (message.Id == threadChannel.Id)
-            {
-                // 如果是该消息创建了子区，等待 2 秒
-                // 即使 MessageReceived 事件比 ThreadCreated 事件先到达，也尽量确保在 Created 事件之后处理
-                _logger.Debug("检测到创建子区的消息，延迟 2 秒后处理: 消息ID {MessageId}", message.Id);
-                await Task.Delay(2000);
-            }
             // 准备更新消息数据
             var messageData = new MessageData()
             {
@@ -140,25 +194,94 @@ public partial class DataProcessService
                 AuthorId = message.Author.Id,
                 CreatedAt = message.CreatedAt,
                 GuildId = parentChannel.Guild.Id,
-                GuildName = parentChannel.Guild.Name,
                 ChannelId = parentChannel.Id,
-                ChannelName = parentChannel.Name,
-                ThreadId = threadChannel.Id,
-                ThreadTitle = threadChannel.Name,
+                ThreadId = socketThreadChannel.Id,
                 MessageJumpUrl = message.GetJumpUrl(),
-                IsCreateThread = message.Id == threadChannel.Id,
+                IsCreateThread = message.Id == socketThreadChannel.Id,
                 IsUpdate = false
             };
-            await _dbRetryPolicy.ExecuteAsync(async () =>
+
+            var postMemberData = new PostMemberData()
             {
-                await _databaseService.TextThreadMessageToDBAsync(messageData);
-            });
+                UserId = message.Author.Id,
+                ThreadId = socketThreadChannel.Id,
+                IsThreadOwner = message.Author.Id == socketThreadChannel.Owner.Id,
+                FirstJoinAt = message.CreatedAt,
+                LastJoinAt = message.CreatedAt,
+                LeaveAt = null,
+                IsLeave = false,
+                MessageCount = 1,
+                LastMessageId = message.Id,
+                LastMessageAt = message.CreatedAt,
+            };
+
+            var userData = new UserData()
+            {
+                UserId = message.Author.Id,
+                UserName = message.Author.GlobalName,
+                UserMessageCountDelta = 1,
+                UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
+                UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
+                UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3
+            };
+
+            try
+            {
+                await _dbRetryPolicy.ExecuteAsync(async () =>
+                {
+                    await using var connection = _databaseService.GetConnection();
+                    await connection.OpenAsync();
+                    await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                    try
+                    {
+                        await _databaseService.InsertMessageAsync(transaction, messageData);
+
+                        await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+                        
+                        // 基于回复记数的更新原理:
+                        // - 直接将 API 附带的数据中的准确的总数覆盖写入
+                        // - 而非在数据库内的原值上做加减
+                        // - 会在成功的时候直接覆盖正确的的当时总数
+                        // 某次单纯更新记数失败是可接受的, 使用保存点隔离 UpdateThreadReplayCountAsync 操作
+                        await transaction.SaveAsync("before_update_count");
+                        try
+                        {
+                            await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, socketThreadChannel.MessageCount);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error(ex, "更新帖子回复数失败 (可接受), ThreadId: {ThreadId}", socketThreadChannel.Id);
+                            // 回滚到保存点
+                            await transaction.RollbackAsync("before_update_count");
+                        }
+        
+                        // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
+                        if (message.Id != socketThreadChannel.Id)
+                        {
+                            await _databaseService.UpsertUserDataAsync(transaction, userData);
+                        }
+        
+                        await transaction.CommitAsync();
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
+
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex);
+            }
             _logger.Debug("✅ 成功记录文字频道子区消息: 消息ID {MessageId}", message.Id);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ 处理文字频道子区消息失败: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
-                parentChannel.Guild.Name, parentChannel.Name, threadChannel.Name, message.Id);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id);
         }
     }
 
@@ -181,19 +304,43 @@ public partial class DataProcessService
                 AuthorId = message.Author.Id,
                 CreatedAt = message.CreatedAt,
                 GuildId = parentChannel.Guild.Id,
-                GuildName = parentChannel.Guild.Name,
                 ChannelId = parentChannel.Id,
-                ChannelName = parentChannel.Name,
                 ThreadId = null,
-                ThreadTitle = null,
                 MessageJumpUrl = message.GetJumpUrl(),
                 IsCreateThread = false,
                 IsUpdate = false
             };
 
+            var userData = new UserData()
+            {
+                UserId = message.Author.Id,
+                UserName = message.Author.GlobalName,
+                UserMessageCountDelta = 1,
+                UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
+                UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
+                UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3
+            };
+
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.TextChannelMessageToDB(messageData);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.InsertMessageAsync(transaction, messageData);
+
+                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+
             });
             _logger.Debug("✅ 成功记录文字频道消息: 消息ID {MessageId}", message.Id);
         }
@@ -217,7 +364,20 @@ public partial class DataProcessService
 
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await _databaseService.MessagesDeleteToDB(deletedMessage);
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.DeleteMessagesAsync(transaction, deletedMessage);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             });
 
             _logger.Info("✅ 成功处理批量消息删除: 数量 {Count}", deletedMessage.Count);

@@ -89,7 +89,7 @@ public partial class DatabaseService
         try
         {
             var parameters = new { ChannelId = channelId };
-            
+
             // 执行删除操作
             int affectedRows = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
 

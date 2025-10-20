@@ -117,10 +117,10 @@ public class ConfigLoader
         if (config.AuthConfig?.AdminRoleIds == null || config.AuthConfig.AdminRoleIds.Count == 0)
             errors.Add("AuthConfig.AdminRoleIds 不能为空");
 
-        if (config.GuildsConfig?.DeployGuildIds == null || config.GuildsConfig.DeployGuildIds.Count == 0)
+        if (config.DeployConfig?.DeployGuildIds == null || config.DeployConfig.DeployGuildIds.Count == 0)
             errors.Add("GuildsConfig.DeployGuildIds 不能为空");
 
-        if (config.GuildsConfig?.ScanChannelIDS == null || config.GuildsConfig.ScanChannelIDS.Count == 0)
+        if (config.DeployConfig?.ScanChannelIDS == null || config.DeployConfig.ScanChannelIDS.Count == 0)
             errors.Add("GuildsConfig.ScanChannelIDS 不能为空");
 
         return (errors.Count == 0, errors);

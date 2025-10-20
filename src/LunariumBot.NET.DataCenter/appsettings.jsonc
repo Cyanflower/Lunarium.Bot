@@ -9,7 +9,7 @@
     "LogChannel": 1413789613184782366
   },
   // 服务器配置(兼容多服务器配置)
-  "GuildsConfig": {
+  "DeployConfig": {
     // 服务器ID
     "DeployGuildIds": [
       1291925535324110879,
@@ -19,7 +19,7 @@
       1409809665432485998
     ],
     // 扫描分类与频道ID的映射
-    "ScanChannelIDs": {
+    "ScanChannelIds": {
       "男性向": [
         1337465200609202318
       ],
@@ -55,30 +55,12 @@
       [
         1374299217174069359
       ]
-    }
-  },
-  // 推送配置
-  "BannerConfig": {
-    "New": {
-      "ChannelId": [
-        123
-      ]
     },
-    "Popular": {
-      "ChannelId": [
-        123
-      ]
-    },
-    "Feature": {
-      "ChannelId": [
-        123
-      ]
-    },
-    "Toplist": {
-      "ChannelId": [
-        123
-      ]
-    }
+    "ExcludeChannelIds": [],
+    "ExcludeCategoryIds": [],
+    // 只影响扫描和监听的数据获取
+    // 不影响命令鉴权
+    "ExcludeGuildIds": []
   },
   "ChannelOrder": {
     "男性向": 1,
@@ -92,14 +74,5 @@
     "预设-破限": 9,
     "反向代理": 10,
     "酒馆美化": 11
-  },
-  "CreatorAutomatic": {
-    "CreatorRoleIDs":{
-      "123": []
-    },
-    "ListenerChannel": [
-
-    ],
-    "ReactionThreshold": 5
   }
 }

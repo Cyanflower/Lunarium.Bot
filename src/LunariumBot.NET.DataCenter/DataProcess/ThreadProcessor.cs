@@ -24,16 +24,16 @@ public partial class DataProcessService
     /// 如果首楼消息不存在，则标记该帖子为无效。
     /// </summary>
     /// <param name="socketThreadChannel">Discord 帖子频道对象。</param>
-    public async Task CreateThreadProcessAsync(SocketThreadChannel socketThreadChannel)
+    public async Task CreateForumThreadProcessAsync(SocketThreadChannel socketThreadChannel, SocketForumChannel socketForumChannel)
     {
-        // 前置检查：确保父频道是论坛频道
-        if (socketThreadChannel.ParentChannel is not SocketForumChannel) return;
-        
-        var parentChannel = (SocketForumChannel)socketThreadChannel.ParentChannel;
+        var isValid = true;
 
         _logger.Debug("开始处理帖子创建: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
-            socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+            socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
 
+        // ==========================
+        // 首楼消息处理
+        // ========================== 
         IMessage? firstMessage = null;
         // 使用重试策略从 Discord API 获取首楼消息内容
         try
@@ -54,31 +54,32 @@ public partial class DataProcessService
         {
             _semaphore.Release();
         }
-        // 获取首楼消息的附件
+
+        // 验证首楼消息是否有效, 有效则尝试获取附件
         string? attachmentUrl = null;
-        if (firstMessage != null)
+        if (firstMessage is not null && !string.IsNullOrWhiteSpace(firstMessage.Content))
         {
             var imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
             attachmentUrl = imageAttachment?.Url;
         }
+        else
+        {
+            isValid = false;
+        }
+
+        // ==========================
+        // 标签处理
+        // ========================== 
         // 获得帖子标签
-        var appliedTagNames = parentChannel.Tags
+        var appliedTagNames = socketForumChannel.Tags
             .Where(tag => socketThreadChannel.AppliedTags.Contains(tag.Id))
             .Select(tag => tag.Name)
             .ToList();
         var tags = string.Join(", ", appliedTagNames);
-        // 构建帖子标签数据
-        List<TagInfo> tagInfos = parentChannel.Tags
-            .Select(tag => new TagInfo
-            {
-                TagId = tag.Id,
-                TagName = tag.Name,
-                ChannelId = parentChannel.Id,
-                ChannelName = parentChannel.Name,
-                GuildName = parentChannel.Guild.Name,
-            })
-            .ToList();
-        // 构建数据
+
+        // ==========================
+        // 构建数据模型
+        // ========================== 
         var threadData = new ThreadData()
         {
             ThreadId = socketThreadChannel.Id,
@@ -89,13 +90,17 @@ public partial class DataProcessService
             GuildId = socketThreadChannel.Guild.Id,
             GuildName = socketThreadChannel.Guild.Name,
             CreatedAt = socketThreadChannel.CreatedAt,
-            MemberCount = socketThreadChannel.MemberCount,
             ReactionCount = 0,
             ReplyCount = socketThreadChannel.MessageCount,
             LastActiveAt = socketThreadChannel.CreatedAt,
             JumpUrl = $"https://discord.com/channels/{socketThreadChannel.Guild.Id}/{socketThreadChannel.Id}/0",
             AttachmentUrl = attachmentUrl,
+
+            Title = socketThreadChannel.Name,
             FirstMessageContent = firstMessage?.Content,
+
+            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            ContentTokenized = firstMessage != null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
 
             // 更新相关
             UpdateAt = null,
@@ -106,17 +111,17 @@ public partial class DataProcessService
             Tags = tags,
             TagsId = socketThreadChannel.AppliedTags.ToList(),
 
-            // API请求成功, 但API返回了NULL, 此消息不存在, 那么这个帖子是个无首楼帖子
-            IsValid = firstMessage != null,
-            IsDeleted = false
+            // 有效性
+            IsValid = isValid,
+            IsLocked = false,
+            IsDeleted = false,
+            InForum = true
         };
 
         var postMemberData = new PostMemberData()
         {
             UserId = socketThreadChannel.Owner.Id,
-            UserName = socketThreadChannel.Owner.DisplayName,
             ThreadId = socketThreadChannel.Id,
-            ThreadName = socketThreadChannel.Name,
             IsThreadOwner = true,
             FirstJoinAt = socketThreadChannel.CreatedAt,
             LastJoinAt = socketThreadChannel.CreatedAt,
@@ -130,14 +135,17 @@ public partial class DataProcessService
         var userData = new UserData()
         {
             UserId = socketThreadChannel.Owner.Id,
-            UserThreadCount = 1,
-            UserMessageCount = 1,
-            UserUpdateCount = 0,
-            UserCreditLv1 = _configLoader.Config.CreditConfig.ThreadCreditLv1,
-            UserCreditLv2 = _configLoader.Config.CreditConfig.ThreadCreditLv2,
-            UserCreditLv3 = _configLoader.Config.CreditConfig.ThreadCreditLv3,
+            UserThreadCountDelta = 1,
+            UserMessageCountDelta = 1,
+            UserUpdateCountDelta = 0,
+            UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForThread.Level1,
+            UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForThread.Level2,
+            UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForThread.Level3,
         };
 
+        // ==========================
+        // 写入数据库
+        // ========================== 
         try
         {
             await _dbRetryPolicy.ExecuteAsync(async () =>
@@ -167,48 +175,154 @@ public partial class DataProcessService
             });
 
             _logger.Info("✅ 成功插入帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 有效性: {IsValid}",
-                socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name,
+                socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name,
                 socketThreadChannel.Id, threadData.IsValid);
         }
         catch (Exception ex)
         {
 
             _logger.Error(ex, "❌ 创建帖子失败: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
-                socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+                socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
         }
     }
+
+    public async Task CreateTextThreadProcessAsync(SocketThreadChannel socketThreadChannel, SocketTextChannel socketTextChannel)
+    {
+        _logger.Debug("开始处理子区创建: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
+            socketThreadChannel.Guild.Name, socketTextChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+
+        // ==========================
+        // 构建数据模型
+        // ========================== 
+        var threadData = new ThreadData()
+        {
+            ThreadId = socketThreadChannel.Id,
+            FirstMessageId = socketThreadChannel.Id,
+            AuthorId = socketThreadChannel.Owner.Id,
+            ChannelId = socketThreadChannel.ParentChannel.Id,
+            ChannelName = socketThreadChannel.ParentChannel.Name,
+            GuildId = socketThreadChannel.Guild.Id,
+            GuildName = socketThreadChannel.Guild.Name,
+            CreatedAt = socketThreadChannel.CreatedAt,
+            ReactionCount = 0,
+            ReplyCount = socketThreadChannel.MessageCount,
+            LastActiveAt = socketThreadChannel.CreatedAt,
+            JumpUrl = $"https://discord.com/channels/{socketThreadChannel.Guild.Id}/{socketThreadChannel.Id}/0",
+            AttachmentUrl = null,
+
+            Title = socketThreadChannel.Name,
+            FirstMessageContent = socketThreadChannel.Name,
+
+            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            ContentTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+
+            // 更新相关
+            UpdateAt = null,
+            UpdateJumpUrl = null,
+            UpdateCount = 0,
+
+            // Tag
+            Tags = null,
+            TagsId = [],
+
+            // 有效性
+            IsValid = false,
+            IsDeleted = false,
+            InForum = false
+        };
+
+        var postMemberData = new PostMemberData()
+        {
+            UserId = socketThreadChannel.Owner.Id,
+            ThreadId = socketThreadChannel.Id,
+            IsThreadOwner = true,
+            FirstJoinAt = socketThreadChannel.CreatedAt,
+            LastJoinAt = socketThreadChannel.CreatedAt,
+            LeaveAt = null,
+            IsLeave = false,
+            MessageCount = 1,
+            LastMessageId = socketThreadChannel.Id,
+            LastMessageAt = socketThreadChannel.CreatedAt,
+        };
+
+        var channelFactor = _configLoader.Config.CreditConfig.ChannelFactor.GetValueOrDefault(socketThreadChannel.Id, 100);
+
+        var userData = new UserData()
+        {
+            UserId = socketThreadChannel.Owner.Id,
+            UserThreadCountDelta = 0,
+            UserMessageCountDelta = 1,
+            UserUpdateCountDelta = 0,
+            UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1 * channelFactor,
+            UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2 * channelFactor,
+            UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3 * channelFactor,
+        };
+
+        // ==========================
+        // 写入数据库
+        // ========================== 
+        try
+        {
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.InsertThreadAsync(transaction, threadData);
+
+                    await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+
+                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            _logger.Info("✅ 成功插入帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 有效性: {IsValid}",
+                socketThreadChannel.Guild.Name, socketThreadChannel.Name, socketThreadChannel.Name,
+                socketThreadChannel.Id, threadData.IsValid);
+        }
+        catch (Exception ex)
+        {
+
+            _logger.Error(ex, "❌ 创建帖子失败: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
+                socketThreadChannel.Guild.Name, socketThreadChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+        }
+    }
+
 
     /// <summary>
     /// 更新论坛帖子的信息（如标题、标签、锁定状态等）。
     /// 该方法仅更新帖子的元数据，不涉及消息内容。
     /// </summary>
     /// <param name="socketThreadChannel">Discord 帖子频道对象。</param>
-    public async Task UpdateThreadProcessAsync(SocketThreadChannel socketThreadChannel)
+    public async Task UpdateForumThreadProcessAsync(SocketThreadChannel socketThreadChannel, SocketForumChannel socketForumChannel)
     {
-        // 前置检查：确保父频道是论坛频道
-        if (socketThreadChannel.ParentChannel is not SocketForumChannel) return;
-        var parentChannel = (SocketForumChannel)socketThreadChannel.ParentChannel;
-
         _logger.Debug("开始处理帖子更新: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
-            socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+            socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+
+        // ==========================
+        // 标签处理
+        // ========================== 
         // 获得帖子标签
-        var appliedTagNames = parentChannel.Tags
+        var appliedTagNames = socketForumChannel.Tags
             .Where(tag => socketThreadChannel.AppliedTags.Contains(tag.Id))
             .Select(tag => tag.Name)
             .ToList();
         var tags = string.Join(", ", appliedTagNames);
-        // 构建帖子标签数据
-        List<TagInfo> tagInfos = parentChannel.Tags
-            .Select(tag => new TagInfo
-            {
-                TagId = tag.Id,
-                TagName = tag.Name,
-                ChannelId = parentChannel.Id,
-                ChannelName = parentChannel.Name,
-                GuildName = parentChannel.Guild.Name,
-            })
-            .ToList();
-        // 构建数据
+
+        // ==========================
+        // 构建数据模型
+        // ========================== 
         var threadData = new ThreadData()
         {
             ThreadId = socketThreadChannel.Id,
@@ -222,6 +336,10 @@ public partial class DataProcessService
             IsValid = socketThreadChannel.IsLocked,
             IsLocked = socketThreadChannel.IsLocked,
         };
+
+        // ==========================
+        // 写入数据库
+        // ========================== 
         try
         {
             await _dbRetryPolicy.ExecuteAsync(async () =>
@@ -235,7 +353,7 @@ public partial class DataProcessService
                     await _databaseService.UpdateThreadAsync(transaction, threadData);
 
                     await _databaseService.ReplaceTagsJunction(transaction, threadData);
-                    
+
                     await transaction.CommitAsync();
                 }
                 catch
@@ -246,16 +364,73 @@ public partial class DataProcessService
             });
 
             _logger.Info("✅ 成功更新帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 锁定状态: {IsLocked}",
-                socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name,
+                socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name,
                 socketThreadChannel.Id, threadData.IsLocked);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ 更新帖子失败: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
-                socketThreadChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+                socketThreadChannel.Guild.Name, socketForumChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
         }
     }
 
+    public async Task UpdateTextThreadProcessAsync(SocketThreadChannel socketThreadChannel, SocketTextChannel socketTextChannel)
+    {
+        _logger.Debug("开始处理帖子更新: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
+            socketThreadChannel.Guild.Name, socketTextChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+
+        // ==========================
+        // 构建数据模型
+        // ========================== 
+        var threadData = new ThreadData()
+        {
+            ThreadId = socketThreadChannel.Id,
+            // 标题更新
+            Title = socketThreadChannel.Name,
+            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            // Tag
+            Tags = null,
+            TagsId = [],
+            // 是否锁定
+            IsValid = false,
+            IsLocked = socketThreadChannel.IsLocked,
+        };
+
+        // ==========================
+        // 写入数据库
+        // ========================== 
+        try
+        {
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpdateThreadAsync(transaction, threadData);
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            _logger.Info("✅ 成功更新帖子: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId}), 锁定状态: {IsLocked}",
+                socketThreadChannel.Guild.Name, socketTextChannel.Name, socketThreadChannel.Name,
+                socketThreadChannel.Id, threadData.IsLocked);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 更新帖子失败: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
+                socketThreadChannel.Guild.Name, socketTextChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
+        }
+    }
+    
     /// <summary>
     /// 更新论坛帖子首楼消息的反应（Reaction）计数。
     /// </summary>

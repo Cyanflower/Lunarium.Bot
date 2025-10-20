@@ -15,12 +15,12 @@ public partial class DatabaseService
         const string SqlCommand = """
             -- 插入一条新记录，如果 user_id 冲突则执行更新
             INSERT INTO user_data (
-                user_id, user_thread_count, user_message_count, user_update_count,
+                user_id, user_name, user_thread_count, user_message_count, user_update_count,
                 user_credit_lv1, user_credit_lv2, user_credit_lv3
             )
             VALUES (
-                @UserId, @UserThreadCount, @UserMessageCount, @UserUpdateCount,
-                @UserCreditLv1, @UserCreditLv2, @UserCreditLv3
+                @UserId, @UserName, @UserThreadCountDelta, @UserMessageCountDelta, @UserUpdateCountDelta,
+                @UserCreditLv1Delta, @UserCreditLv2Delta, @UserCreditLv3Delta
             )
             ON CONFLICT (user_id) DO UPDATE 
             SET
@@ -36,12 +36,13 @@ public partial class DatabaseService
         var parameters = new
         {
             userData.UserId,
-            userData.UserThreadCount,
-            userData.UserMessageCount,
-            userData.UserUpdateCount,
-            userData.UserCreditLv1,
-            userData.UserCreditLv2,
-            userData.UserCreditLv3
+            userData.UserName,
+            userData.UserThreadCountDelta,
+            userData.UserMessageCountDelta,
+            userData.UserUpdateCountDelta,
+            userData.UserCreditLv1Delta,
+            userData.UserCreditLv2Delta,
+            userData.UserCreditLv3Delta
         };
         
         try
@@ -53,10 +54,5 @@ public partial class DatabaseService
             _logger.Error(ex, "❌ UpsertUserDataAsync: 为用户 {UserId} 插入或更新数据时失败！", userData.UserId);
             throw;
         }
-    }
-    
-    public async Task UserDataNumericUpdateAsync(NpgsqlTransaction transaction)
-    {
-
     }
 }

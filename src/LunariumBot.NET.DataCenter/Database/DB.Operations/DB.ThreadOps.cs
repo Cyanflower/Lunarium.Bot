@@ -16,16 +16,16 @@ public partial class DatabaseService
             -- title 和 first_message_content 字段会被设计的触发器 T.2 自动处理成 tsvector, 插入原始内容就好。
             INSERT INTO posts_main (
                 thread_id, first_message_id, author_id, channel_id, channel_name, 
-                guild_id, guild_name, created_at, member_count, reaction_count, 
-                reply_count, last_active_at, jump_url, attachment_url, update_at, 
-                update_jump_url, update_count, tags, is_valid, is_locked, is_deleted, 
+                guild_id, guild_name, created_at, reaction_count, reply_count, 
+                last_active_at, jump_url, attachment_url, update_at, 
+                update_jump_url, update_count, tags, is_valid, is_locked, is_deleted, in_forum, 
                 title, first_message_content, title_tokenized, content_tokenized
             )
             VALUES (
                 @ThreadId, @FirstMessageId, @AuthorId, @ChannelId, @ChannelName, 
-                @GuildId, @GuildName, @CreatedAt, @MemberCount, @ReactionCount, 
-                @ReplyCount, @LastActiveAt, @JumpUrl, @AttachmentUrl, @UpdateAt, 
-                @UpdateJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, 
+                @GuildId, @GuildName, @CreatedAt, @ReactionCount, @ReplyCount, 
+                @LastActiveAt, @JumpUrl, @AttachmentUrl, @UpdateAt, 
+                @UpdateJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, @InForum, 
                 @Title, @FirstMessageContent, @TitleTokenized, @ContentTokenized
             );
             """;
@@ -40,7 +40,6 @@ public partial class DatabaseService
             threadData.GuildId,
             threadData.GuildName,
             threadData.CreatedAt,
-            threadData.MemberCount,
             threadData.ReactionCount,
             threadData.ReplyCount,
             threadData.LastActiveAt,
@@ -53,6 +52,7 @@ public partial class DatabaseService
             threadData.IsValid,
             threadData.IsLocked,
             threadData.IsDeleted,
+            threadData.InForum,
             threadData.Title,
             threadData.FirstMessageContent,
             threadData.TitleTokenized,
@@ -60,7 +60,6 @@ public partial class DatabaseService
         };
         try
         {
-            // 执行
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -93,7 +92,6 @@ public partial class DatabaseService
         };
         try
         {
-            // 执行
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -110,7 +108,7 @@ public partial class DatabaseService
             -- 只更新特定字段：title, title_tokenized, is_valid, is_locked
             UPDATE posts_main 
             SET 
-                tags = Tags,
+                tags = @Tags,
                 title = @Title,
                 title_tokenized = @TitleTokenized,
                 is_valid = @IsValid,
@@ -131,12 +129,40 @@ public partial class DatabaseService
 
         try
         {
-            // 执行
             await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ UpsertThreadAsync: 更新帖子 {ThreadName}({ThreadId})  时数据库操作失败！", threadData.Title, threadData.ThreadId);
+            throw;
+        }
+    }
+
+    public async Task UpdateThreadReplayCountAsync(NpgsqlTransaction transaction, ulong threadId, int replyCount)
+    {
+        const string SQLCommand = """
+            -- 更新帖子主数据
+            -- 只更新特定字段：reply_count
+            UPDATE posts_main 
+            SET 
+                reply_count = @ReplyCount
+            WHERE 
+                thread_id = @ThreadId;
+            """;
+
+        var parameters = new
+        {
+            ReplyCount = replyCount,
+            ThreadId = threadId
+        };
+
+        try
+        {
+            await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpsertThreadAsync: 更新帖子 {threadId} 的新回复数: {replyCount}  时数据库操作失败！", threadId);
             throw;
         }
     }
@@ -215,24 +241,24 @@ public partial class DatabaseService
     {
         const string SqlCommand = """
             INSERT INTO post_members (
-                user_id, user_name, thread_id, thread_name, 
-                is_thread_owner, first_join_at, last_join_at,
+                user_id, thread_id, is_thread_owner, 
+                first_join_at, last_join_at,
                 message_count, is_leave,
                 last_message_id, last_message_at
                 -- `last_leave_at` 字段在插入时不提供，默认为 NULL
             )
             VALUES (
-                @UserId, @UserName, @ThreadId, @ThreadName,
-                @IsThreadOwner, @FirstJoinAt, @LastJoinAt,
-                1, false, -- 首次加入，消息数为1，is_leave为false
+                @UserId, @ThreadId, @IsThreadOwner,
+                @FirstJoinAt, @LastJoinAt,
+                -- 首次加入，消息数为1，is_leave为false
+                1, false, 
                 @LastMessageId, @LastMessageAt
             )
             -- 冲突的目标是 (user_id, thread_id) 这个联合唯一键
             ON CONFLICT (user_id, thread_id) DO UPDATE 
             SET
                 -- 无论如何都更新这些字段
-                user_name = EXCLUDED.user_name,           -- 同步最新的用户名
-                thread_name = EXCLUDED.thread_name,       -- 同步最新的帖子名
+                message_count = message_count +1,
                 last_message_id = EXCLUDED.last_message_id, -- 更新为最新的消息
                 last_message_at = EXCLUDED.last_message_at, -- 更新为最新的消息时间
 
@@ -242,18 +268,16 @@ public partial class DatabaseService
                 -- 需要将 is_leave 设回 false，并更新 last_join_at
                 is_leave = false,
                 last_join_at = CASE 
-                                WHEN post_members.is_leave = true -- 当之前是离开状态时
+                                WHEN is_leave = true -- 当之前是离开状态时
                                 THEN EXCLUDED.last_join_at       -- 更新“最后加入时间”
-                                ELSE post_members.last_join_at   -- 否则，保持原来的“最后加入时间”不变
+                                ELSE last_join_at   -- 否则，保持原来的“最后加入时间”不变
                             END;
             """;
 
         var parameters = new
         {
             postMemberData.UserId,
-            postMemberData.UserName,
             postMemberData.ThreadId,
-            postMemberData.ThreadName,
             postMemberData.IsThreadOwner,
             postMemberData.FirstJoinAt,
             postMemberData.LastJoinAt,
@@ -302,7 +326,7 @@ public partial class DatabaseService
         }
     }
 
-    public async Task UpdateePostMemberMsgCountAsync(NpgsqlTransaction transaction, ulong userId, ulong threadId, NumericUpdateType reactionUpdateType, int count = 1)
+    public async Task UpdatePostMemberMsgCountAsync(NpgsqlTransaction transaction, ulong userId, ulong threadId, NumericUpdateType reactionUpdateType, int count = 1)
     {
         const string SqlCommand = """
             UPDATE post_members 

@@ -42,7 +42,6 @@ public class ThreadData
     public ulong GuildId { get; set; }         // 服务器ID
     public string GuildName { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; } // 创建时间
-    public int MemberCount { get; set; }       // 成员数量
     public int ReactionCount { get; set; }     // 回应数量
     public int ReplyCount { get; set; }        // 回复数量
     public DateTimeOffset LastActiveAt { get; set; } // 最后活跃时间
@@ -63,6 +62,7 @@ public class ThreadData
     public bool IsLocked { get; set; } = false;
     // 是否已删除
     public bool IsDeleted { get; set; } = false;
+    public bool InForum { get; set; } = false;
     public DateTimeOffset? DeleteAt { get; set; } = null;
 
     // 标题和首楼内容
@@ -89,12 +89,12 @@ public class UserData
 {
     public ulong UserId { get; set; }
     public string UserName { get; set; } = "";
-    public int UserThreadCount { get; set; }
-    public int UserMessageCount { get; set; }
-    public int UserUpdateCount { get; set; }
-    public int UserCreditLv1 { get; set; }
-    public int UserCreditLv2 { get; set; }
-    public int UserCreditLv3 { get; set; }
+    public int UserThreadCountDelta { get; set; }
+    public int UserMessageCountDelta { get; set; }
+    public int UserUpdateCountDelta { get; set; }
+    public int UserCreditLv1Delta { get; set; }
+    public int UserCreditLv2Delta { get; set; }
+    public int UserCreditLv3Delta { get; set; }
 }
 
 public class PostMemberData

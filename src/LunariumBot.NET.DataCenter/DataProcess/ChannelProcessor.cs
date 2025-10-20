@@ -66,6 +66,7 @@ public partial class DataProcessService
                 try
                 {
                     await _databaseService.UpsertForumChannelAsync(transaction, channelData, tagInfos);
+                    await transaction.CommitAsync();
                 }
                 catch
                 {
@@ -110,6 +111,7 @@ public partial class DataProcessService
                 try
                 {
                     affectedRows = await _databaseService.DeleteForumChannelAsync(transaction, socketForumChannel.Id);
+                    await transaction.CommitAsync();
                 }
                 catch
                 {

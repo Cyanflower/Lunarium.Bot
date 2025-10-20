@@ -13,6 +13,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.DataCenter.Database;
 using LunariumBot.Net.DataCenter.Model;
 using LunariumBot.Net.DataCenter.Utils;
+using Discord.WebSocket;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
@@ -36,6 +37,9 @@ public partial class DataProcessService
     /// <summary>数据库服务，用于执行数据库操作</summary>
     private readonly DatabaseService _databaseService;
 
+    /// <summary>DiscordSocket 客户端</summary>
+    private readonly DiscordSocketClient _discordSocketClient;
+
     /// <summary>Discord API 请求选项配置</summary>
     private readonly RequestOptions _requestOptions;
 
@@ -54,6 +58,9 @@ public partial class DataProcessService
     /// <summary>中文分词服务，用于处理搜索功能</summary>
     private readonly ITokenizerService _tokenizerService;
 
+    /// <summary>作品频道列表</summary>
+    private HashSet<ulong> ChannelIds => _configLoader.Config.DeployConfig.ScanChannelIds.Values.SelectMany(ids => ids).ToHashSet();
+
     /// <summary>
     /// 消息数据到帖子数据的映射字典，用于处理创建帖子时的消息关联。
     /// 键为消息ID，值为消息内容和任务完成源的元组。
@@ -70,11 +77,12 @@ public partial class DataProcessService
     /// <param name="proxyConfig">代理配置</param>
     /// <param name="tokenizerService">分词服务</param>
     /// <param name="semaphore">信号量</param>
-    public DataProcessService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
+    public DataProcessService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, DiscordSocketClient discordSocketClient, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
     {
         _logger = logger.ForContext("DataProcessService");
         _configLoader = configLoader;
         _databaseService = databaseService;
+        _discordSocketClient = discordSocketClient;
         _tokenizerService = tokenizerService;
         _requestOptions = RequestOptionsConfig();
         _httpClient = HttpClientConfig(proxyConfig);
