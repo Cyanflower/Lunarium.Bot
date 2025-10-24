@@ -12,7 +12,7 @@ namespace LunariumBot.Net.Logger;
 /// 它通过一个后台任务和 .NET Channel 异步处理日志消息，
 /// 将日志分发到所有已配置的 Sink，从而避免阻塞调用方线程。
 /// </summary>
-public class LunariumLogger : ILogger, IAsyncDisposable
+public class Logger : ILogger, IAsyncDisposable
 {
     // === 内部变量 ===
     // 传递日志消息的无界Channel，用于解耦日志写入和处理
@@ -36,7 +36,7 @@ public class LunariumLogger : ILogger, IAsyncDisposable
     /// <param name="loggerName">此日志记录器的名称。</param>
     /// <param name="logMinLevel">允许记录的最低级别。</param>
     /// <param name="callerMinLevel">记录调用者信息的最低级别。</param>
-    public LunariumLogger(List<(ILogSink, SinkConfiguration)> sinks, string loggerName)
+    public Logger(List<(ILogSink, SinkConfiguration)> sinks, string loggerName)
     {
         _sinks = sinks;
         _loggerName = loggerName;
@@ -130,7 +130,10 @@ public class LunariumLogger : ILogger, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LunariumLogger.InternalError] {message}");
+            Console.BackgroundColor = ConsoleColor.Red;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"[LunariumLogger.InternalError] {ex.Message}");
+            Console.ResetColor();
         }
     }
 
@@ -228,7 +231,10 @@ public class LunariumLogger : ILogger, IAsyncDisposable
         catch (Exception ex)
         {
             // 记录任务异常，但继续清理
-            SafeWriteError($"ProcessTask ended with error: {ex.Message}");
+            Console.BackgroundColor = ConsoleColor.Red;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"[LunariumLogger.InternalError] ProcessTask ended with error: {ex.Message}");
+            Console.ResetColor();
         }
         
         // 即使任务失败，也要释放Sinks
@@ -239,8 +245,11 @@ public class LunariumLogger : ILogger, IAsyncDisposable
                 sink.Dispose();
             }
             catch (Exception ex)
-            {
-                SafeWriteError($"Sink disposal failed: {ex.Message}");
+            {            
+                Console.BackgroundColor = ConsoleColor.Red;
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.WriteLine($"[LunariumLogger.InternalError] Sink disposal failed: {ex.Message}");
+                Console.ResetColor();
             }
         }
         

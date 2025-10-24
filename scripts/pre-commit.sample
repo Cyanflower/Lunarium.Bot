@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# ============================================================================
+# Git Pre-commit Hook - Token 安全检查
+# ============================================================================
+# 
+# 用途: 防止提交包含真实 Token 的 start.sh 文件（无论是否注释）
+# 检查策略: 只允许 Token 值为模板值 "TOKEN_AT_HERE"，其他任何值都会被拒绝
+# 
+# 安装方法:
+#   1. 将此文件复制到 .git/hooks/pre-commit
+#   2. chmod +x .git/hooks/pre-commit
+# 
+# 或者使用一键安装命令:
+#   cp pre-commit.sample .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# ============================================================================
+
+echo "🔍 正在检查 start.sh 文件的 Token 安全性..."
+
+# 查找所有待提交的 start.sh 文件
+files=$(git diff --cached --name-only | grep 'start.sh$')
+
+# 如果没有 start.sh 文件被修改，直接通过
+if [ -z "$files" ]; then
+    echo "✓ 未检测到 start.sh 文件变更"
+    exit 0
+fi
+
+# 检查标志
+has_error=0
+
+# 检查每个 start.sh 文件
+for file in $files; do
+    echo "  检查: $file"
+    
+    # 查找所有包含 _BOT_TOKEN= 的行（不管是否注释）
+    # 检查 Token 值是否为安全的模板值
+    while IFS= read -r line; do
+        # 提取 Token 值（去除引号和空格）
+        # 支持格式: export XXX="value", export XXX='value', export XXX=value
+        # 注意：只有当等号后有实际内容时才提取
+        token_value=$(echo "$line" | sed -nE 's/.*_BOT_TOKEN=[[:space:]]*["\x27]([^"\x27]+)["\x27].*/\1/p')
+        
+        # 如果双引号/单引号格式没有提取到，尝试无引号格式
+        if [ -z "$token_value" ]; then
+            token_value=$(echo "$line" | sed -nE 's/.*_BOT_TOKEN=[[:space:]]*([^[:space:]#]+).*/\1/p')
+        fi
+        
+        # 如果成功提取到值，且不是模板值，则报错
+        if [ -n "$token_value" ] && [ "$token_value" != "TOKEN_AT_HERE" ]; then
+            if [ $has_error -eq 0 ]; then
+                echo ""
+                echo "❌ 错误: $file 包含真实的 Token 值！"
+                echo ""
+                echo "   检测到的危险配置:"
+            fi
+            
+            # 获取行号
+            line_number=$(grep -n -F "$line" "$file" | head -1 | cut -d: -f1)
+            echo "   第 $line_number 行: $(echo "$line" | sed 's/^[[:space:]]*//')"
+            
+            has_error=1
+        fi
+    done < <(grep -E '_BOT_TOKEN=' "$file" 2>/dev/null || true)
+    
+    # 如果该文件有错误，显示提示信息
+    if [ $has_error -eq 1 ]; then
+        echo ""
+        echo "   Token 值必须保持为模板值 \"TOKEN_AT_HERE\""
+        echo "   无论是否注释，都不应该包含真实的 Token 值"
+        echo ""
+        echo "   安全示例:"
+        echo "   export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\"    ✓ 安全（模板值）"
+        echo "   # export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\"  ✓ 安全（注释+模板）"
+        echo ""
+        echo "   危险示例:"
+        echo "   export ARCHIVE_BOT_TOKEN=\"real_token_123\"   ✗ 危险！"
+        echo "   # export ARCHIVE_BOT_TOKEN=\"real_token_123\" ✗ 危险！（即使注释）"
+        echo ""
+    fi
+done
+
+# 如果有错误，阻止提交
+if [ $has_error -eq 1 ]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "提交被阻止，原因：检测到真实的 Bot Token 值"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "解决方案："
+    echo "  1. 将 Token 值改回模板值（推荐）："
+    echo "     export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\""
+    echo ""
+    echo "  2. 或者完全删除该行，在服务器上再配置"
+    echo ""
+    echo "  3. 使用环境变量而不是写入文件（开发环境推荐）："
+    echo "     export ARCHIVE_BOT_TOKEN=\"your_dev_token\""
+    echo ""
+    echo "  注意: 即使注释掉真实 Token 也不安全，必须改为模板值！"
+    echo ""
+    echo "  4. 如果确实需要提交（极不推荐），使用："
+    echo "     git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+echo "✓ Token 安全检查通过"
+exit 0

@@ -1,4 +1,3 @@
-// 新建文件：src/LunariumBot.Net.Logger/Extensions/MicrosoftLoggingBridge.cs
 using Microsoft.Extensions.Logging;
 using LunariumBot.Net.Logger;
 

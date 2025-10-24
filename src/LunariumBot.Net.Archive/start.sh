@@ -9,28 +9,50 @@
 # 4. 限制最大重启次数，防止无限循环
 # ==============================================================================
 
-# --- 请在这里修改你的配置 ---
+# --- 配置区域 ---
 
 # 最大重启次数 (0代表不重启，5代表最多重启5次)
 MAX_RESTARTS=5
 
-# 你的应用程序发布后的DLL文件路径
-# 请确保你已经使用 dotnet publish 命令发布了你的项目
-# 例如: dotnet publish -c Release -o ./publish
+# 应用程序可执行文件路径
 APP_DLL_PATH="./LunariumBot.Net.Archive"
 
-# --- 设置环境变量 ---
+# --- 环境变量设置 ---
 
-# 你的机器人TOKEN (这是必须的哦！)
-export ARCHIVE_BOT_TOKEN="在这里填入你的机器人TOKEN"
+# > **⚠️ 重要安全提示：请严格区分开发与部署环境！**
+# >
+# > `start.sh` 脚本是为了在**生产服务器上部署和运行**而设计的。请**绝对不要**在日常开发中将真实 Bot Token 写入此文件。
+# > 这样做极易导致 Token 意外提交到 Git 等版本控制系统，从而造成永久性泄露。
+# >
+# > #### **正确的开发工作流**
+# >
+# > 1.  **使用会话级环境变量设置 Token**:
+# >     在你的开发终端中，运行以下命令来设置一个**临时的**环境变量。它只在当前终端会话中有效，关闭终端后即失效，非常安全。
+# >     ```bash
+# >     export ARCHIVE_BOT_TOKEN="你的开发用Bot-Token"
+# >     ```
+# >
+# > 2.  **使用 `dotnet run` 启动项目**:
+# >     直接从项目源代码启动，便于调试和快速迭代。
+# >     ```bash
+# >     # 在解决方案根目录运行
+# >     dotnet run --project src/LunariumBot.Net.Archive
+# >     # 在项目根目录运行
+# >     dotnet run
+# >     ```
+# >
+# > ---
+# > 只有当你准备**正式部署**到服务器时，才应修改**服务器**上 `start.sh` 脚本中的 Token。
 
-# 日志级别 (可选, 可选值: Debug, Info, Warning, Error, Critical)
-# 和你代码里的默认值保持一致，或者根据需要修改
+# Bot Token (部署时取消注释并填写)
+# export ARCHIVE_BOT_TOKEN="TOKEN_AT_HERE"
+
+# 日志级别 (可选值: Debug, Info, Warning, Error, Critical)
 export FILE_LOG_LEVEL="Info"
 export CONSOLE_LOG_LEVEL="Info"
 
-# HTTP 代理 (如果不需要，请将此行注释掉或留空)
-# 格式: http://[user:password@]host:port
+# HTTP 代理 (如不需要请注释掉或留空)
+# 格式: http://host:port
 # export http_proxy="http://127.0.0.1:7890"
 
 # --- 脚本主逻辑 ---
@@ -38,43 +60,39 @@ export CONSOLE_LOG_LEVEL="Info"
 # 初始化重启计数器
 restart_count=0
 
-# 主循环，只要重启次数小于最大限制就一直执行
+# 主循环
 while [ $restart_count -lt $MAX_RESTARTS ]
 do
     echo "================================================="
-    echo "🚀 准备启动程序... 这是第 $((restart_count + 1)) 次尝试。"
+    echo "正在启动程序... 这是第 $((restart_count + 1)) 次尝试"
     echo "================================================="
 
     # 启动 .NET 应用程序
     "$APP_DLL_PATH"
     
-    # 获取刚刚退出程序的退出码
-    # 在Linux/macOS中, $? 会保存上一个命令的退出码
-    # 0 代表正常退出, 非0 代表异常退出
+    # 获取退出码
     exit_code=$?
 
     # 判断退出码
     if [ $exit_code -eq 0 ]; then
-        # 如果退出码是 0，说明是正常退出（比如 Ctrl+C）
-        echo "✅ 程序正常退出 (退出码: 0)，脚本将停止。"
-        break # 跳出循环，结束脚本
+        echo "✓ 程序正常退出 (退出码: 0)，脚本将停止"
+        break
     else
-        # 如果退出码非 0，说明程序崩溃了
-        echo "😥 程序异常退出 (退出码: $exit_code)。"
+        echo "✗ 程序异常退出 (退出码: $exit_code)"
         
         # 增加重启计数
         restart_count=$((restart_count + 1))
         
         # 检查是否已达到最大重启次数
         if [ $restart_count -ge $MAX_RESTARTS ]; then
-            echo "💥 已达到最大重启次数 ($MAX_RESTARTS 次)，程序未能成功启动。脚本终止。"
-            break # 达到最大次数，跳出循环
+            echo "✗ 已达到最大重启次数 ($MAX_RESTARTS 次)，脚本终止"
+            break
         else
             remaining_attempts=$((MAX_RESTARTS - restart_count))
-            echo "⏳ 5秒后将尝试重启... 剩余尝试次数: $remaining_attempts"
-            sleep 5 # 等待5秒再重启，避免因秒崩导致CPU占用过高
+            echo "等待 5 秒后重启... 剩余尝试次数: $remaining_attempts"
+            sleep 5
         fi
     fi
 done
 
-echo "👋 脚本执行完毕。"
+echo "脚本执行完毕"

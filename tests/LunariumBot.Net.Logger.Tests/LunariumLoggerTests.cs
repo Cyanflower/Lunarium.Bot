@@ -18,7 +18,7 @@ public class LunariumLoggerTests
         var mockSink = new Mock<ILogSink>();
         var config = new SinkConfiguration { LogMinLevel = LogLevel.Debug };
         var sinks = new List<(ILogSink, SinkConfiguration)> { (mockSink.Object, config) };
-        var loggerInstance = new LunariumLogger(sinks, "TestLogger");
+        var loggerInstance = new Logger(sinks, "TestLogger");
 
         // Act & Assert
         // 把 Act 和 Assert 都包裹在 using 块里
@@ -45,7 +45,7 @@ public class LunariumLoggerTests
                 .Callback<LogEntry, bool, bool>((entry, _, __) => capturedEntry = entry);
         var config = new SinkConfiguration();
         var sinks = new List<(ILogSink, SinkConfiguration)> { (mockSink.Object, config) };
-        var loggerInstance = new LunariumLogger(sinks, "TestLogger");
+        var loggerInstance = new Logger(sinks, "TestLogger");
 
         // Act
         await using (loggerInstance)
@@ -68,7 +68,7 @@ public class LunariumLoggerTests
         var mockSink = new Mock<ILogSink>();
         var config = new SinkConfiguration { LogMinLevel = LogLevel.Info };
         var sinks = new List<(ILogSink, SinkConfiguration)> { (mockSink.Object, config) };
-        var loggerInstance = new LunariumLogger(sinks, "TestLogger");
+        var loggerInstance = new Logger(sinks, "TestLogger");
 
         // Act
         await using (loggerInstance)
@@ -94,7 +94,7 @@ public class LunariumLoggerTests
             ContextFilterIncludes = new List<string> { "Api." }
         };
         var sinks = new List<(ILogSink, SinkConfiguration)> { (mockSink.Object, config) };
-        var loggerInstance = new LunariumLogger(sinks, "TestLogger");
+        var loggerInstance = new Logger(sinks, "TestLogger");
 
         // Act
         await using (loggerInstance)

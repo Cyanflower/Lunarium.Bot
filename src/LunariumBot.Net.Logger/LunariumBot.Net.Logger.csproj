@@ -6,33 +6,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>LunariumBot.Net.Logger</RootNamespace>
-
-    <!-- ======== NuGet 包信息 - 开始 ======== -->
-    <!-- 1. 自动生成包：在 Release 模式下构建时会自动打包 -->
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <!-- 2. 版本号：我们先用一个固定的，后面CI会自动设置 -->
-    <Version>1.0.0</Version>
-    <!-- 3. 包的唯一ID，通常是项目名 -->
-    <PackageId>LunariumBot.Net.Logger</PackageId>
-    <!-- 4. 作者名 -->
-    <Authors>Cyanflower</Authors>
-    <!-- 5. 公司名 -->
-    <Company>Lunarium</Company>
-    <!-- 6. 描述 -->
-    <Description>A logger library for the LunariumBot ecosystem!</Description>
-    <!-- 7. 版权信息 -->
-    <Copyright>Copyright (c) Lunarium 2025</Copyright>
-    <!-- 8. 项目URL -->
-    <PackageProjectUrl>https://github.com/Cyanflower/LunariumBot.Net</PackageProjectUrl>
-    <!-- 9. 仓库URL -->
-    <RepositoryUrl>https://github.com/Cyanflower/LunariumBot.Net.git</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <!-- 10. 包的标签，方便搜索 -->
-    <PackageTags>lunarium;bot;logger;logging</PackageTags>
-    <!-- ======== NuGet 包信息 - 结束 ======== -->
-    
   </PropertyGroup>
+  
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
   </ItemGroup>
@@ -41,5 +16,4 @@
     <InternalsVisibleTo Include="LunariumBot.Net.Logger.Tests" />
   </ItemGroup>
 
-  
 </Project>

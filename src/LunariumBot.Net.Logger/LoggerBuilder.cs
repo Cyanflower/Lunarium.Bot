@@ -53,9 +53,9 @@ public class LoggerBuilder
     /// 根据当前配置构建并返回一个新的 LunariumLogger 实例。
     /// </summary>
     /// <returns>配置完成的 LunariumLogger 实例。</returns>
-    public LunariumLogger Build()
+    public Logger Build()
     {
-        return new LunariumLogger(_sinks, _loggerName);
+        return new Logger(_sinks, _loggerName);
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ public class LoggerBuilder
     /// </summary>
     /// <param name="config">包含所有配置信息的对象。</param>
     /// <returns>一个配置好的 LunariumLogger 实例。</returns>
-    public static LunariumLogger LoggerBuilderByConfig(LumLogConfig config)
+    public static Logger LoggerBuilderByConfig(LumLogConfig config)
     {
         LoggerBuilder loggerBuilder = new(config);
 

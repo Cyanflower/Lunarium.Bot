@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <RootNamespace>LunariumBot.Net.Archive</RootNamespace>
     <AssemblyName>LunariumBot.Net.Archive</AssemblyName>
 
     <!-- 1. 自定义输出目录 -->

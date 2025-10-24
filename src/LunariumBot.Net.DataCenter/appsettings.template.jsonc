@@ -1,0 +1,67 @@
+{
+  "DatabaseConnection": "Host=localhost;Port=52001;Username=LunariumBot.NET;Password=kH7!p@wRz*bUvN9mG2c;Database=LunariumBot.NET.DB",
+  // 管理员鉴权配置
+  "AuthConfig": {
+    "AdminRoleIds": [
+      123,
+      123
+    ],
+    "LogChannel": 123
+  },
+  // 服务器配置(支持多服务器部署)
+  "DeployConfig": {
+    // 部署的服务器ID列表（用于数据采集和监听）
+    "DeployGuildIds": [
+      123,
+      123
+    ],
+
+    // 按服务器组织的数据分析配置
+    "GuildAnalysisConfigs": {
+      // 服务器 ID: 123 (主服务器)
+      "123": {
+        // 该服务器的 Dashboard 频道（接收数据分析报告）
+        "DashboardChannelId": 123,
+        // 该服务器的频道分类映射
+        "CategoryChannels": {
+          "男性向": [123],
+          "女性向": [123],
+          "全性向": [123],
+          "纯净区": [123],
+          "小众区": [123],
+          "工具区": [123],
+          "世界书": [123],
+          "深渊区": [123],
+          "预设-破限": [123],
+          "反向代理": [123],
+          "酒馆美化": [123]
+        }
+      }
+      // 如果有第二个服务器，可以这样添加：
+      // "123": {
+      //   "DashboardChannelId": 123,
+      //   "CategoryChannels": {
+      //     "测试分类": [123]
+      //   }
+      // }
+    },
+
+    "ExcludeChannelIds": [],
+    "ExcludeCategoryIds": [],
+    // 只影响扫描和监听的数据获取，不影响命令鉴权
+    "ExcludeGuildIds": []
+  },
+  "ChannelOrder": {
+    "男性向": 1,
+    "女性向": 2,
+    "全性向": 3,
+    "纯净区": 4,
+    "小众区": 5,
+    "工具区": 6,
+    "世界书": 7,
+    "深渊区": 8,
+    "预设-破限": 9,
+    "反向代理": 10,
+    "酒馆美化": 11
+  }
+}

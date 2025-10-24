@@ -14,15 +14,18 @@ services:
       TZ: "Asia/Shanghai"                       # 设置容器时区为东八区
       PGTZ: "Asia/Shanghai"                     # 设置 PostgreSQL 内部时区
     ports:
-      - "0.0.0.0:52001:5432"  # 将容器的 52001 端口映射到主机的 5432 端口
-                              # "127.0.0.1" 只允许本机访问
+      - "127.0.0.1:52001:5432"  # 将容器的 52001 端口映射到主机的 5432 端口
+                                # "127.0.0.1" 只允许本机访问
     volumes:
-      - postgres-data:/var/lib/postgresql/data # 将数据持久化到名为 'postgres-data' 的 Docker 卷中
+      # 数据目录 - 绑定到宿主机
+      - /opt/docker-data/postgres:/var/lib/postgresql/data
+      # 备份目录 - 方便从容器内备份
+      - /opt/backups/postgres:/backups
+      # 使用相对路径（相对于 docker-compose.yml 文件）
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U LunariumBot.NET -d LunariumBot.NET.DB"] # 健康检查
       interval: 10s
       timeout: 5s
       retries: 5
-
-volumes:
-  postgres-data: # 定义一个 Docker 卷来持久化存储数据
