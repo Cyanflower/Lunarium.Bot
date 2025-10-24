@@ -29,7 +29,7 @@ APP_DLL_PATH="./LunariumBot.Net.Archive"
 # > 1.  **使用会话级环境变量设置 Token**:
 # >     在你的开发终端中，运行以下命令来设置一个**临时的**环境变量。它只在当前终端会话中有效，关闭终端后即失效，非常安全。
 # >     ```bash
-# >     export ARCHIVE_BOT_TOKEN="你的开发用Bot-Token"
+# >     export ARCHIVE_BOT_TOKEN="TOKEN_AT_HERE"
 # >     ```
 # >
 # > 2.  **使用 `dotnet run` 启动项目**:
