@@ -3,6 +3,7 @@ using Npgsql;
 using Dapper;
 
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Model.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -33,20 +34,23 @@ public partial class DatabaseService
                 user_credit_lv3 = user_data.user_credit_lv3 + EXCLUDED.user_credit_lv3;
             """;
 
+        var userDataDb = UserDataDb.FromDomain(userData);
+
         var parameters = new
         {
-            userData.UserId,
-            userData.UserName,
-            userData.UserThreadCountDelta,
-            userData.UserMessageCountDelta,
-            userData.UserUpdateCountDelta,
-            userData.UserCreditLv1Delta,
-            userData.UserCreditLv2Delta,
-            userData.UserCreditLv3Delta
+            userDataDb.UserId,
+            userDataDb.UserName,
+            userDataDb.UserThreadCountDelta,
+            userDataDb.UserMessageCountDelta,
+            userDataDb.UserUpdateCountDelta,
+            userDataDb.UserCreditLv1Delta,
+            userDataDb.UserCreditLv2Delta,
+            userDataDb.UserCreditLv3Delta
         };
         
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)

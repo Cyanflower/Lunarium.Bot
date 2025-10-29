@@ -2,6 +2,8 @@ using System.Data;
 using Dapper;
 
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.Extensions;
 using Npgsql;
 
 namespace LunariumBot.Net.DataCenter.Database;
@@ -23,21 +25,24 @@ public partial class DatabaseService
             );
             """;
 
+        var messageDataDb = MessageDataDb.FromDomain(messageData);
+
         var parameters = new
         {
-            messageData.MessageId,
-            messageData.AuthorId,
-            messageData.CreatedAt,
-            messageData.GuildId,
-            messageData.ChannelId,
-            messageData.ThreadId,
-            messageData.MessageJumpUrl,
-            messageData.IsCreateThread,
-            messageData.IsUpdate,
+            messageDataDb.MessageId,
+            messageDataDb.AuthorId,
+            messageDataDb.CreatedAt,
+            messageDataDb.GuildId,
+            messageDataDb.ChannelId,
+            messageDataDb.ThreadId,
+            messageDataDb.MessageJumpUrl,
+            messageDataDb.IsCreateThread,
+            messageDataDb.IsUpdate,
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -58,7 +63,8 @@ public partial class DatabaseService
             """;
         try
         {
-            await transaction.Connection.ExecuteAsync(SqlCommand, new { MessageIds = messageIds.ToArray() }, transaction);
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(SqlCommand, new { MessageIds = messageIds.Select(id => id.ToDbId()).ToArray() }, transaction);
         }
         catch (Exception ex)
         {

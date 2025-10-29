@@ -2,6 +2,8 @@ using Npgsql;
 using Dapper;
 
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.Extensions;
+using LunariumBot.Net.DataCenter.Model.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -51,18 +53,22 @@ public partial class DatabaseService
             WHERE channel_id = @ChannelId AND tag_id <> ALL(@AllTagIds);
             """;
 
+        var channelDataDb = ChannelDataDb.FromDomain(channelData);
+        var tagInfosDb = tagInfos.Select(TagInfoDb.FromDomain).ToList();
+
         var parameters = new
         {
-            channelData.ChannelId,
-            channelData.ChannelName,
-            channelData.GuildId,
-            channelData.GuildName,
-            AllTagIds = tagInfos.Select(t => t.TagId).ToArray(),
-            AllTagNames = tagInfos.Select(t => t.TagName).ToArray()
+            channelDataDb.ChannelId,
+            channelDataDb.ChannelName,
+            channelDataDb.GuildId,
+            channelDataDb.GuildName,
+            AllTagIds = tagInfosDb.Select(t => t.TagId).ToArray(),
+            AllTagNames = tagInfosDb.Select(t => t.TagName).ToArray()
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -88,9 +94,10 @@ public partial class DatabaseService
 
         try
         {
-            var parameters = new { ChannelId = channelId };
+            var parameters = new { ChannelId = channelId.ToDbId() };
 
             // 执行删除操作
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             int affectedRows = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
 
             return affectedRows;

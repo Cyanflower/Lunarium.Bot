@@ -3,6 +3,8 @@ using Npgsql;
 using Dapper;
 
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -17,49 +19,52 @@ public partial class DatabaseService
             INSERT INTO posts_main (
                 thread_id, first_message_id, author_id, channel_id, channel_name, 
                 guild_id, guild_name, created_at, reaction_count, reply_count, 
-                last_active_at, jump_url, attachment_url, update_at, 
-                update_jump_url, update_count, tags, is_valid, is_locked, is_deleted, in_forum, 
+                last_active_at, jump_url, attachment_url, updated_at, 
+                updated_jump_url, update_count, tags, is_valid, is_locked, is_deleted, in_forum, 
                 title, first_message_content, title_tokenized, content_tokenized
             )
             VALUES (
                 @ThreadId, @FirstMessageId, @AuthorId, @ChannelId, @ChannelName, 
                 @GuildId, @GuildName, @CreatedAt, @ReactionCount, @ReplyCount, 
-                @LastActiveAt, @JumpUrl, @AttachmentUrl, @UpdateAt, 
-                @UpdateJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, @InForum, 
+                @LastActiveAt, @JumpUrl, @AttachmentUrl, @UpdatedAt, 
+                @UpdatedJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, @InForum, 
                 @Title, @FirstMessageContent, @TitleTokenized, @ContentTokenized
             );
             """;
 
+        var threadDataDb = ThreadDataDb.FromDomain(threadData);
+
         var parameters = new
         {
-            threadData.ThreadId,
-            threadData.FirstMessageId,
-            threadData.AuthorId,
-            threadData.ChannelId,
-            threadData.ChannelName,
-            threadData.GuildId,
-            threadData.GuildName,
-            threadData.CreatedAt,
-            threadData.ReactionCount,
-            threadData.ReplyCount,
-            threadData.LastActiveAt,
-            threadData.JumpUrl,
-            threadData.AttachmentUrl,
-            threadData.UpdateAt,
-            threadData.UpdateJumpUrl,
-            threadData.UpdateCount,
-            threadData.Tags,
-            threadData.IsValid,
-            threadData.IsLocked,
-            threadData.IsDeleted,
-            threadData.InForum,
-            threadData.Title,
-            threadData.FirstMessageContent,
-            threadData.TitleTokenized,
-            threadData.ContentTokenized,
+            threadDataDb.ThreadId,
+            threadDataDb.FirstMessageId,
+            threadDataDb.AuthorId,
+            threadDataDb.ChannelId,
+            threadDataDb.ChannelName,
+            threadDataDb.GuildId,
+            threadDataDb.GuildName,
+            threadDataDb.CreatedAt,
+            threadDataDb.ReactionCount,
+            threadDataDb.ReplyCount,
+            threadDataDb.LastActiveAt,
+            threadDataDb.JumpUrl,
+            threadDataDb.AttachmentUrl,
+            threadDataDb.UpdatedAt,
+            threadDataDb.UpdatedJumpUrl,
+            threadDataDb.UpdateCount,
+            threadDataDb.Tags,
+            threadDataDb.IsValid,
+            threadDataDb.IsLocked,
+            threadDataDb.IsDeleted,
+            threadDataDb.InForum,
+            threadDataDb.Title,
+            threadDataDb.FirstMessageContent,
+            threadDataDb.TitleTokenized,
+            threadDataDb.ContentTokenized,
         };
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -71,6 +76,8 @@ public partial class DatabaseService
 
     public async Task InsertTagsJunction(NpgsqlTransaction transaction, ThreadData threadData)
     {
+        if (threadData.TagsId is null || threadData.TagsId.Count == 0) return;
+
         const string SqlCommand = """
             -- 批量插入帖子与应用标签的关系
             -- 使用 unnest, 将这个新帖子与它所拥有的标签ID一一对应并插入关系表。
@@ -83,15 +90,19 @@ public partial class DatabaseService
             FROM UNNEST(@AppliedTagIds) AS tag_id
             ON CONFLICT (thread_id, tag_id) DO NOTHING;
             """;
+
+        var threadDataDb = ThreadDataDb.FromDomain(threadData);
+
         var parameters = new
         {
-            threadData.ThreadId,
-            threadData.ChannelId,
-            threadData.CreatedAt,
-            AppliedTagIds = threadData.TagsId.ToArray(),
+            threadDataDb.ThreadId,
+            threadDataDb.ChannelId,
+            threadDataDb.CreatedAt,
+            AppliedTagIds = threadDataDb.TagsId.ToArray(),
         };
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -116,19 +127,21 @@ public partial class DatabaseService
             WHERE 
                 thread_id = @ThreadId;
             """;
+        var threadDataDb = ThreadDataDb.FromDomain(threadData);
 
         var parameters = new
         {
-            threadData.ThreadId,
-            threadData.Tags,
-            threadData.Title,
-            threadData.TitleTokenized,
-            threadData.IsValid,
-            threadData.IsLocked
+            threadDataDb.ThreadId,
+            threadDataDb.Tags,
+            threadDataDb.Title,
+            threadDataDb.TitleTokenized,
+            threadDataDb.IsValid,
+            threadDataDb.IsLocked
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -153,11 +166,12 @@ public partial class DatabaseService
         var parameters = new
         {
             ReplyCount = replyCount,
-            ThreadId = threadId
+            ThreadId = threadId.ToDbId()
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -169,6 +183,8 @@ public partial class DatabaseService
 
     public async Task ReplaceTagsJunction(NpgsqlTransaction transaction, ThreadData threadData)
     {
+        if (threadData.TagsId is null) return;
+
         const string SqlCommand = """
             -- 删除旧标签关系
             DELETE FROM post_tags_junction
@@ -185,16 +201,20 @@ public partial class DatabaseService
             FROM UNNEST(@AppliedTagIds) AS tag_id
             ON CONFLICT (thread_id, tag_id) DO NOTHING;
             """;
+
+        var threadDataDb = ThreadDataDb.FromDomain(threadData);
+
         var parameters = new
         {
-            threadData.ThreadId,
-            threadData.ChannelId,
-            threadData.CreatedAt,
-            AppliedTagIds = threadData.TagsId.ToArray(),
+            threadDataDb.ThreadId,
+            threadDataDb.ChannelId,
+            threadDataDb.CreatedAt,
+            AppliedTagIds = threadDataDb.TagsId.ToArray(),
         };
         try
         {
             // 执行
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -224,10 +244,11 @@ public partial class DatabaseService
 
             var parameters = new
             {
-                ThreadId = threadId,
+                ThreadId = threadId.ToDbId(),
                 Amount = amount
             };
 
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(UpdateReactionCountSqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -258,7 +279,7 @@ public partial class DatabaseService
             ON CONFLICT (user_id, thread_id) DO UPDATE 
             SET
                 -- 无论如何都更新这些字段
-                message_count = message_count +1,
+                message_count = post_members.message_count +1,
                 last_message_id = EXCLUDED.last_message_id, -- 更新为最新的消息
                 last_message_at = EXCLUDED.last_message_at, -- 更新为最新的消息时间
 
@@ -268,27 +289,30 @@ public partial class DatabaseService
                 -- 需要将 is_leave 设回 false，并更新 last_join_at
                 is_leave = false,
                 last_join_at = CASE 
-                                WHEN is_leave = true -- 当之前是离开状态时
+                                WHEN post_members.is_leave = true -- 当之前是离开状态时
                                 THEN EXCLUDED.last_join_at       -- 更新“最后加入时间”
-                                ELSE last_join_at   -- 否则，保持原来的“最后加入时间”不变
+                                ELSE post_members.last_join_at   -- 否则，保持原来的“最后加入时间”不变
                             END;
             """;
 
+        var postMemberDataDb = PostMemberDataDb.FromDomain(postMemberData);
+
         var parameters = new
         {
-            postMemberData.UserId,
-            postMemberData.ThreadId,
-            postMemberData.IsThreadOwner,
-            postMemberData.FirstJoinAt,
-            postMemberData.LastJoinAt,
-            // postMemberData.LeaveAt,
-            // postMemberData.IsLeave,
-            // postMemberData.MessageCount,
-            postMemberData.LastMessageId,
-            postMemberData.LastMessageAt
+            postMemberDataDb.UserId,
+            postMemberDataDb.ThreadId,
+            postMemberDataDb.IsThreadOwner,
+            postMemberDataDb.FirstJoinAt,
+            postMemberDataDb.LastJoinAt,
+            // postMemberDataDb.LeaveAt,
+            // postMemberDataDb.IsLeave,
+            // postMemberDataDb.MessageCount,
+            postMemberDataDb.LastMessageId,
+            postMemberDataDb.LastMessageAt
         };
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -311,12 +335,13 @@ public partial class DatabaseService
 
         var parameters = new
         {
-            UserId = userId,
-            ThreadId = threadId
+            UserId = userId.ToDbId(),
+            ThreadId = threadId.ToDbId()
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
@@ -345,18 +370,50 @@ public partial class DatabaseService
 
         var parameters = new
         {
-            UserId = userId,
-            ThreadId = threadId,
+            UserId = userId.ToDbId(),
+            ThreadId = threadId.ToDbId(),
             Amount = amount
         };
 
         try
         {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ InsertTagsJunction: 为帖子 {ThreadId} 更新用户 {UserId} 发言记数时数据库操作失败！", threadId, userId);
+            throw;
+        }
+    }
+
+    public async Task UpdatePostWorkAsync(NpgsqlTransaction transaction, ulong threadId, string updatedJumpUrl, DateTimeOffset updatedAt)
+    {
+        const string SqlCommand = """
+            UPDATE posts_main 
+            SET
+                updated_at = @UpdatedAt,
+                updated_jump_url = @UpdatedJumpUrl,
+                update_count = update_count + 1
+            WHERE 
+                thread_id = @ThreadId;
+            """;
+
+        var parameters = new
+        {
+            UpdatedAt = updatedAt,
+            UpdatedJumpUrl = updatedJumpUrl,
+            ThreadId = threadId.ToDbId()
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpdatePostWorkAsync: 为帖子 {ThreadId} 更新作品更新信息时数据库操作失败！", threadId);
             throw;
         }
     }
@@ -381,8 +438,9 @@ public partial class DatabaseService
 
         try
         {
-            var parameters = new { ThreadId = threadId };
-
+            var parameters = new { ThreadId = threadId.ToDbId() };
+            
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             int affectedRows = await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
 
             return affectedRows;

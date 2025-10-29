@@ -91,11 +91,24 @@ internal class LunariumMsLoggerAdapter : Microsoft.Extensions.Logging.ILogger
 public static class LunariumLoggerExtensions
 {
     public static ILoggingBuilder AddLunariumLogger(
-        this ILoggingBuilder builder, 
+        this ILoggingBuilder builder,
         LunariumBot.Net.Logger.ILogger lunariumLogger)
     {
         builder.ClearProviders(); // 清除所有默认提供程序
         builder.AddProvider(new LunariumLoggerProvider(lunariumLogger));
         return builder;
+    }
+}
+
+public static class LunariumLoggerConversionExtensions
+{
+    /// <summary>
+    /// 将 LunariumLogger 转换为 Microsoft.Extensions.Logging.ILogger
+    /// </summary>
+    public static Microsoft.Extensions.Logging.ILogger ToMicrosoftLogger(
+        this LunariumBot.Net.Logger.ILogger logger, 
+        string categoryName)
+    {
+        return new LunariumMsLoggerAdapter(logger.ForContext(categoryName));
     }
 }

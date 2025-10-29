@@ -77,8 +77,8 @@ CREATE TABLE IF NOT EXISTS posts_main (
     attachment_url TEXT,
 
     -- 更新数据
-    update_at TIMESTAMPTZ,
-    update_jump_url TEXT,
+    updated_at TIMESTAMPTZ,
+    updated_jump_url TEXT,
     update_count INT NOT NULL DEFAULT 0,
 
     -- 标签
@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions_post (
 CREATE TABLE IF NOT EXISTS user_push_list (
     user_id BIGINT,
     thread_id BIGINT,
-    message_jump_url TEXT NOT NULL,
+    updated_jump_url TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, thread_id),
     CONSTRAINT fk_subscription
@@ -424,7 +424,7 @@ FOR EACH ROW EXECUTE FUNCTION handle_post_soft_delete();
 -- T.5: 当帖子更新时, 自动为订阅者创建推送通知
 -- 描述:
 --   这个触发器监视 `posts_main` 表的更新操作。
---   如果一个帖子的 `update_at` 字段发生了变化 (这通常意味着有新回复),
+--   如果一个帖子的 `updated_at` 字段发生了变化 (这通常意味着有新回复),
 --   它会找到所有在 `user_subscriptions_post` 中订阅了该帖子的用户,
 --   然后将这个更新的帖子信息插入或更新到 `user_push_list` 表中
 -- -------------------------------------------------------------------
@@ -434,20 +434,20 @@ FOR EACH ROW EXECUTE FUNCTION handle_post_soft_delete();
 CREATE OR REPLACE FUNCTION create_push_notification_on_post_update()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- 只关心更新(UPDATE)操作, 并且只在 `update_at` 字段真实发生变化时才执行。
+    -- 只关心更新(UPDATE)操作, 并且只在 `updated_at` 字段真实发生变化时才执行。
     -- 使用 `IS DISTINCT FROM` 可以处理 NULL 值的情况，比 `!=` 更健壮。
-    -- 同时也确保 `message_jump_url` 不为空，因为这是推送必须的链接。
-    IF (TG_OP = 'UPDATE' AND NEW.update_at IS DISTINCT FROM OLD.update_at AND NEW.message_jump_url IS NOT NULL) THEN
+    -- 同时也确保 `updated_jump_url` 不为空，因为这是推送必须的链接。
+    IF (TG_OP = 'UPDATE' AND NEW.updated_at IS DISTINCT FROM OLD.updated_at AND NEW.updated_jump_url IS NOT NULL) THEN
 
         -- 向 `user_push_list` 表中插入新的推送记录。
-        INSERT INTO user_push_list (user_id, thread_id, message_jump_url, updated_at)
+        INSERT INTO user_push_list (user_id, thread_id, updated_jump_url, updated_at)
         
         -- 数据来源是: 查询 `user_subscriptions_post` 表,
         -- 找出所有订阅了当前被更新帖子 (NEW.thread_id) 的用户 (user_id)。
         SELECT 
             usp.user_id, 
             NEW.thread_id, 
-            NEW.message_jump_url, 
+            NEW.updated_jump_url, 
             NEW.updated_at
         FROM 
             user_subscriptions_post AS usp
@@ -458,10 +458,10 @@ BEGIN
         -- (因为主键冲突), 那么不报错, 而是执行 UPDATE 操作。
         ON CONFLICT (user_id, thread_id) DO UPDATE 
         
-        -- 更新已存在记录的 `message_jump_url` 和 `updated_at` 为最新的值。
+        -- 更新已存在记录的 `updated_jump_url` 和 `updated_at` 为最新的值。
         -- `EXCLUDED` 是一个特殊的记录，它代表了“本应被插入但失败了”的那一行数据。
         SET 
-            message_jump_url = EXCLUDED.message_jump_url,
+            updated_jump_url = EXCLUDED.updated_jump_url,
             updated_at = EXCLUDED.updated_at;
             
     END IF;

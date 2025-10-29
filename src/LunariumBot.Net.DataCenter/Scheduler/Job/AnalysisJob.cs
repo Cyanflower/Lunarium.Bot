@@ -84,7 +84,7 @@ public class AnalysisJob : IAsyncJob
 
                     // 获取 Dashboard 频道（优先从缓存）
                     var dashboardChannel = await GetOrCacheDashboardChannelAsync(dashboardChannelId, taskLogger);
-                    if (dashboardChannel == null)
+                    if (dashboardChannel is null)
                     {
                         taskLogger.Warning("⚠️ 无法获取 Dashboard 频道 {ChannelId}，跳过推送", dashboardChannelId);
                         return;

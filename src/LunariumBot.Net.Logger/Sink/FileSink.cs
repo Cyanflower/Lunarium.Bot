@@ -129,20 +129,38 @@ public class RotatingFileSink : ILogSink
                 return;
             }
 
-            string formattedMessage = FileFormatter.Format(entry, toJson, indented);
-
-            _writer.WriteLine(formattedMessage);
-
-            // 分级刷新策略
-            if (entry.Level >= LogLevel.Error)
+            try
             {
-                // 检查文件存在性
-                EnsureFileExists();
-                _writer.Flush();
+                string formattedMessage = FileFormatter.Format(entry, toJson, indented);
+    
+                _writer.WriteLine(formattedMessage);
+    
+                // 分级刷新策略
+                if (entry.Level >= LogLevel.Error)
+                {
+                    // 检查文件存在性
+                    EnsureFileExists();
+                    _writer.Flush();
+                }
+    
+                // 更新当前文件大小。使用 BaseStream.Position 更准确
+                _currentFileSize = _writer.BaseStream.Position;
             }
+            catch (IOException ex)
+            {
+                var log_err_msg = $"Log Writer FAILED: catch IOException: \n{ex}".Color(ConsoleColor.DarkMagenta);
+                Console.WriteLine(log_err_msg);
 
-            // 更新当前文件大小。使用 BaseStream.Position 更准确
-            _currentFileSize = _writer.BaseStream.Position;
+                // 恢复
+                CloseCurrentWriter();
+                OpenFile();
+
+                // 恢复后要检查是否需要清理旧文件
+                if (_writer != null && _maxFile > 0)
+                {
+                    CleanupOldFiles();
+                }
+            }
         }
     }
 
@@ -151,16 +169,29 @@ public class RotatingFileSink : ILogSink
     /// </summary>
     private void EnsureFileExists()
     {
-        // 如果当前没有 writer，或者文件被删了
-        if (_writer == null || !File.Exists(_currentLogFilePath))
-        {   
-            // 和 CheckForRotation 相同的逻辑
+        // 如果当前没有 writer
+        if (_writer == null)
+        {
+            OpenFile();
+            return;
+        }
+
+        try
+        {
+            // 检查流是否有效
+            _ = _writer.BaseStream.Position;
+
+            // 或者文件被删了
+            if (!File.Exists(_currentLogFilePath))
+            {
+                CloseCurrentWriter();
+                OpenFile();
+            }
+        }
+        catch (Exception)
+        {
             CloseCurrentWriter();
             OpenFile();
-            if (_writer != null && _maxFile > 0)
-            {
-                CleanupOldFiles();
-            }
         }
     }
 
@@ -431,16 +462,34 @@ public class TimedRotatingFileSink : ILogSink
                 return;
             }
 
-            string formattedMessage = FileFormatter.Format(entry, toJson, indented);
-            
-            _writer.WriteLine(formattedMessage);
-
-            // 分级刷新策略
-            if (entry.Level >= LogLevel.Error)
+            try
             {
-                // 检查文件存在性
-                EnsureFileExists();
-                _writer.Flush();
+                string formattedMessage = FileFormatter.Format(entry, toJson, indented);
+                
+                _writer.WriteLine(formattedMessage);
+    
+                // 分级刷新策略
+                if (entry.Level >= LogLevel.Error)
+                {
+                    // 检查文件存在性
+                    EnsureFileExists();
+                    _writer.Flush();
+                }
+            }
+            catch (IOException ex)
+            {
+                var log_err_msg = $"Log Writer FAILED: catch IOException: \n{ex}".Color(ConsoleColor.DarkMagenta);
+                Console.WriteLine(log_err_msg);
+                
+                // 恢复
+                CloseCurrentWriter();
+                OpenFile(DateTime.Now);
+
+                // 恢复后要检查是否需要清理旧文件
+                if (_writer != null && _maxFile > 0)
+                {
+                    CleanupOldFiles();
+                }
             }
         }
     }
@@ -450,16 +499,30 @@ public class TimedRotatingFileSink : ILogSink
     /// </summary>
     private void EnsureFileExists()
     {
-        // 如果当前没有 writer，或者文件被删了
-        if (_writer == null || !File.Exists(_currentLogFilePath))
+
+        // 如果当前没有 writer
+        if (_writer == null)
         {
-            // 和 CheckForRotation 相同的逻辑
+            OpenFile(DateTime.Now);
+            return;
+        }
+
+        try
+        {
+            // 检查流是否有效
+            _ = _writer.BaseStream.Position;
+            
+            // 或者文件被删了
+            if (!File.Exists(_currentLogFilePath))
+            {
+                CloseCurrentWriter();
+                OpenFile(DateTime.Now);
+            }
+        }
+        catch (Exception)
+        {
             CloseCurrentWriter();
             OpenFile(DateTime.Now);
-            if (_writer != null && _maxFile > 0)
-            {
-                CleanupOldFiles();
-            }
         }
     }
     

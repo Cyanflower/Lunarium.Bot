@@ -13,6 +13,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.DataCenter.DataFetcher;
 using LunariumBot.Net.DataCenter.Scheduler;
 using LunariumBot.Net.DataCenter.Utils;
+using System.Text;
 
 namespace LunariumBot.Net.DataCenter.AppInteractionService;
 
@@ -23,6 +24,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
     private readonly Scanner _scanner;
+    private readonly Listener _listener;
     private readonly DataAnalysis _dataAnalysis;
     private readonly AnalysisJob _analysisJob;
     public AdminCommands(
@@ -30,6 +32,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         AuthUtils authUtils,
         ConfigLoader configLoader,
         Scanner scanner,
+        Listener listener,
         DataAnalysis dataAnalysis,
         AnalysisJob analysisJob
     )
@@ -38,6 +41,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         _authUtils = authUtils;
         _configLoader = configLoader;
         _scanner = scanner;
+        _listener = listener;
         _dataAnalysis = dataAnalysis;
         _analysisJob = analysisJob;
     }
@@ -72,7 +76,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
                 // 调用新的分析方法
                 var reportBytes = await _dataAnalysis.GenerateAnalysisReportAsync(showTags, showFocusPosts);
 
-                if (reportBytes == null || reportBytes.Length == 0)
+                if (reportBytes is null || reportBytes.Length == 0)
                 {
                     await ModifyOriginalResponseAsync(msg => msg.Embed = EmbedUtils.FailedEmbed("生成失败", "分析过程没有产生任何数据，无法生成报告。"));
                     return;
@@ -123,18 +127,43 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         await DeferAsync(ephemeral: false);
         // 鉴权: 如果不是admin, 则返回
         if (!await _authUtils.IsAdmin("全扫描", Context)) return;
+        bool success = false;
         // === 命令逻辑 ===
+            var reporter = new ScanProgressReporter(Context, _logger);
         try
         {
+            await reporter.ReportStartAsync("🚀 开始执行同步扫描任务...", Color.Blue);
+
+            _listener.RemoveEventHandlers();
+
+            await reporter.ReportProgressAsync("✅ 暂停事件处理: 监听器事件处理方法已移除。");
+
             // 执行扫描
-            var scanResult = await _scanner.SyncScan();
-            // 回复
-            await FollowupAsync(embed: EmbedUtils.SuccessEmbed(scanResult, "扫描更新成功"), ephemeral: false);
+            var result = await _scanner.SyncScan(reporter);
+
+            await FollowupAsync(embed: EmbedUtils.SuccessEmbed(result, "扫描成功"));
+            success = true;
         }
         catch (Exception ex)
         {
             await FollowupAsync(embed: EmbedUtils.FailedEmbed("扫描失败", ex.ToString()));
             _logger.Error("扫描失败, 原因:", ex);
+            success = false;
+        }
+        finally
+        {
+            _listener.AddEventHandlers();
+
+            await reporter.ReportProgressAsync("✅ 恢复事件处理: 监听器事件处理方法已添加。");
+
+            if (success)
+            {
+                await reporter.ReportCompleteAsync(title: "✅ 同步扫描任务成功", color: Color.Green);
+            }
+            else
+            {
+                await reporter.ReportCompleteAsync(title: "❌ 同步扫描任务失败", color: Color.Red);
+            }
         }
     }
 

@@ -42,7 +42,14 @@ public partial class DataProcessService
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
                 // 获取首楼消息（帖子ID等于首楼消息ID）
-                firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
+                try
+                {
+                    firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "获取帖子的首楼消息失败");
+                }
             });
         }
         catch (Exception ex)
@@ -57,7 +64,7 @@ public partial class DataProcessService
 
         // 验证首楼消息是否有效, 有效则尝试获取附件
         string? attachmentUrl = null;
-        if (firstMessage is not null && !string.IsNullOrWhiteSpace(firstMessage.Content))
+        if (firstMessage is not null)
         {
             var imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
             attachmentUrl = imageAttachment?.Url;
@@ -65,14 +72,23 @@ public partial class DataProcessService
         else
         {
             isValid = false;
+            if (firstMessage is null) _logger.Debug("firstMessage Is null");
+            else if (string.IsNullOrWhiteSpace(firstMessage.Content)) _logger.Debug("firstMessage Is Null Or WhiteSpace, Content: [{firstMessage.Content}]", firstMessage.Content);
         }
+
+        var threadInterface = (IThreadChannel)socketThreadChannel;
 
         // ==========================
         // 标签处理
         // ========================== 
         // 获得帖子标签
-        var appliedTagNames = socketForumChannel.Tags
+        var appliedTags = socketForumChannel.Tags
             .Where(tag => socketThreadChannel.AppliedTags.Contains(tag.Id))
+            .ToList();
+        var appliedTagIds = appliedTags
+            .Select(tag => tag.Id)
+            .ToList();
+        var appliedTagNames = appliedTags
             .Select(tag => tag.Name)
             .ToList();
         var tags = string.Join(", ", appliedTagNames);
@@ -84,7 +100,7 @@ public partial class DataProcessService
         {
             ThreadId = socketThreadChannel.Id,
             FirstMessageId = socketThreadChannel.Id,
-            AuthorId = socketThreadChannel.Owner.Id,
+            AuthorId = threadInterface.OwnerId,
             ChannelId = socketThreadChannel.ParentChannel.Id,
             ChannelName = socketThreadChannel.ParentChannel.Name,
             GuildId = socketThreadChannel.Guild.Id,
@@ -100,16 +116,16 @@ public partial class DataProcessService
             FirstMessageContent = firstMessage?.Content,
 
             TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
-            ContentTokenized = firstMessage != null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
+            ContentTokenized = firstMessage is not null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
 
             // 更新相关
-            UpdateAt = null,
-            UpdateJumpUrl = null,
+            UpdatedAt = null,
+            UpdatedJumpUrl = null,
             UpdateCount = 0,
 
             // Tag
             Tags = tags,
-            TagsId = socketThreadChannel.AppliedTags.ToList(),
+            TagsId = appliedTagIds,
 
             // 有效性
             IsValid = isValid,
@@ -120,7 +136,7 @@ public partial class DataProcessService
 
         var postMemberData = new PostMemberData()
         {
-            UserId = socketThreadChannel.Owner.Id,
+            UserId = threadInterface.OwnerId,
             ThreadId = socketThreadChannel.Id,
             IsThreadOwner = true,
             FirstJoinAt = socketThreadChannel.CreatedAt,
@@ -134,7 +150,7 @@ public partial class DataProcessService
 
         var userData = new UserData()
         {
-            UserId = socketThreadChannel.Owner.Id,
+            UserId = threadInterface.OwnerId,
             UserThreadCountDelta = 1,
             UserMessageCountDelta = 1,
             UserUpdateCountDelta = 0,
@@ -191,6 +207,8 @@ public partial class DataProcessService
         _logger.Debug("开始处理子区创建: [{GuildName}.{ChannelName}.{ThreadName}] (ID: {ThreadId})",
             socketThreadChannel.Guild.Name, socketTextChannel.Name, socketThreadChannel.Name, socketThreadChannel.Id);
 
+        var threadInterface = (IThreadChannel)socketThreadChannel;
+
         // ==========================
         // 构建数据模型
         // ========================== 
@@ -198,7 +216,7 @@ public partial class DataProcessService
         {
             ThreadId = socketThreadChannel.Id,
             FirstMessageId = socketThreadChannel.Id,
-            AuthorId = socketThreadChannel.Owner.Id,
+            AuthorId = threadInterface.OwnerId,
             ChannelId = socketThreadChannel.ParentChannel.Id,
             ChannelName = socketThreadChannel.ParentChannel.Name,
             GuildId = socketThreadChannel.Guild.Id,
@@ -217,8 +235,8 @@ public partial class DataProcessService
             ContentTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
 
             // 更新相关
-            UpdateAt = null,
-            UpdateJumpUrl = null,
+            UpdatedAt = null,
+            UpdatedJumpUrl = null,
             UpdateCount = 0,
 
             // Tag
@@ -233,7 +251,7 @@ public partial class DataProcessService
 
         var postMemberData = new PostMemberData()
         {
-            UserId = socketThreadChannel.Owner.Id,
+            UserId = threadInterface.OwnerId,
             ThreadId = socketThreadChannel.Id,
             IsThreadOwner = true,
             FirstJoinAt = socketThreadChannel.CreatedAt,
@@ -249,7 +267,7 @@ public partial class DataProcessService
 
         var userData = new UserData()
         {
-            UserId = socketThreadChannel.Owner.Id,
+            UserId = threadInterface.OwnerId,
             UserThreadCountDelta = 0,
             UserMessageCountDelta = 1,
             UserUpdateCountDelta = 0,
@@ -299,7 +317,6 @@ public partial class DataProcessService
         }
     }
 
-
     /// <summary>
     /// 更新论坛帖子的信息（如标题、标签、锁定状态等）。
     /// 该方法仅更新帖子的元数据，不涉及消息内容。
@@ -314,8 +331,14 @@ public partial class DataProcessService
         // 标签处理
         // ========================== 
         // 获得帖子标签
-        var appliedTagNames = socketForumChannel.Tags
+
+        var appliedTags = socketForumChannel.Tags
             .Where(tag => socketThreadChannel.AppliedTags.Contains(tag.Id))
+            .ToList();
+        var appliedTagIds = appliedTags
+            .Select(tag => tag.Id)
+            .ToList();
+        var appliedTagNames = appliedTags
             .Select(tag => tag.Name)
             .ToList();
         var tags = string.Join(", ", appliedTagNames);
@@ -331,7 +354,7 @@ public partial class DataProcessService
             TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
             // Tag
             Tags = tags,
-            TagsId = socketThreadChannel.AppliedTags.ToList(),
+            TagsId = appliedTagIds,
             // 是否锁定
             IsValid = socketThreadChannel.IsLocked,
             IsLocked = socketThreadChannel.IsLocked,

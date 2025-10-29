@@ -73,13 +73,13 @@ public static class DisplayEmbedBuilder
     {
         var sb = new StringBuilder();
         sb.AppendLine(title);
-        if (posts != null && posts.Any())
+        if (posts is not null && posts.Any())
         {
             int rank = 1;
             foreach (var post in posts)
             {
                 // 为了防止标题过长导致embed超限，这里做一个截断
-                var postTitle = post.Title != null ? post.Title.Slice(50, "...") : "未知标题";
+                var postTitle = post.Title is not null ? post.Title.Slice(50, "...") : "未知标题";
                 postTitle = postTitle.Replace("[", "").Replace("]", "");
                 sb.AppendLine($"{rank++}. [{postTitle}]({post.JumpUrl})\n  👍🏻: {post.ReactionCount:N0} / 💬: {post.ReplyCount:N0}");
             }
@@ -99,7 +99,7 @@ public static class DisplayEmbedBuilder
     {
         var sb = new StringBuilder();
         sb.AppendLine(title);
-        if (tags != null && tags.Any())
+        if (tags is not null && tags.Any())
         {
             int rank = 1;
             // 确保字典按使用次数降序排列

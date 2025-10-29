@@ -2,6 +2,7 @@ using Npgsql;
 using Dapper;
 
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Model.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -56,35 +57,49 @@ public partial class DatabaseService
 
         try
         {
+            var allChannelsDb = allChannels.Select(ChannelDataDb.FromDomain).ToList();
+
+            var allTagsDb = allTags.Select(TagInfoDb.FromDomain).ToList();
+            
             // 执行频道同步
-            if (allChannels.Any())
+            if (allChannelsDb.Any())
             {
                 var channelParams = new
                 {
-                    ChannelIds = allChannels.Select(c => c.ChannelId).ToArray(),
-                    ChannelNames = allChannels.Select(c => c.ChannelName).ToArray(),
-                    GuildIds = allChannels.Select(c => c.GuildId).ToArray(),
-                    GuildNames = allChannels.Select(c => c.GuildName).ToArray(),
+                    ChannelIds = allChannelsDb.Select(c => c.ChannelId).ToArray(),
+                    ChannelNames = allChannelsDb.Select(c => c.ChannelName).ToArray(),
+                    GuildIds = allChannelsDb.Select(c => c.GuildId).ToArray(),
+                    GuildNames = allChannelsDb.Select(c => c.GuildName).ToArray(),
                 };
+
+                if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+
                 await transaction.Connection.ExecuteAsync(syncChannelsSql, channelParams, transaction);
-                var uniqueGuildIds = allChannels.Select(c => c.GuildId).Distinct().ToArray();
+
+                var uniqueGuildIds = allChannelsDb.Select(c => c.GuildId).Distinct().ToArray();
+
                 await transaction.Connection.ExecuteAsync(deleteOrphanChannelsSql, 
                     new { ChannelIds = channelParams.ChannelIds, GuildIds = uniqueGuildIds }, transaction);
             }
     
             // 执行标签同步
-            if (allTags.Any())
+            if (allTagsDb.Any())
             {
                 var tagParams = new
                 {
-                    TagIds = allTags.Select(t => t.TagId).ToArray(),
-                    TagChannelIds = allTags.Select(t => t.ChannelId).ToArray(),
-                    TagNames = allTags.Select(t => t.TagName).ToArray(),
-                    TagChannelNames = allTags.Select(t => t.ChannelName).ToArray(),
-                    TagGuildNames = allTags.Select(t => t.GuildName).ToArray()
+                    TagIds = allTagsDb.Select(t => t.TagId).ToArray(),
+                    TagChannelIds = allTagsDb.Select(t => t.ChannelId).ToArray(),
+                    TagNames = allTagsDb.Select(t => t.TagName).ToArray(),
+                    TagChannelNames = allTagsDb.Select(t => t.ChannelName).ToArray(),
+                    TagGuildNames = allTagsDb.Select(t => t.GuildName).ToArray()
                 };
+
+                if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+
                 await transaction.Connection.ExecuteAsync(syncTagsSql, tagParams, transaction);
-                var uniqueChannelIds = allTags.Select(t => t.ChannelId).Distinct().ToArray();
+
+                var uniqueChannelIds = allTagsDb.Select(t => t.ChannelId).Distinct().ToArray();
+
                 await transaction.Connection.ExecuteAsync(deleteOrphanTagsSql, 
                     new { TagIds = tagParams.TagIds, ChannelIds = uniqueChannelIds }, transaction);
             }

@@ -17,8 +17,9 @@ echo "[1/2] 正在同步核心应用文件..."
 rsync -avz \
   --include='LunariumBot.Net.DataCenter' \
   --include='appsettings.template.jsonc' \
+  --include='Resources' \
   --exclude='start.sh' \
-  --exclude='*' \
+  --exclude='*.pdb' \
   "$SOURCE_DIR" "$REMOTE_DEST_URL"
 
 # 检查同步结果

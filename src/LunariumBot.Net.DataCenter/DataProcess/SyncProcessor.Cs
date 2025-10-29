@@ -23,17 +23,63 @@ public partial class DataProcessService
         {
             _logger.Info("📊 开始同步处理: 频道 {ChannelCount}, 标签 {TagCount}, 帖子 {ThreadCount}",
                 allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+                
+            await using var connection = _databaseService.GetConnection();
+            await connection.OpenAsync();
 
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
-                await using var connection = _databaseService.GetConnection();
-                await connection.OpenAsync();
+                await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+                try
+                {
+                    await _databaseService.SyncAllChannelsAndTagsAsync(transaction, allForumsData, allTagsData);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            const int batchSize = 1000;
+            int totalBatches = (int)Math.Ceiling((double)allThreadsData.Count / batchSize);
+
+            for (int i = 0; i < totalBatches; i++)
+            {
+                var batchData = allThreadsData
+                    .Skip(i * batchSize)
+                    .Take(batchSize)
+                    .ToList();
+                _logger.Info("... 正在处理第 {CurrentBatch}/{TotalBatches} 批帖子，数量: {BatchCount}", i + 1, totalBatches, batchData.Count);
+                await _dbRetryPolicy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                    try
+                    {
+                        await _databaseService.SyncAllThreadsAsync(transaction, batchData);
+                        await transaction.CommitAsync();
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
+                });
+            }
+
+            _logger.Info("🗑️ 正在清理孤儿帖子...");
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
                 await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
 
                 try
                 {
-                    await _databaseService.SyncAllChannelsAndTagsAsync(transaction, allForumsData, allTagsData);
-                    await _databaseService.SyncAllThreadsAsync(transaction, allThreadsData);
+                    await _databaseService.DeleteOrphanThreadsAsync(
+                        transaction,
+                        allThreadsData.Select(t => t.ThreadId).ToList(),
+                        allThreadsData.Select(t => t.ChannelId).Distinct().ToList());
                     await transaction.CommitAsync();
                 }
                 catch

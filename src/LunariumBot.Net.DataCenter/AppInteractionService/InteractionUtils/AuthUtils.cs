@@ -45,7 +45,7 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
             // --- 是否具有任一管理员身份 ---
             // Discord.WebSocket.SocketUser 转为 Discord.IGuildUser
             var guildUser = context.User as IGuildUser;
-            if (guildUser != null && IsAdmin(guildUser.RoleIds))
+            if (guildUser is not null && IsAdmin(guildUser.RoleIds))
             {
                 _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
                 return true;

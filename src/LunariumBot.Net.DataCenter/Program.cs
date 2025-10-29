@@ -19,6 +19,8 @@ public class Program
 
         try
         {
+            // === 配置日志 ===
+            // 读取环境变量
             var envFileLogLevel = Environment.GetEnvironmentVariable("FILE_LOG_LEVEL");
             var fileLogLevel = LogLevel.Info;
             if (!string.IsNullOrEmpty(envFileLogLevel) && 
@@ -33,7 +35,7 @@ public class Program
             {
                 consoleLogLevel = parsedConsoleLevel;
             }
-            // === 配置日志 ===
+            // === 构建日志 ===
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(
@@ -165,7 +167,7 @@ public class Program
         {
             // 如果日志系统初始化成功，就用它来记录启动失败的错误
             // 否则，退回到用 Console.Write
-            if (_rootLogger != null)
+            if (_rootLogger is not null)
             {
                 _rootLogger.ForContext("Program").Critical("💥 服务启动失败", ex);
             }

@@ -276,7 +276,7 @@ public class DataAnalysis
         var sb = new StringBuilder();
         sb.AppendLine(title);
 
-        if (posts != null && posts.Any())
+        if (posts is not null && posts.Any())
         {
             int rank = 1;
             foreach (var post in posts)
@@ -301,7 +301,7 @@ public class DataAnalysis
         var sb = new StringBuilder();
         sb.AppendLine(title);
 
-        if (tags != null && tags.Any())
+        if (tags is not null && tags.Any())
         {
             int rank = 1;
             // 确保字典按值降序排列

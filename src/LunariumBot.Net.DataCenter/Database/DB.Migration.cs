@@ -77,7 +77,7 @@ public partial class DatabaseService
             // 2. 获取当前数据库版本信息
             var currentInfo = await GetCurrentDatabaseInfoAsync(connection);
 
-            if (currentInfo == null)
+            if (currentInfo is null)
             {
                 // 如果数据库为空（没有版本记录），返回版本0的空信息
                 currentInfo = new DatabaseInfo
@@ -181,7 +181,7 @@ public partial class DatabaseService
                         DateTimeOffset lastSyncAt;
                         DateTimeOffset initializeAt;
 
-                        if (previousInfo != null)
+                        if (previousInfo is not null)
                         {
                             // 复制上一个版本的值
                             lastSyncAt = previousInfo.LastSyncAt;
@@ -274,7 +274,7 @@ public partial class DatabaseService
 
         var result = await connection.QueryFirstOrDefaultAsync<DatabaseInfoRow?>(sql);
 
-        if (result == null)
+        if (result is null)
         {
             return null;
         }
@@ -307,7 +307,7 @@ public partial class DatabaseService
             new { Version = version },
             transaction);
 
-        if (result == null)
+        if (result is null)
         {
             return null;
         }

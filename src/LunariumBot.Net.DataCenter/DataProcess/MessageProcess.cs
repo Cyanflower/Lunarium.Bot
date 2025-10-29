@@ -31,13 +31,32 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理论坛帖子消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
 
             IMessage? refreshMessage = message;
+            ulong OwnerId;
             bool isUpdate = false;
 
+            _logger.Debug("空值检查处理: {message.Author}", message.Author);
+            _logger.Debug("空值检查处理: {message.Author.Id}", message.Author.Id);
+
+            IThreadChannel thread = (IThreadChannel)socketThreadChannel;
+
+            if (thread.OwnerId == 0)
+            {
+                _logger.Debug("空值检查处理: Owner 为 null");
+                thread = (IThreadChannel)await _discordSocketClient.GetChannelAsync(socketThreadChannel.Id);
+                OwnerId = thread.OwnerId;
+            }
+            else
+            {
+                OwnerId = thread.OwnerId;
+            }
+
+            _logger.Debug("空值检查处理: {OwnerId}", OwnerId);
+
             // 如果消息是帖子作者发送的，且不是首楼消息，则检查是否包含作品更新附件
-            if (message.Author.Id == socketThreadChannel.Owner.Id && message.Id != socketThreadChannel.Id)
+            if (message.Author.Id == OwnerId && message.Id != socketThreadChannel.Id)
             {
                 // 等待 1 秒，因为 Discord API 的 MessageReceived 事件不会立即附带附件
                 // 附件是后续异步上传的，需要重新获取消息以获得完整的附件列表
@@ -46,7 +65,7 @@ public partial class DataProcessService
                 {
                     await _semaphore.WaitAsync();
                     refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
-                    if (refreshMessage == null)
+                    if (refreshMessage is null)
                     {
                         _logger.Warning("⚠️ 无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
                         refreshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
@@ -90,7 +109,7 @@ public partial class DataProcessService
             {
                 UserId = message.Author.Id,
                 ThreadId = socketThreadChannel.Id,
-                IsThreadOwner = message.Author.Id == socketThreadChannel.Owner.Id,
+                IsThreadOwner = message.Author.Id == OwnerId,
                 FirstJoinAt = message.CreatedAt,
                 LastJoinAt = message.CreatedAt,
                 LeaveAt = null,
@@ -102,7 +121,7 @@ public partial class DataProcessService
 
             var userData = new UserData();
             userData.UserId = message.Author.Id;
-            userData.UserName = message.Author.GlobalName;
+            userData.UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER";
             if (isUpdate)
             {
                 userData.UserMessageCountDelta = 1;
@@ -130,6 +149,11 @@ public partial class DataProcessService
                     await _databaseService.InsertMessageAsync(transaction, messageData);
 
                     await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+
+                    if (isUpdate)
+                    {
+                        await _databaseService.UpdatePostWorkAsync(transaction, socketThreadChannel.Id, message.GetJumpUrl(), message.CreatedAt);
+                    }
                     
                     // 基于回复记数的更新原理:
                     // - 直接将 API 附带的数据中的准确的总数覆盖写入
@@ -185,14 +209,32 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理文字频道子区消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName);
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
 
+            ulong OwnerId;
+
+            _logger.Debug("空值检查处理: {message.Author}", message.Author);
+            _logger.Debug("空值检查处理: {message.Author.Id}", message.Author.Id);
+
+            IThreadChannel thread = (IThreadChannel)socketThreadChannel;
+
+            if (thread.OwnerId == 0)
+            {
+                _logger.Debug("空值检查处理: Owner 为 null");
+                thread = (IThreadChannel)await _discordSocketClient.GetChannelAsync(socketThreadChannel.Id);
+                OwnerId = thread.OwnerId;
+            }
+            else
+            {
+                OwnerId = thread.OwnerId;
+            }
+            _logger.Debug("空值检查处理: {OwnerId}", OwnerId);
             // 准备更新消息数据
             var messageData = new MessageData()
             {
                 MessageId = message.Id,
                 AuthorId = message.Author.Id,
-                CreatedAt = message.CreatedAt,
+                CreatedAt = message.CreatedAt.ToUniversalTime(),
                 GuildId = parentChannel.Guild.Id,
                 ChannelId = parentChannel.Id,
                 ThreadId = socketThreadChannel.Id,
@@ -205,7 +247,7 @@ public partial class DataProcessService
             {
                 UserId = message.Author.Id,
                 ThreadId = socketThreadChannel.Id,
-                IsThreadOwner = message.Author.Id == socketThreadChannel.Owner.Id,
+                IsThreadOwner = message.Author.Id == OwnerId,
                 FirstJoinAt = message.CreatedAt,
                 LastJoinAt = message.CreatedAt,
                 LeaveAt = null,
@@ -218,7 +260,7 @@ public partial class DataProcessService
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserName = message.Author.GlobalName,
+                UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER",
                 UserMessageCountDelta = 1,
                 UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
                 UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
@@ -295,7 +337,7 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理文字频道消息: [{GuildName}.{ChannelName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, message.Id, message.Author.GlobalName);
+                parentChannel.Guild.Name, parentChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
 
             // 准备消息数据
             var messageData = new MessageData()
@@ -314,7 +356,7 @@ public partial class DataProcessService
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserName = message.Author.GlobalName,
+                UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER",
                 UserMessageCountDelta = 1,
                 UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
                 UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
@@ -501,7 +543,7 @@ public partial class DataProcessService
             _logger.Debug("正在识别 '{TempFilePath}' 的图片元数据（不解码图像）", tempFilePath);
             var imageInfo = await SixLabors.ImageSharp.Image.IdentifyAsync(tempFilePath);
 
-            if (imageInfo == null)
+            if (imageInfo is null)
             {
                 _logger.Warning("⚠️ ImageSharp 无法识别图片信息: '{FileName}'", attachment.Filename);
                 return false;
@@ -531,7 +573,7 @@ public partial class DataProcessService
         finally
         {
             // 清理临时文件
-            if (tempFilePath != null && File.Exists(tempFilePath))
+            if (tempFilePath is not null && File.Exists(tempFilePath))
             {
                 try
                 {

@@ -34,13 +34,18 @@ public class Listener
     /// 从配置文件中读取并合并所有扫描频道ID。
     /// </summary>
     private HashSet<ulong> ChannelIds => _configLoader.ChannelSet;
-    
+
     /// <summary>
     /// 论坛帖子ID缓存字典。
     /// 用于快速查找帖子所属的论坛频道ID，避免重复的异步下载操作。
     /// Key: 帖子(Thread)ID, Value: 所属论坛(Forum)ID
     /// </summary>
     private readonly ConcurrentDictionary<ulong, ulong> _forumThreadIds = new();
+    
+    /// <summary>
+    /// 事件处理器标志位
+    /// </summary>
+    private bool _handlersAttached = false;
 
     /// <summary>
     /// 初始化监听器实例。
@@ -68,6 +73,7 @@ public class Listener
     /// </summary>
     public void AddEventHandlers()
     {
+        if (_handlersAttached) return;
         _client.MessageReceived += MessageReceivedAsync;
         _client.MessageDeleted += MessageDeleteAsync;
         _client.MessagesBulkDeleted += MessageBulkDeleteAsync;
@@ -80,6 +86,7 @@ public class Listener
         _client.ChannelUpdated += ChannelUpdatedAsync;
         _client.ChannelDestroyed += ChannelDestroyedAsync;
         _logger.Info("✅ 监听器事件处理方法已添加。");
+        _handlersAttached = true;
     }
 
     /// <summary>
@@ -88,6 +95,7 @@ public class Listener
     /// </summary>
     public void RemoveEventHandlers()
     {
+        if (!_handlersAttached) return;
         _client.MessageReceived -= MessageReceivedAsync;
         _client.MessageDeleted -= MessageDeleteAsync;
         _client.MessagesBulkDeleted -= MessageBulkDeleteAsync;
@@ -100,6 +108,7 @@ public class Listener
         _client.ChannelUpdated -= ChannelUpdatedAsync;
         _client.ChannelDestroyed -= ChannelDestroyedAsync;
         _logger.Info("✅ 监听器事件处理方法已移除。");
+        _handlersAttached = false;
     }
 
     #region Message
@@ -122,76 +131,83 @@ public class Listener
             socketMessage.Id, channel.Id, channel.GetType().Name);
 
         // 判断消息所处频道的类型
-        switch (channel)
+        try
         {
-            // 如果消息所在频道是 SocketThreadChannel（线程/帖子）
-            case SocketThreadChannel threadChannel:
-                _logger.Debug("🧵 处理线程消息: [{GuildName}.{ParentChannelName}.{ThreadName}]", 
-                    threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知父频道", threadChannel.Name);
-                
-                switch (threadChannel.ParentChannel) // 嵌套处理父频道, 分辨其来自论坛/文字频道
-                {
-                    // 父频道是论坛频道
-                    case SocketForumChannel parentForumChannel:
-                        _logger.Debug("📋 处理论坛帖子消息: 论坛 [{ForumName}], 帖子 [{ThreadName}]", 
-                            parentForumChannel.Name, threadChannel.Name);
-                        await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentForumChannel);
-                        break;
+            switch (channel)
+            {
+                // 如果消息所在频道是 SocketThreadChannel（线程/帖子）
+                case SocketThreadChannel threadChannel:
+                    _logger.Debug("🧵 处理线程消息: [{GuildName}.{ParentChannelName}.{ThreadName}]", 
+                        threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知父频道", threadChannel.Name);
                     
-                    // 父频道是文字频道（确保精确类型匹配）
-                    case SocketTextChannel parentTextChannel when parentTextChannel.GetType() == typeof(SocketTextChannel):
-                        // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
-                        // 而不是通过继承兼容 SocketTextChannel
-                        _logger.Debug("💬 处理文字频道线程消息: 文字频道 [{TextChannelName}], 线程 [{ThreadName}]", 
-                            parentTextChannel.Name, threadChannel.Name);
-                        await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentTextChannel);
-                        break;
-
-                    // 其他类型的父频道（语音、舞台、公告频道等）
-                    case SocketStageChannel:
-                    case SocketVoiceChannel:
-                    case SocketNewsChannel:
-                        _logger.Debug("⏭️ 收到非常规频道子区消息，跳过处理: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}",
-                            threadChannel.Guild.Name, threadChannel.ParentChannel.Name, threadChannel.Name, socketMessage.Id);
-                        break;
-
-                    // 最后的默认情况 - 未识别的父频道类型
-                    default:
-                        _logger.Warning("⚠️ 未能归类子区消息的父频道: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}, 父频道类型 {ParentChannelType}",
-                            threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知", threadChannel.Name, socketMessage.Id, threadChannel.ParentChannel?.GetType().Name ?? "null");
-                        break;
-                }
-                break;
-
-            // 处理基类 SocketTextChannel（普通文字频道）
-            // 注意：这里的顺序不能和 case SocketThreadChannel 反过来, 因为基类继承关系
-            case SocketTextChannel textChannel when channel.GetType() == typeof(SocketTextChannel):
-                // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
-                // 而不是通过继承兼容 SocketTextChannel
-                _logger.Debug("💬 处理文字频道消息: [{GuildName}.{ChannelName}]", 
-                    textChannel.Guild.Name, textChannel.Name);
-                await _dataProcessService.TextChannelMessageProcess(socketMessage, textChannel);
-                break;
-
-            // 其他类型 - 非监控的频道类型（语音、舞台、公告频道）
-            case SocketStageChannel:
-            case SocketVoiceChannel:
-            case SocketNewsChannel:
-                _logger.Debug("⏭️ 收到非常规频道消息，跳过处理: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
-                    socketMessage.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知", channel.GetType().Name);
-                break;
-            
-            // 私聊消息
-            case SocketDMChannel:
-                _logger.Debug("⏭️ 收到私聊消息，跳过处理: 作者ID {AuthorId}, 作者 {AuthorName}",
-                    socketMessage.Author.Id, socketMessage.Author.GlobalName ?? socketMessage.Author.Username);
-                break;
-
-            // 最后的默认情况 - 未知频道类型
-            default:
-                _logger.Warning("⚠️ 未能归类消息所处的频道: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
-                    socketMessage.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知或无名称", channel.GetType().Name);
-                break;
+                    switch (threadChannel.ParentChannel) // 嵌套处理父频道, 分辨其来自论坛/文字频道
+                    {
+                        // 父频道是论坛频道
+                        case SocketForumChannel parentForumChannel:
+                            _logger.Debug("📋 处理论坛帖子消息: 论坛 [{ForumName}], 帖子 [{ThreadName}]", 
+                                parentForumChannel.Name, threadChannel.Name);
+                            await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentForumChannel);
+                            break;
+                        
+                        // 父频道是文字频道（确保精确类型匹配）
+                        case SocketTextChannel parentTextChannel when parentTextChannel.GetType() == typeof(SocketTextChannel):
+                            // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
+                            // 而不是通过继承兼容 SocketTextChannel
+                            _logger.Debug("💬 处理文字频道线程消息: 文字频道 [{TextChannelName}], 线程 [{ThreadName}]", 
+                                parentTextChannel.Name, threadChannel.Name);
+                            await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentTextChannel);
+                            break;
+    
+                        // 其他类型的父频道（语音、舞台、公告频道等）
+                        case SocketStageChannel:
+                        case SocketVoiceChannel:
+                        case SocketNewsChannel:
+                            _logger.Debug("⏭️ 收到非常规频道子区消息，视为无效: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}",
+                                threadChannel.Guild.Name, threadChannel.ParentChannel.Name, threadChannel.Name, socketMessage.Id);
+                            break;
+    
+                        // 最后的默认情况 - 未识别的父频道类型
+                        default:
+                            _logger.Warning("⚠️ 未能归类子区消息的父频道: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}, 父频道类型 {ParentChannelType}",
+                                threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知", threadChannel.Name, socketMessage.Id, threadChannel.ParentChannel?.GetType().Name ?? "null");
+                            break;
+                    }
+                    break;
+    
+                // 处理基类 SocketTextChannel（普通文字频道）
+                // 注意：这里的顺序不能和 case SocketThreadChannel 反过来, 因为基类继承关系
+                case SocketTextChannel textChannel when channel.GetType() == typeof(SocketTextChannel):
+                    // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
+                    // 而不是通过继承兼容 SocketTextChannel
+                    _logger.Debug("💬 处理文字频道消息: [{GuildName}.{ChannelName}]", 
+                        textChannel.Guild.Name, textChannel.Name);
+                    await _dataProcessService.TextChannelMessageProcess(socketMessage, textChannel);
+                    break;
+    
+                // 其他类型 - 非监控的频道类型（语音、舞台、公告频道）
+                case SocketStageChannel:
+                case SocketVoiceChannel:
+                case SocketNewsChannel:
+                    _logger.Debug("⏭️ 收到非常规频道消息，视为无效: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
+                        socketMessage.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知", channel.GetType().Name);
+                    break;
+                
+                // 私聊消息
+                case SocketDMChannel:
+                    _logger.Debug("⏭️ 收到私聊消息，视为无效: 作者ID {AuthorId}, 作者 {AuthorName}",
+                        socketMessage.Author.Id, socketMessage.Author.GlobalName ?? socketMessage.Author.Username);
+                    break;
+    
+                // 最后的默认情况 - 未知频道类型
+                default:
+                    _logger.Warning("⚠️ 未能归类消息所处的频道: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
+                        socketMessage.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知或无名称", channel.GetType().Name);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "处理消息事件失败");
         }
     }
     #endregion
@@ -497,7 +513,7 @@ public class Listener
             }
             else
             {
-                _logger.Debug("⏭️ 反应目标不是首楼消息，跳过处理: 消息ID {MessageId}, 频道ID {ChannelId}", 
+                _logger.Debug("⏭️ 反应目标不是首楼消息，视为无效: 消息ID {MessageId}, 频道ID {ChannelId}", 
                     cacheableMessage.Id, cacheableChannel.Id);
             }
         }

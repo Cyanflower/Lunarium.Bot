@@ -163,10 +163,10 @@ public class ConfigLoader
     {
         var errors = new List<string>();
 
-        if (config.AuthConfig?.AdminRoleIds == null || config.AuthConfig.AdminRoleIds.Count == 0)
+        if (config.AuthConfig?.AdminRoleIds is null || config.AuthConfig.AdminRoleIds.Count == 0)
             errors.Add("AuthConfig.AdminRoleIds 不能为空");
 
-        if (config.DeployConfig?.DeployGuildIds == null || config.DeployConfig.DeployGuildIds.Count == 0)
+        if (config.DeployConfig?.DeployGuildIds is null || config.DeployConfig.DeployGuildIds.Count == 0)
             errors.Add("GuildsConfig.DeployGuildIds 不能为空");
 
         return (errors.Count == 0, errors);

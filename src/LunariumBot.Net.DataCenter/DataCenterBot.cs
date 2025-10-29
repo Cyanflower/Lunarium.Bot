@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 // NuGet 包依赖
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Discord;
 using Discord.Interactions;
 using Discord.Net.Rest;
@@ -15,6 +16,7 @@ using Discord.WebSocket;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Logger.Extensions;
 using LunariumBot.Net.Scheduler;
 
 // 项目内命名空间
@@ -32,7 +34,7 @@ namespace LunariumBot.Net.DataCenter;
 public class DataCenterBotService : IHostedService
 {
     private readonly string _token;
-    private readonly ILogger _logger;
+    private readonly LunariumBot.Net.Logger.ILogger _logger;
     private readonly ConfigLoader _configLoader;
 
     private readonly IServiceProvider _privateServices;
@@ -43,8 +45,8 @@ public class DataCenterBotService : IHostedService
     private readonly Scanner _scanner;
     private readonly Listener _listener;
     private bool _isFirstTime = true;
-    public bool Initialized { get; private set; } = true;
     private readonly AuthUtils _authUtils;
+
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(25, 25);
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -54,12 +56,12 @@ public class DataCenterBotService : IHostedService
     };
     
     // 构造函数
-    public DataCenterBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig)
+    public DataCenterBotService(string token, LunariumBot.Net.Logger.ILogger runtimeRootLogger, ProxyConfig proxyConfig)
     {
         _token = token;
         // 本地日志上下文
-        _logger = runtimeRootLogger.ForContext("SearchBotService");
-        _logger.Info("初始化 SearchBot 服务...");
+        _logger = runtimeRootLogger.ForContext("DataCenterBotService");
+        _logger.Info("初始化 DataCenterBot 服务...");
 
         // 构建私有DI容器
         _privateServices = ConfigurePrivateServices(proxyConfig, _logger);
@@ -72,21 +74,23 @@ public class DataCenterBotService : IHostedService
         _scanner = _privateServices.GetRequiredService<Scanner>();
         _listener = _privateServices.GetRequiredService<Listener>();
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
-        _logger.Info("✅ SearchBot 服务初始化完成。");
+        
+        _logger.Info("✅ DataCenterBot 服务初始化完成。");
     }
 
 
 
     // 封装的私有服务配置方法
-    private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, ILogger logger)
+    private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, LunariumBot.Net.Logger.ILogger logger)
     {
-        _logger.Info("配置 SearchBot 的私有服务容器...");
+        _logger.Info("配置 DataCenterBot 的私有服务容器...");
 
         var services = new ServiceCollection()
 
             // ==================== BOT 基础功能与配置 ====================
             // 注册日志
             .AddSingleton(logger)
+            .AddSingleton(proxyConfig)
 
             // 注册 Discord 客户端，并使用从全局传入的代理配置
             .AddSingleton<DiscordSocketClient>(provider =>
@@ -126,8 +130,7 @@ public class DataCenterBotService : IHostedService
             .AddSingleton(_semaphore)
             // 注册数据库服务
             .AddSingleton<DatabaseService>()
-            .AddSingleton<DatabaseService>()
-            .AddSingleton<DatabaseService>()
+            .AddSingleton<DataProcessService>()
 
             // ==== [服务] ====
             // 注册扫描服务
@@ -142,8 +145,10 @@ public class DataCenterBotService : IHostedService
             // ==== [定时任务] ====
             .AddSingleton<AnalysisJob>()
             .AddSingleton<FullSyncJob>()
-            // 注册定时任务调度器
-            .AddSingleton<LunariumScheduler>()
+            .AddSingleton<LunariumScheduler>(provider =>
+            {
+                return new LunariumScheduler(provider, logger.ToMicrosoftLogger("Scheduler"));
+            })
 
             // 构建 DI 容器
             .BuildServiceProvider();
@@ -153,7 +158,7 @@ public class DataCenterBotService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.Info("启动 SearchBot 服务...");
+        _logger.Info("启动 DataCenterBot 服务...");
 
         // 注册事件处理器
         _client.Log += LogAsync;
@@ -173,23 +178,26 @@ public class DataCenterBotService : IHostedService
         var scheduler = _privateServices.GetRequiredService<LunariumScheduler>();
         var TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
         scheduler.ScheduleAsync<FullSyncJob>("0 4 * * 2", "同步扫描",TimeZone);
-        scheduler.ScheduleAsync<AnalysisJob>("0 4 * * *", "每日分析",TimeZone);
+        scheduler.ScheduleAsync<AnalysisJob>("0 4 * * *", "每日分析", TimeZone);
+        scheduler.Start();
         _logger.Info("✅ 定时任务已配置完成。");
         // 示例：每天凌晨 4:00 执行 FullSyncJob
         // Cron 表达式 "0 4 * * 1" 的意思是：
         // 分钟=0, 小时=4, 日=任意, 月=任意, 星期几=1
+        _logger.Info($"\n{scheduler.GetAllJobsInfo()}");
+        
         
         // 登录和启动
         await _client.LoginAsync(TokenType.Bot, _token);
         await _client.StartAsync();
 
-        _logger.Info("SearchBot 服务已启动，等待连接完成...");
+        _logger.Info("DataCenterBot 服务已启动，等待连接完成...");
         
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.Info("正在停止 SearchBot 服务...");
+        _logger.Info("正在停止 DataCenterBot 服务...");
         _client.MessageReceived -= HandleMessageCommandAsync;
         _listener.RemoveEventHandlers();
         await _client.StopAsync();
@@ -271,7 +279,7 @@ public class DataCenterBotService : IHostedService
 
         // 5. 鉴权
         var guildUser = userMessage.Author as IGuildUser;
-        if (guildUser == null) return;
+        if (guildUser is null) return;
         if (!_authUtils.IsAdmin(guildUser.RoleIds))
         {
             _logger.Warning("鉴权失败: 用户 {userMessage.Author.Username} 尝试执行管理员命令失败。", userMessage.Author.Username);
@@ -298,7 +306,7 @@ public class DataCenterBotService : IHostedService
                 {
                     _logger.Info("正在清除服务器 {guildId} 的命令...", userMessage.Author.Username);
                     var guild = _client.GetGuild(guildId);
-                    if (guild != null)
+                    if (guild is not null)
                     {
                         // 使用空数组覆盖服务器命令
                         await guild.BulkOverwriteApplicationCommandAsync(new ApplicationCommandProperties[0]);
@@ -350,7 +358,7 @@ public class DataCenterBotService : IHostedService
             foreach (var guildId in _configLoader.Config.DeployConfig.DeployGuildIds)
             {
                 var guild = _client.GetGuild(guildId);
-                if (guild != null)
+                if (guild is not null)
                 {
                     _logger.Info("正在同步命令到服务器: {guildId} - {guild.Name}", guildId, guild.Name);
                     await _interactions.RegisterCommandsToGuildAsync(guildId, true);
@@ -361,7 +369,7 @@ public class DataCenterBotService : IHostedService
                     _logger.Warning("⚠️ 无法找到服务器 {guildId}，Bot可能不在该服务器中或服务器ID不正确", guildId);
                 }
             }
-            _logger.Info("✅ 命令同步完成！SearchBot 服务已完全启动。");
+            _logger.Info("✅ 命令同步完成！DataCenterBot 服务已完全启动。");
         }
         catch (Exception ex)
         {

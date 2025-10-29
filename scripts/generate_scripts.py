@@ -41,6 +41,7 @@ def get_start_script_template(project_name: str, token_var_name: str) -> str:
 # 2. 循环启动应用程序
 # 3. 监控程序退出码，如果非0 (异常退出)，则自动重启
 # 4. 限制最大重启次数，防止无限循环
+# 5. 向程序传递启动模式参数，标识是首次启动还是自动重启
 # ==============================================================================
 
 # --- 配置区域 ---
@@ -101,8 +102,16 @@ do
     echo "正在启动程序... 这是第 $((restart_count + 1)) 次尝试"
     echo "================================================="
 
-    # 启动 .NET 应用程序
-    "$APP_DLL_PATH"
+    # 判断是首次启动还是重启
+    if [ $restart_count -eq 0 ]; then
+        # 首次启动
+        echo "启动模式: 初始启动"
+        "$APP_DLL_PATH" --startup-mode=initial "$@"
+    else
+        # 自动重启
+        echo "启动模式: 自动重启 (第 $restart_count 次)"
+        "$APP_DLL_PATH" --startup-mode=restart "$@"
+    fi
     
     # 获取退出码
     exit_code=$?
@@ -155,7 +164,7 @@ rsync -avz \\
   --include='{project_name}' \\
   --include='appsettings.template.jsonc' \\
   --exclude='start.sh' \\
-  --exclude='*' \\
+  --exclude='*.pdb' \\
   "$SOURCE_DIR" "$REMOTE_DEST_URL"
 
 # 检查同步结果
@@ -211,6 +220,21 @@ fi
 # 核心逻辑
 # ==============================================================================
 
+def ask_overwrite(file_path: Path) -> bool:
+    """
+    询问用户是否覆盖已存在的文件
+    返回 True 表示覆盖，False 表示跳过
+    """
+    while True:
+        response = input(f"  ⚠️  文件已存在: {file_path.name}\n     选择操作 [s=跳过, o=覆盖]: ").lower().strip()
+        if response == 's':
+            return False
+        elif response == 'o':
+            return True
+        else:
+            print("     无效输入，请输入 's' 或 'o'")
+
+
 def extract_token_var_name(project_name: str) -> str:
     """
     从项目名提取 Token 环境变量名
@@ -250,6 +274,23 @@ def is_valid_project(dir_path: Path) -> bool:
     return True
 
 
+def write_script_with_check(file_path: Path, content: str, script_type: str) -> bool:
+    """
+    写入脚本文件前检查是否已存在
+    如果存在则询问用户是否覆盖
+    返回 True 表示已写入，False 表示跳过
+    """
+    if file_path.exists():
+        if not ask_overwrite(file_path):
+            print(f"  ⊙ 跳过: {script_type}")
+            return False
+    
+    file_path.write_text(content, encoding='utf-8')
+    os.chmod(file_path, 0o755)  # 添加执行权限
+    print(f"  ✓ 生成: {script_type}")
+    return True
+
+
 def generate_scripts_for_project(project_dir: Path) -> None:
     """为指定项目生成所有脚本"""
     project_name = project_dir.name
@@ -263,23 +304,17 @@ def generate_scripts_for_project(project_dir: Path) -> None:
     # 生成启动脚本
     start_script = get_start_script_template(project_name, token_var_name)
     start_script_path = project_dir / "start.sh"
-    start_script_path.write_text(start_script, encoding='utf-8')
-    os.chmod(start_script_path, 0o755)  # 添加执行权限
-    print(f"  ✓ 生成: start.sh")
+    write_script_with_check(start_script_path, start_script, "start.sh")
     
     # 生成部署脚本
     deploy_script = get_deploy_script_template(project_name, REMOTE_HOST, remote_path)
     deploy_script_path = project_dir / "deploy.sh"
-    deploy_script_path.write_text(deploy_script, encoding='utf-8')
-    os.chmod(deploy_script_path, 0o755)
-    print(f"  ✓ 生成: deploy.sh")
+    write_script_with_check(deploy_script_path, deploy_script, "deploy.sh")
     
     # 生成编译脚本
     build_script = get_build_script_template(project_name)
     build_script_path = project_dir / "build.sh"
-    build_script_path.write_text(build_script, encoding='utf-8')
-    os.chmod(build_script_path, 0o755)
-    print(f"  ✓ 生成: build.sh")
+    write_script_with_check(build_script_path, build_script, "build.sh")
 
 
 def main():
@@ -321,6 +356,10 @@ def main():
     print("\n提示:")
     print("  1. 生成的脚本已自动添加执行权限")
     print("  2. 如需修改配置，请编辑本脚本顶部的配置区域")
+    print("  3. 程序将接收以下启动参数:")
+    print("     - 首次启动: --startup-mode=initial")
+    print("     - 自动重启: --startup-mode=restart --restart-count=<次数>")
+    print("     - 用户参数会自动追加在启动模式参数之后")
 
 
 if __name__ == "__main__":

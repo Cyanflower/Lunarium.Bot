@@ -4,6 +4,8 @@ using Dapper;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.Extensions;
+using LunariumBot.Net.DataCenter.Model.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -29,13 +31,13 @@ public partial class DatabaseService
             FROM posts_main
             WHERE guild_id = @GuildId
               AND is_deleted = FALSE
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds));
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            GuildId = guildId.ToDbId(),
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
@@ -71,15 +73,15 @@ public partial class DatabaseService
               AND created_at >= @StartTime
               AND created_at < @EndTime
               AND is_deleted = FALSE
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds));
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
+            GuildId = guildId.ToDbId(),
             StartTime = startTime,
             EndTime = endTime,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            ChannelIds = channelIds?.Select(id => id.ToDbId() ).ToArray()
         };
 
         try
@@ -112,13 +114,13 @@ public partial class DatabaseService
             FROM posts_main
             WHERE guild_id = @GuildId
               AND is_deleted = FALSE
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds));
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            GuildId = guildId.ToDbId(),
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
@@ -157,15 +159,15 @@ public partial class DatabaseService
               AND thread_id IS NOT NULL
               AND is_create_thread = FALSE
               AND is_deleted = FALSE
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds));
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
+            GuildId = guildId.ToDbId(),
             StartTime = startTime,
             EndTime = endTime,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
@@ -213,7 +215,7 @@ public partial class DatabaseService
             WHERE p.guild_id = @GuildId
               AND p.is_deleted = FALSE
               AND (@SinceTime IS NULL OR p.created_at >= @SinceTime)
-              AND (@ChannelIds IS NULL OR p.channel_id = ANY(@ChannelIds))
+              AND (@ChannelIds::bigint[] IS NULL OR p.channel_id = ANY(@ChannelIds))
             GROUP BY t.tag_id, t.channel_id, t.tag_name, t.channel_name, t.guild_name
             ORDER BY UsageCount DESC
             LIMIT @TopN;
@@ -221,10 +223,10 @@ public partial class DatabaseService
 
         var parameters = new
         {
-            GuildId = (long)guildId,
+            GuildId = guildId.ToDbId(),
             TopN = topN,
             SinceTime = sinceTime,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
@@ -279,17 +281,17 @@ public partial class DatabaseService
             WHERE guild_id = @GuildId
               AND is_deleted = FALSE
               AND (@SinceTime IS NULL OR created_at >= @SinceTime)
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds))
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             ORDER BY reaction_count DESC, reply_count DESC
             LIMIT @TopN;
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
+            GuildId = guildId.ToDbId(),
             TopN = topN,
             SinceTime = sinceTime,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
@@ -332,24 +334,24 @@ public partial class DatabaseService
             WHERE guild_id = @GuildId
               AND is_deleted = FALSE
               AND (@SinceTime IS NULL OR created_at >= @SinceTime)
-              AND (@ChannelIds IS NULL OR channel_id = ANY(@ChannelIds))
+              AND (@ChannelIds::bigint[] IS NULL OR channel_id = ANY(@ChannelIds))
             ORDER BY reply_count DESC, reaction_count DESC
             LIMIT @TopN;
             """;
 
         var parameters = new
         {
-            GuildId = (long)guildId,
+            GuildId = guildId.ToDbId(),
             TopN = topN,
             SinceTime = sinceTime,
-            ChannelIds = channelIds?.Select(c => (long)c).ToArray()
+            ChannelIds = channelIds?.Select(id => id.ToDbId()).ToArray()
         };
 
         try
         {
             using var connection = GetConnection();
-            var results = await connection.QueryAsync<PostDisplayModel>(SqlCommand, parameters);
-            return results.ToList();
+            var results = await connection.QueryAsync<PostDisplayModelDb>(SqlCommand, parameters);
+            return results.Select(data => data.ToDomain()).ToList();
         }
         catch (Exception ex)
         {

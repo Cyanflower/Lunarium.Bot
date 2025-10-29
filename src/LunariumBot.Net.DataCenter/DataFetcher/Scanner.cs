@@ -12,12 +12,14 @@ using Polly.Retry;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Extensions;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.DataProcess;
 using LunariumBot.Net.DataCenter.Model;
 using LunariumBot.Net.DataCenter.Utils;
-using LunariumBot.Net.Extensions;
+using LunariumBot.Net.DataCenter.AppInteractionService;
+using LunariumBot.Net.Scheduler;
 
 namespace LunariumBot.Net.DataCenter.DataFetcher;
 
@@ -29,6 +31,7 @@ public class Scanner
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _discordSocketClient;
+    private readonly LunariumScheduler _scheduler;
     private readonly SemaphoreSlim _semaphore;
     private readonly DataProcessService _dataProcessService;
     private readonly ITokenizerService _tokenizerService;
@@ -62,11 +65,19 @@ public class Scanner
     /// <param name="semaphore">信号量，用于控制并发请求数量</param>
     /// <param name="initializationService">初始化服务</param>
     /// <param name="tokenizerService">分词服务，用于处理文本搜索</param>
-    public Scanner(ILogger logger, ConfigLoader configLoader, DiscordSocketClient discordSocketClient, SemaphoreSlim semaphore, DataProcessService dataProcessService, ITokenizerService tokenizerService)
+    public Scanner(
+        ILogger logger,
+        ConfigLoader configLoader,
+        DiscordSocketClient discordSocketClient,
+        LunariumScheduler scheduler,
+        SemaphoreSlim semaphore,
+        DataProcessService dataProcessService,
+        ITokenizerService tokenizerService)
     {
         _logger = logger.ForContext("Scanner");
         _configLoader = configLoader;
         _discordSocketClient = discordSocketClient;
+        _scheduler = scheduler;
         _semaphore = semaphore;
         _dataProcessService = dataProcessService;
         _tokenizerService = tokenizerService;
@@ -78,7 +89,7 @@ public class Scanner
     /// 执行同步扫描，收集所有论坛频道、标签和帖子数据
     /// </summary>
     /// <returns>异步任务</returns>
-    public async Task<string> SyncScan()
+    public async Task<string> SyncScan(ScanProgressReporter? reporter = null)
     {
         _logger.Info("🚀 开始执行同步扫描任务...");
 
@@ -87,130 +98,170 @@ public class Scanner
             var startTime = DateTimeOffset.UtcNow;
             
             // 辅助方法：计算经过的时间并格式化为 [T+HH:MM:SSS]
-            string GetElapsedTime() 
+            string GetElapsedTime()
             {
                 var elapsed = DateTimeOffset.UtcNow - startTime;
                 return $"[T+{elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}.{elapsed.Milliseconds:D3}]";
             }
+            if (reporter is not null) reporter.AppendLine($"T: <t:{startTime.ToUnixTimeSeconds()}:f> | <t:{startTime.ToUnixTimeSeconds()}:R>");
 
             // ==================== 数据收集阶段 ====================
-            _logger.Info("{Time} 📥 第 1 阶段：收集频道和帖子数据...", GetElapsedTime());
-            
-            var phase1Start = DateTimeOffset.UtcNow;
+                _logger.Info("{Time} 📥 第 1 阶段：收集频道和帖子数据...", GetElapsedTime());
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 第 1 阶段：收集频道和帖子数据...");
+                var phase1Start = DateTimeOffset.UtcNow;
+
+            // === GetAllForumChannels
             var (allForumChannels, allTextChannels) = GetAllForumChannels();
-            _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道，{TextCount} 个文字频道",
-                GetElapsedTime(),
-                allForumChannels.Values.Sum(list => list.Count), 
-                allTextChannels.Values.Sum(list => list.Count));
 
+                _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道，{TextCount} 个文字频道",
+                    GetElapsedTime(),
+                    allForumChannels.Values.Sum(list => list.Count),
+                    allTextChannels.Values.Sum(list => list.Count));
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allForumChannels.Values.Sum(l => l.Count)} 个论坛频道，{allTextChannels.Values.Sum(l => l.Count)} 个文字频道");
+
+            // === GetAllRestForumThreads
             var allRestForumThreads = await GetAllRestForumThreads(allForumChannels);
-            _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个论坛帖子",
-                GetElapsedTime(),
-                allRestForumThreads.Values.Sum(list => list.Count));
 
+                _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个论坛帖子",
+                    GetElapsedTime(),
+                    allRestForumThreads.Values.Sum(list => list.Count));
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allRestForumThreads.Values.Sum(l => l.Count)} 个论坛帖子");
+
+            // === GetAllRestSocketTextThreads
             var allSocketTextThreads = GetAllRestSocketTextThreads(allTextChannels);
-            _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个文字频道子区",
-                GetElapsedTime(),
-                allSocketTextThreads.Values.Sum(list => list.Count));
-            
-            var phase1Duration = DateTimeOffset.UtcNow - phase1Start;
-            _logger.Info("{Time} ⏱️ 第 1 阶段完成，耗时: {Duration:F2} 秒",
-                GetElapsedTime(), phase1Duration.TotalSeconds);
+
+                _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个文字频道子区",
+                    GetElapsedTime(),
+                    allSocketTextThreads.Values.Sum(list => list.Count));
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 获取到 {allSocketTextThreads.Values.Sum(l => l.Count)} 个文字频道子区");
+                
+                var phase1Duration = DateTimeOffset.UtcNow - phase1Start;
+                _logger.Info("{Time} ⏱️ 第 1 阶段完成，耗时: {Duration:F2} 秒",
+                    GetElapsedTime(), phase1Duration.TotalSeconds);
+                if (reporter is not null) await  reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 ⏱️ 第 1 阶段完成，耗时: {phase1Duration.TotalSeconds:F2} 秒");
 
             // ==================== 数据处理阶段 ====================
-            _logger.Info("{Time} 🔄 第 2 阶段：处理数据...", GetElapsedTime());
-            
-            var phase2Start = DateTimeOffset.UtcNow;
-            var (allForumsData, allTagsData) = GetForumAndTagData(allForumChannels);
-            _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道，{TagCount} 个标签",
-                GetElapsedTime(),
-                allForumsData.Count, allTagsData.Count);
+                _logger.Info("{Time} 🔄 第 2 阶段：处理数据...", GetElapsedTime());
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 🔄 第 2 阶段：处理数据...");
+                var phase2Start = DateTimeOffset.UtcNow;
 
+            // === GetForumAndTagData
+            var (allForumsData, allTagsData) = GetForumAndTagData(allForumChannels);
+
+                _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道，{TagCount} 个标签",
+                    GetElapsedTime(),
+                    allForumsData.Count, allTagsData.Count);
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道，{allTagsData.Count} 个标签");
+                    
+            // === GetAllRestForumThreadsData & GetAllSocketTextThreadsData
             var allForumThreadsData = await GetAllRestForumThreadsData(allRestForumThreads);
             var allTextThreadsData = GetAllSocketTextThreadsData(allSocketTextThreads);
 
-            // 统计处理结果
-            var forumSuccess = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Success);
-            var forumSkipped = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Skipped);
-            var forumFailed = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Failed);
-            
-            var textSuccess = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Success);
-            var textSkipped = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Skipped);
-            var textFailed = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Failed);
+                // 统计处理结果
+                var forumSuccess = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Success);
+                var forumSkipped = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Invalid);
+                var forumFailed = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Failed);
+                
+                var textSuccess = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Success);
+                var textSkipped = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Invalid);
+                var textFailed = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Failed);
 
-            _logger.Info("{Time} 📊 论坛帖子处理结果: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
-                GetElapsedTime(), forumSuccess, forumSkipped, forumFailed);
-            _logger.Info("{Time} 📊 文字子区处理结果: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
-                GetElapsedTime(), textSuccess, textSkipped, textFailed);
+                _logger.Info("{Time} 📊 论坛帖子处理结果: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
+                    GetElapsedTime(), forumSuccess, forumSkipped, forumFailed);
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📊 论坛帖子处理结果: 成功 {forumSuccess}, 跳过 {forumSkipped}, 失败 {forumFailed}");
+                _logger.Info("{Time} 📊 文字子区处理结果: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
+                    GetElapsedTime(), textSuccess, textSkipped, textFailed);
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📊 文字子区处理结果: 成功 {textSuccess}, 跳过 {textSkipped}, 失败 {textFailed}");
 
             // 合并所有帖子数据（排除失败的，保留跳过的）
             List<ThreadData> allThreadsData =
             [
                 .. allForumThreadsData
-                    .Where(r => r.Status != ProcessingStatus.Failed && r.Data != null)
+                    .Where(r => r.Status != ProcessingStatus.Failed && r.Data is not null)
                     .Select(r => r.Data!),
                 .. allTextThreadsData
-                    .Where(r => r.Status != ProcessingStatus.Failed && r.Data != null)
+                    .Where(r => r.Status != ProcessingStatus.Failed && r.Data is not null)
                     .Select(r => r.Data!),
             ];
 
-            _logger.Info("{Time} 📦 合并后待同步数据: {ThreadCount} 个帖子（包含跳过的）",
-                GetElapsedTime(), allThreadsData.Count);
-            
-            var phase2Duration = DateTimeOffset.UtcNow - phase2Start;
-            _logger.Info("{Time} ⏱️ 第 2 阶段完成，耗时: {Duration:F2} 秒",
-                GetElapsedTime(), phase2Duration.TotalSeconds);
-
+                _logger.Info("{Time} 📦 合并后待同步数据: {ThreadCount} 个帖子（包含跳过的）",
+                    GetElapsedTime(), allThreadsData.Count);
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📦 合并后待同步数据: {allThreadsData.Count} 个帖子（包含跳过的）");
+                var phase2Duration = DateTimeOffset.UtcNow - phase2Start;
+                _logger.Info("{Time} ⏱️ 第 2 阶段完成，耗时: {Duration:F2} 秒",
+                    GetElapsedTime(), phase2Duration.TotalSeconds);
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ⏱️ 第 2 阶段完成，耗时: {phase2Duration.TotalSeconds:F2} 秒");
+                
             // ==================== 数据库写入阶段 ====================
-            _logger.Info("{Time} 💾 第 3 阶段：写入数据库...", GetElapsedTime());
-            
-            var phase3Start = DateTimeOffset.UtcNow;
+                _logger.Info("{Time} 💾 第 3 阶段：写入数据库...", GetElapsedTime());
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 💾 第 3 阶段：写入数据库...");
+                var phase3Start = DateTimeOffset.UtcNow;
+
+            // === SyncProcessorAsync
             await _dataProcessService.SyncProcessorAsync(allForumsData, allTagsData, allThreadsData);
-            var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
-            
-            _logger.Info("{Time} ⏱️ 第 3 阶段完成，耗时: {Duration:F2} 秒",
-                GetElapsedTime(), phase3Duration.TotalSeconds);
 
-            // ==================== 总结 ====================
-            var totalDuration = DateTimeOffset.UtcNow - startTime;
-            _logger.Info("{Time} ✅ 同步扫描任务完成！总耗时: {TotalDuration:F2} 秒",
-                GetElapsedTime(), totalDuration.TotalSeconds);
-            
-            _logger.Info("📊 性能统计:");
-            _logger.Info("  - 第 1 阶段（数据收集）: {Phase1:F2} 秒 ({Phase1Percent:F1}%)",
-                phase1Duration.TotalSeconds, 
-                phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
-            _logger.Info("  - 第 2 阶段（数据处理）: {Phase2:F2} 秒 ({Phase2Percent:F1}%)",
-                phase2Duration.TotalSeconds, 
-                phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
-            _logger.Info("  - 第 3 阶段（数据库写入）: {Phase3:F2} 秒 ({Phase3Percent:F1}%)",
-                phase3Duration.TotalSeconds, 
-                phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+                var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
+                _logger.Info("{Time} ⏱️ 第 3 阶段完成，耗时: {Duration:F2} 秒",
+                    GetElapsedTime(), phase3Duration.TotalSeconds);
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ⏱️ 第 3 阶段完成，耗时: {phase3Duration.TotalSeconds:F2} ");
 
-            // 构建并返回统计字符串
-            var statsBuilder = new StringBuilder();
-            statsBuilder.AppendLine("📊 同步扫描任务统计报告");
-            statsBuilder.AppendLine();
-            statsBuilder.AppendLine($"✅ 任务完成时间: <t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds}:f>");
-            statsBuilder.AppendLine($"⏱️ 总耗时: {totalDuration.TotalSeconds:F2} 秒");
-            statsBuilder.AppendLine();
-            statsBuilder.AppendLine("📥 数据收集结果:");
-            statsBuilder.AppendLine($"  - 论坛频道: {allForumChannels.Values.Sum(list => list.Count)} 个");
-            statsBuilder.AppendLine($"  - 文字频道: {allTextChannels.Values.Sum(list => list.Count)} 个");
-            statsBuilder.AppendLine($"  - 论坛帖子: {allRestForumThreads.Values.Sum(list => list.Count)} 个");
-            statsBuilder.AppendLine($"  - 文字子区: {allSocketTextThreads.Values.Sum(list => list.Count)} 个");
-            statsBuilder.AppendLine();
-            statsBuilder.AppendLine("🔄 数据处理结果:");
-            statsBuilder.AppendLine($"  - 频道数: {allForumsData.Count} 个");
-            statsBuilder.AppendLine($"  - 标签数: {allTagsData.Count} 个");
-            statsBuilder.AppendLine($"  - 论坛帖子: 成功 {forumSuccess}, 跳过 {forumSkipped}, 失败 {forumFailed}");
-            statsBuilder.AppendLine($"  - 文字子区: 成功 {textSuccess}, 跳过 {textSkipped}, 失败 {textFailed}");
-            statsBuilder.AppendLine($"  - 合并后待同步: {allThreadsData.Count} 个帖子");
-            statsBuilder.AppendLine();
-            statsBuilder.AppendLine("⚡ 性能统计:");
-            statsBuilder.AppendLine($"  - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-            statsBuilder.AppendLine($"  - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-            statsBuilder.AppendLine($"  - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                // ==================== 总结 ====================
+                var totalDuration = DateTimeOffset.UtcNow - startTime;
+                _logger.Info("{Time} ✅ 同步扫描任务完成！总耗时: {TotalDuration:F2} 秒",
+                    GetElapsedTime(), totalDuration.TotalSeconds);
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 同步扫描任务完成！总耗时: {totalDuration.TotalSeconds:F2} 秒");
+            var endTime = DateTimeOffset.UtcNow;
+                if (reporter is not null) reporter.AppendLine($"T END: <t:{endTime.ToUnixTimeSeconds()}:f> | <t:{endTime.ToUnixTimeSeconds()}:R>");
+                
+                _logger.Info("📊 性能统计:");
+                if (reporter is not null) reporter.AppendLine($"📊 性能统计:");
+                _logger.Info("> - 第 1 阶段（数据收集）: {Phase1:F2} 秒 ({Phase1Percent:F1}%)",
+                    phase1Duration.TotalSeconds, 
+                    phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+                    
+                if (reporter is not null) reporter.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                _logger.Info("> - 第 2 阶段（数据处理）: {Phase2:F2} 秒 ({Phase2Percent:F1}%)",
+                    phase2Duration.TotalSeconds, 
+                    phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+                if (reporter is not null) reporter.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                _logger.Info("> - 第 3 阶段（数据库写入）: {Phase3:F2} 秒 ({Phase3Percent:F1}%)",
+                    phase3Duration.TotalSeconds, 
+                    phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+                if (reporter is not null) await reporter.ReportProgressAsync($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+
+                // 构建并返回统计字符串
+                var statsBuilder = new StringBuilder();
+                statsBuilder.AppendLine("📊 同步扫描任务统计报告");
+                statsBuilder.AppendLine();
+                if (reporter is null) statsBuilder.AppendLine("调度: 手动 (同步命令)");
+                else statsBuilder.AppendLine("调度: 自动 (调度器)");
+                statsBuilder.AppendLine($"▶️ 任务开始时间: <t:{startTime.ToUnixTimeSeconds()}:f>");
+                statsBuilder.AppendLine($"⏹ 任务完成时间: <t:{endTime.ToUnixTimeSeconds()}:f>");
+                statsBuilder.AppendLine($"⏱️ 总耗时: {totalDuration.TotalSeconds:F2} 秒");
+                statsBuilder.AppendLine();
+                statsBuilder.AppendLine("📥 数据收集结果:");
+                statsBuilder.AppendLine($"> - 论坛频道: {allForumChannels.Values.Sum(list => list.Count)} 个");
+                statsBuilder.AppendLine($"> - 文字频道: {allTextChannels.Values.Sum(list => list.Count)} 个");
+                statsBuilder.AppendLine($"> - 论坛帖子: {allRestForumThreads.Values.Sum(list => list.Count)} 个");
+                statsBuilder.AppendLine($"> - 文字子区: {allSocketTextThreads.Values.Sum(list => list.Count)} 个");
+                statsBuilder.AppendLine();
+                statsBuilder.AppendLine("🔄 数据处理结果:");
+                statsBuilder.AppendLine($"> - 频道数: {allForumsData.Count} 个");
+                statsBuilder.AppendLine($"> - 标签数: {allTagsData.Count} 个");
+                statsBuilder.AppendLine($"> - 论坛帖子: 成功 {forumSuccess}, 跳过 {forumSkipped}, 失败 {forumFailed}");
+                statsBuilder.AppendLine($"> - 文字子区: 成功 {textSuccess}, 跳过 {textSkipped}, 失败 {textFailed}");
+                statsBuilder.AppendLine($"> - 合并后待同步: {allThreadsData.Count} 个帖子");
+                statsBuilder.AppendLine();
+                statsBuilder.AppendLine("⚡ 性能统计:");
+                statsBuilder.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                statsBuilder.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                statsBuilder.AppendLine($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+                statsBuilder.AppendLine();
+                statsBuilder.AppendLine("⏰ 定时任务调度计划:");
+
+                string schedulerInfo = _scheduler.GetAllJobsInfo();
+                string formattedSchedulerInfo = schedulerInfo.Replace("\n", "\n> ");
+                statsBuilder.AppendLine($"> {formattedSchedulerInfo}");
 
             return statsBuilder.ToString();
         }
@@ -218,7 +269,7 @@ public class Scanner
         {
             _logger.Error(ex, "❌ 同步扫描任务失败");
             
-            var errorStats = $"❌ 同步扫描任务失败\n时间: <t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds}:f>\n原因: {ex.Message}";
+            var errorStats = $"❌ 同步扫描任务失败\n时间: <t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:f>\n原因: {ex.Message}";
             
             try
             {
@@ -226,7 +277,7 @@ public class Scanner
                 var embed = new EmbedBuilder()
                     .WithColor(Color.Red)
                     .WithTitle("❌ 同步扫描任务失败")
-                    .WithDescription($"时间:<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds}:f><t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds}:R>\n原因:\n```\n{ex.Message.Slice(3000, "...")}\n```")
+                    .WithDescription($"时间:<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:f><t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>\n原因:\n```\n{ex.Message.Slice(3000, "...")}\n```")
                     .Build();
 
                 await logChannel.SendMessageAsync(embed: embed);
@@ -260,7 +311,8 @@ public class Scanner
                 List<SocketForumChannel> socketForumChannels = new();
                 List<SocketTextChannel> socketTextChannels = new();
                 var guild = _discordSocketClient.GetGuild(guildId);
-                if (guild != null)
+
+                if (guild is not null)
                 {
                     // 遍历服务器中的所有频道
                     foreach (var channel in guild.Channels)
@@ -274,8 +326,9 @@ public class Scanner
                             // 同时缓存到字典中，方便后续快速查找
                             _socketForumChannelsCacheForTags[forumChannel.Id] = forumChannel;
                         }
-                        if (channel is SocketTextChannel textChannel)
+                        if (channel.GetType() == typeof(SocketTextChannel))
                         {
+                            var textChannel = (SocketTextChannel)channel;
                             if (!textChannel.CategoryId.HasValue) continue;
                             if (_configLoader.Config.DeployConfig.ExcludeCategoryIds.Contains(textChannel.CategoryId.Value)) continue;
                             socketTextChannels.Add(textChannel);
@@ -588,20 +641,20 @@ public class Scanner
             // 规则检查: 跳过锁定的帖子
             if (restThreadChannel.IsLocked)
             {
-                _logger.Debug("🔒 帖子已锁定，跳过处理: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("🔒 帖子已锁定，视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 isLocked = true;
-                result.Status = ProcessingStatus.Skipped;
+                result.Status = ProcessingStatus.Invalid;
             }
 
             // 规则检查: 跳过置顶的帖子
             if (restThreadChannel.Flags.HasFlag(ChannelFlags.Pinned))
             {
-                _logger.Debug("📌 帖子已置顶，跳过处理: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("📌 帖子已置顶，视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
-                result.Status = ProcessingStatus.Skipped;
+                result.Status = ProcessingStatus.Invalid;
             }
 
             RestMessage? firstMessage = null;
@@ -612,23 +665,40 @@ public class Scanner
             // 获取帖子的首楼消息和最新消息
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
-                // 获取首楼消息（帖子ID等于首楼消息ID）
-                firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id, _requestOptions);
+                try
+                {
+                    // 获取首楼消息（帖子ID等于首楼消息ID）
+                    firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id, _requestOptions);
 
-                // 获取最新消息
-                // SelectManyAsync 会把 IAsyncEnumerable<批次> 转换成 IAsyncEnumerable<单个消息>
-                lastMessage = await restThreadChannel.GetMessagesAsync(1, _requestOptions)
-                                           .SelectMany(batch => batch.ToAsyncEnumerable()) // 压平操作
-                                           .FirstOrDefaultAsync(); // 获取第一个元素
+                    // 获取最新消息
+                    // SelectManyAsync 会把 IAsyncEnumerable<批次> 转换成 IAsyncEnumerable<单个消息>
+                    lastMessage = await restThreadChannel.GetMessagesAsync(1, _requestOptions)
+                                               .SelectMany(batch => batch.ToAsyncEnumerable()) // 压平操作
+                                               .FirstOrDefaultAsync(); // 获取第一个元素
+                                               
+                    if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
+                    {
+                        _logger.Debug("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}, 尝试备用方法)",
+                    restThreadChannel.Name, restThreadChannel.Id);
+                        var iChannel = await _discordSocketClient.GetChannelAsync(restThreadChannel.Id);
+                        firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
+                    throw;
+                }
             });
 
             // 验证首楼消息是否有效
-            if (firstMessage == null || string.IsNullOrWhiteSpace(firstMessage.Content))
+            if (firstMessage is null)
             {
                 _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
+                _logger.Debug($"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0");
                 isValid = false;
-                result.Status = ProcessingStatus.Skipped;
+                result.Status = ProcessingStatus.Invalid;
             }
             else
             {
@@ -643,6 +713,7 @@ public class Scanner
 
             // 获取帖子的标签信息
             string? tags = null;
+            List<ulong> validTagIds = new();
             if (!_socketForumChannelsCacheForTags.TryGetValue(restThreadChannel.ParentChannelId, out var parentChannel))
             {
                 // 如果因为某些极其罕见的原因找不到父频道
@@ -653,12 +724,29 @@ public class Scanner
             }
             else
             {
-                // 从父频道中获取帖子应用的标签名称
-                var appliedTagNames = parentChannel.Tags
+                var validTags = parentChannel.Tags
                     .Where(tag => restThreadChannel.AppliedTags.Contains(tag.Id))
-                    .Select(tag => tag.Name)
                     .ToList();
+                
+                validTagIds = validTags.Select(tag => tag.Id).ToList();
+                var appliedTagNames = validTags.Select(tag => tag.Name).ToList();
                 tags = string.Join(", ", appliedTagNames);
+
+                // 如果帖子有应用标签，但没有有效标签，记录警告
+                if (restThreadChannel.AppliedTags.Any() && !validTagIds.Any())
+                {
+                    _logger.Warning("⚠️ 帖子 {ThreadName} (ID: {ThreadId}) 应用的所有标签都已不存在于论坛中",
+                        restThreadChannel.Name, restThreadChannel.Id);
+                }
+            }
+
+            if (!_configLoader.ChannelSet.Contains(restThreadChannel.CategoryId ?? 0))
+            {
+                _logger.Debug("⚠️ 帖子已不在作品区内，视为无效: {ThreadName} (ID: {ThreadId})",
+                    restThreadChannel.Name, restThreadChannel.Id);
+                _logger.Debug("_configLoader.ChannelSet: {ChannelSet}", _configLoader.ChannelSet);
+                isValid = false;
+                result.Status = ProcessingStatus.Invalid;
             }
 
             // 构建帖子数据对象
@@ -668,13 +756,13 @@ public class Scanner
                 FirstMessageId = restThreadChannel.Id,
                 AuthorId = restThreadChannel.OwnerId,
                 ChannelId = restThreadChannel.CategoryId ?? 0,
-                ChannelName = parentChannel != null ? parentChannel.Name : $"UnknownChannel:{restThreadChannel.CategoryId ?? 0}",
+                ChannelName = parentChannel is not null ? parentChannel.Name : $"UnknownChannel:{restThreadChannel.CategoryId ?? 0}",
                 GuildId = restThreadChannel.GuildId,
-                GuildName = parentChannel != null ? parentChannel.Guild.Name : $"UnknownGuild:{restThreadChannel.GuildId}",
+                GuildName = parentChannel is not null ? parentChannel.Guild.Name : $"UnknownGuild:{restThreadChannel.GuildId}",
                 CreatedAt = restThreadChannel.CreatedAt,
                 ReactionCount = highestReactionCount,
                 ReplyCount = restThreadChannel.MessageCount,
-                LastActiveAt = lastMessage != null ? lastMessage.CreatedAt : restThreadChannel.CreatedAt,
+                LastActiveAt = lastMessage is not null ? lastMessage.CreatedAt : restThreadChannel.CreatedAt,
                 JumpUrl = $"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0",
                 AttachmentUrl = imageAttachment?.Url,
 
@@ -682,15 +770,15 @@ public class Scanner
                 FirstMessageContent = firstMessage?.Content,
 
                 TitleTokenized = _tokenizerService.CutForSearch(restThreadChannel.Name),
-                ContentTokenized = firstMessage != null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
+                ContentTokenized = firstMessage is not null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
 
                 // 更新相关
-                UpdateAt = null,
-                UpdateJumpUrl = null,
+                UpdatedAt = null,
+                UpdatedJumpUrl = null,
                 UpdateCount = 0,
 
                 Tags = tags,
-                TagsId = restThreadChannel.AppliedTags.ToList(),
+                TagsId = validTagIds,
 
                 IsValid = isValid,
                 IsLocked = isLocked,
@@ -715,26 +803,28 @@ public class Scanner
     {
         try
         {
-            var isValid = true;
+            var isValid = false;
             var isLocked = false;
             ProcessingResult result = new();
 
             if (socketThreadChannel.IsLocked)
             {
-                _logger.Debug("🔒 子区已锁定，跳过处理: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("🔒 子区已锁定，视为无效: {ThreadName} (ID: {ThreadId})",
                     socketThreadChannel.Name, socketThreadChannel.Id);
                 isValid = false;
                 isLocked = true;
-                result.Status = ProcessingStatus.Skipped;
+                result.Status = ProcessingStatus.Invalid;
             }
 
             if (socketThreadChannel.Flags.HasFlag(ChannelFlags.Pinned))
             {
-                _logger.Debug("📌 子区已置顶，跳过处理: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("📌 子区已置顶，视为无效: {ThreadName} (ID: {ThreadId})",
                     socketThreadChannel.Name, socketThreadChannel.Id);
                 isValid = false;
-                result.Status = ProcessingStatus.Skipped;
+                result.Status = ProcessingStatus.Invalid;
             }
+
+            var threadInterface  = (IThreadChannel)socketThreadChannel;
 
             RestMessage? firstMessage = null;
             RestMessage? lastMessage = null;
@@ -745,7 +835,7 @@ public class Scanner
             {
                 ThreadId = socketThreadChannel.Id,
                 FirstMessageId = socketThreadChannel.Id,
-                AuthorId = socketThreadChannel.Owner.Id,
+                AuthorId = threadInterface.OwnerId,
                 ChannelId = socketThreadChannel.CategoryId ?? 0,
                 ChannelName = socketThreadChannel.ParentChannel is not null ? socketThreadChannel.ParentChannel.Name : $"UnknownChannel:{socketThreadChannel.CategoryId ?? 0}",
                 GuildId = socketThreadChannel.Guild is not null ? socketThreadChannel.Guild.Id : 0,
@@ -753,7 +843,7 @@ public class Scanner
                 CreatedAt = socketThreadChannel.CreatedAt,
                 ReactionCount = 0,
                 ReplyCount = socketThreadChannel.MessageCount,
-                LastActiveAt = lastMessage != null ? lastMessage.CreatedAt : socketThreadChannel.CreatedAt,
+                LastActiveAt = lastMessage is not null ? lastMessage.CreatedAt : socketThreadChannel.CreatedAt,
                 JumpUrl = $"https://discord.com/channels/{(socketThreadChannel.Guild is not null ? socketThreadChannel.Guild.Id : 0)}/{socketThreadChannel.Id}/0",
                 AttachmentUrl = imageAttachment?.Url,
 
@@ -761,11 +851,11 @@ public class Scanner
                 FirstMessageContent = firstMessage?.Content,
 
                 TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
-                ContentTokenized = firstMessage != null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
+                ContentTokenized = firstMessage is not null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
 
                 // 更新相关
-                UpdateAt = null,
-                UpdateJumpUrl = null,
+                UpdatedAt = null,
+                UpdatedJumpUrl = null,
                 UpdateCount = 0,
 
                 Tags = null,
@@ -774,7 +864,7 @@ public class Scanner
                 IsValid = isValid,
                 IsLocked = isLocked,
                 IsDeleted = false,
-                InForum = true,
+                InForum = false,
             };
 
             return result;
