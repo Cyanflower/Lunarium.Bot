@@ -1,5 +1,4 @@
-using LunariumBot.Net.Logger.Interfaces;
-using LunariumBot.Net.Logger.Formatting;
+using LunariumBot.Net.Logger.Writer;
 
 namespace LunariumBot.Net.Logger.Sink;
 
@@ -18,17 +17,43 @@ public class ConsoleSink : ILogSink
     /// </summary>
     /// <param name="entry">要输出的日志条目。</param>
     /// <param name="toJson">是否以 JSON 格式输出。</param>
-    public void Emit(LogEntry entry, bool toJson, bool indented)
+    public void Emit(LogEntry entry, bool toJson)
     {
         // 根据配置选择格式化器
-        string formattedMessage = toJson 
-            ? ConsoleFormatter.FormatJson(entry, indented) 
-            : ConsoleFormatter.FormatPlainText(entry);
-
-        // 加锁以确保单条日志的完整输出
-        lock (_lock)
+        LogWriter logWriter;
+        if (toJson)
         {
-            Console.WriteLine(formattedMessage);
+            logWriter = WriterPool.Get<LogJsonWriter>();
+        }
+        else if (Console.IsOutputRedirected)
+        {
+            logWriter = WriterPool.Get<LogTextWriter>();
+        }
+        else
+        {
+            logWriter = WriterPool.Get<LogColorTextWriter>();
+        }
+
+        try
+        {
+            // 渲染日志
+            logWriter.Render(entry);
+
+            // 选择输出流
+            TextWriter output = entry.LogLevel >= LogLevel.Error 
+                ? Console.Error 
+                : Console.Out;
+
+            // 4. 输出
+            lock (_lock)
+            {
+                logWriter.FlushTo(output);
+            }
+        }
+        finally
+        {
+            // 5. 归还对象池
+            logWriter.Return();
         }
     }
     

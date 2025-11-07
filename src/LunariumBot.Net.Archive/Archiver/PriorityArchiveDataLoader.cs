@@ -11,7 +11,7 @@ using LunariumBot.Net.Archive.Model;
 
 namespace LunariumBot.Net.Archive.Archiver;
 
-public class PriorityArchiveDataLoader
+public sealed class PriorityArchiveDataLoader
 {
     private readonly object _lockObject = new();
     private readonly ILogger _logger;

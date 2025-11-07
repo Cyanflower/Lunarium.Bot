@@ -64,7 +64,12 @@ public partial class DataProcessService
                 try
                 {
                     await _semaphore.WaitAsync();
-                    refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
+
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                    { 
+                        refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
+                    });
+
                     if (refreshMessage is null)
                     {
                         _logger.Warning("⚠️ 无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);

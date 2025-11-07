@@ -18,6 +18,7 @@ public static class DisplayEmbedBuilder
 {
     public static Dictionary<string, Embed> ForumInfoToEmbed(List<ForumInfo> forumInfos)
     {
+        var reportTime = $"报告生成时间: {DateTimeOffset.Now:yyyy-MM-dd HH:mm}";
         var embeds = new Dictionary<string, Embed>();
         foreach (var info in forumInfos)
         {
@@ -56,8 +57,7 @@ public static class DisplayEmbedBuilder
                 .WithTitle($"{info.ChannelName}")
                 .WithDescription(description)
                 .WithColor(Color.Blue)
-                .WithFooter($"报告生成时间")
-                .WithTimestamp(DateTimeOffset.UtcNow.AddHours(8))
+                .WithFooter(reportTime)
                 .Build();
 
             embeds.Add(info.ChannelName ?? "未知分类", embed);

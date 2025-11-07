@@ -14,7 +14,7 @@ namespace LunariumBot.Net.Archive.AppInteractionService.Commands;
 /// 优先归档相关命令
 /// </summary>
 [Group("优先归档", "优先归档相关命令")]
-public class PriorityArchiveCommands : InteractionModuleBase<SocketInteractionContext>
+public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketInteractionContext>
 {
     private readonly ArchiverService _archiverService;
     private readonly AuthUtils _authUtils;

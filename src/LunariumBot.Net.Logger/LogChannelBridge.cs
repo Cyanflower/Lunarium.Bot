@@ -9,32 +9,32 @@ namespace LunariumBot.Net.Logger;
 /// </summary>
 public sealed class LogChannelBridge
 {
-    private readonly Channel<LogEntry> _channel;
+    private readonly Channel<string> _channel;
+    
+    /// <summary>
+    /// 获取用于读取日志的 ChannelReader
+    /// </summary>
+    public ChannelReader<string> Reader => _channel.Reader;
+    
+    /// <summary>
+    /// 获取用于写入日志的 ChannelWriter (仅供内部使用)
+    /// </summary>
+    internal ChannelWriter<string> Writer => _channel.Writer;
 
     /// <summary>
-    /// 获取用于写入日志的 ChannelWriter。
-    /// Logger 通过这个 Writer 将日志条目发送到 Channel。
+    /// 创建一个新的 Channel 桥接器
     /// </summary>
-    public ChannelWriter<LogEntry> Writer => _channel.Writer;
-
-    /// <summary>
-    /// 获取用于读取日志的 ChannelReader。
-    /// 外部消费者（如 UI）通过这个 Reader 从 Channel 中异步读取日志条目。
-    /// </summary>
-    public ChannelReader<LogEntry> Reader => _channel.Reader;
-
-    /// <summary>
-    /// 私有构造函数，防止直接实例化。
-    /// 使用 Create() 静态方法来创建实例。
-    /// </summary>
-    private LogChannelBridge()
+    /// <param name="capacity">
+    /// Channel 的容量限制。如果为 null，则创建无界 Channel。
+    /// 如果指定容量，当 Channel 满时，新日志会被丢弃。
+    /// </param>
+    public LogChannelBridge(int? capacity = null)
     {
-        _channel = Channel.CreateUnbounded<LogEntry>();
+        _channel = capacity.HasValue
+            ? Channel.CreateBounded<string>(new BoundedChannelOptions(capacity.Value)
+            {
+                FullMode = BoundedChannelFullMode.DropWrite  // 满时丢弃新消息
+            })
+            : Channel.CreateUnbounded<string>();
     }
-
-    /// <summary>
-    /// 创建一个新的日志通道桥接器实例。
-    /// </summary>
-    /// <returns>一个新的 LogChannelBridge 实例。</returns>
-    public static LogChannelBridge Create() => new();
 }

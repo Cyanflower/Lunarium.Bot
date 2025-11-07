@@ -1,4 +1,4 @@
-using LunariumBot.Net.Logger.Interfaces;
+using LunariumBot.Net.Logger.Sink;
 
 namespace LunariumBot.Net.Logger;
 
@@ -9,9 +9,9 @@ namespace LunariumBot.Net.Logger;
 public class LoggerBuilder
 {
     // 持有所有已配置的日志输出目标
-    internal List<(ILogSink, SinkConfiguration)> _sinks = new();
+    private List<ConfiguredSink> _sinks = new();
     // 日志记录器的名称
-    internal string _loggerName = "LoggerName:Undefined";
+    private string _loggerName = "LoggerName:Undefined";
 
     /// <summary>
     /// 初始化一个新的 LoggerBuilder 实例。
@@ -45,7 +45,7 @@ public class LoggerBuilder
     public LoggerBuilder AddSink(ILogSink sink, SinkConfiguration? cfg = null)
     {
         if (cfg == null) cfg = new SinkConfiguration();
-        _sinks.Add((sink, cfg));
+        _sinks.Add(new ConfiguredSink(sink,cfg));
         return this;
     }
 
@@ -55,8 +55,28 @@ public class LoggerBuilder
     /// <returns>配置完成的 LunariumLogger 实例。</returns>
     public Logger Build()
     {
-        return new Logger(_sinks, _loggerName);
+        if (GlobalBuildLock.Completed)
+        {
+            throw new InvalidOperationException(
+                "The Logger Instance Has Been Constructed. It should be a GLOBAL Singleton." +
+                "Logger Instance Build can only be done once during application startup.");
+        }
+        // 如果用户没有配置全局设置，应用默认配置
+        GlobalConfigurator.ApplyDefaultIfNotConfigured();
+        try
+        {
+            var logger = new Logger(_sinks, _loggerName);
+            // 成功 new 实例之后, 完成构建, 设置锁
+            GlobalBuildLock.CompleteBuild();
+            return logger;
+        }
+        catch (Exception ex)
+        {
+            InternalLogger.Error(ex, "LoggerBuilder: Build Failed");
+            throw;
+        }
     }
+    
 
     /// <summary>
     /// (静态工厂方法) 根据一个 LumLogConfig 配置对象直接创建一个 LunariumLogger 实例。
@@ -69,4 +89,6 @@ public class LoggerBuilder
 
         return loggerBuilder.Build();
     }
+
+
 }

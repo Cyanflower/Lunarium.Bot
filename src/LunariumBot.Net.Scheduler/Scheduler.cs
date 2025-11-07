@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,14 +12,14 @@ using LunariumBot.Net.Scheduler.Interfaces;
 
 namespace LunariumBot.Net.Scheduler;
 
-public class LunariumScheduler : IDisposable 
+public class LunariumScheduler : IAsyncDisposable 
 {
     private readonly List<ScheduledJob> _jobs = new();
     private readonly ILogger _logger;
     private readonly IServiceProvider _serviceProvider;
     private bool _isRunning = false;
     private readonly object _lock = new();
-
+    private CancellationTokenSource? _globalCancellationTokenSource;
 
     #region 构造函数
 
@@ -26,7 +27,7 @@ public class LunariumScheduler : IDisposable
     /// 创建调度器实例
     /// </summary>
     /// <param name="serviceProvider">服务提供者(DI容器)</param>
-    /// <param name="logger">日志记录器（可选）。如果为 null，将使用空日志记录器。</param>
+    /// <param name="logger">日志记录器(可选)。如果为 null, 将使用空日志记录器。</param>
     public LunariumScheduler(IServiceProvider serviceProvider, ILogger? logger = null)
     {
         // 验证参数
@@ -44,7 +45,7 @@ public class LunariumScheduler : IDisposable
         _lock = new object();
         _isRunning = false;
 
-        // 如果没有提供日志记录器，使用 NullLogger
+        // 如果没有提供日志记录器, 使用 NullLogger
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -55,9 +56,10 @@ public class LunariumScheduler : IDisposable
     /// <summary>
     /// 注册一个同步定时任务
     /// </summary>
-    /// <typeparam name="TJob">任务类型，必须实现 IJob</typeparam>
+    /// <typeparam name="TJob">任务类型, 必须实现 IJob</typeparam>
     /// <param name="cronExpression">Cron 表达式</param>
     /// <param name="name">任务名称(可选)</param>
+    /// <param name="timeZone">任务时区(可选)</param>
     public void Schedule<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null) 
         where TJob : IJob
     {
@@ -83,12 +85,12 @@ public class LunariumScheduler : IDisposable
             scheduledJob.TimeZone.Id
         );
         
-        // 如果调度器已经启动，立即为新任务创建调度
-        if (_isRunning)
+        // 如果调度器已经启动, 立即为新任务创建调度
+        if (_isRunning && _globalCancellationTokenSource != null)
         {
-            ScheduleNextRun(scheduledJob);
+            StartJobLoop(scheduledJob, _globalCancellationTokenSource.Token);
             _logger.LogDebug(
-                "调度器正在运行，立即为任务 {JobName} 创建调度",
+                "调度器正在运行, 立即为任务 {JobName} 创建调度",
                 scheduledJob.Name
             );
         }
@@ -97,9 +99,10 @@ public class LunariumScheduler : IDisposable
     /// <summary>
     /// 注册一个异步定时任务
     /// </summary>
-    /// <typeparam name="TJob">任务类型，必须实现 IAsyncJob</typeparam>
+    /// <typeparam name="TJob">任务类型, 必须实现 IAsyncJob</typeparam>
     /// <param name="cronExpression">Cron 表达式</param>
     /// <param name="name">任务名称(可选)</param>
+    /// <param name="timeZone">任务时区(可选)</param>
     public void ScheduleAsync<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null) 
         where TJob : IAsyncJob
     {
@@ -125,10 +128,10 @@ public class LunariumScheduler : IDisposable
             scheduledJob.TimeZone.Id
         );
         
-        // 如果调度器已经启动，立即为新任务创建调度
-        if (_isRunning)
+        // 如果调度器已经启动, 立即为新任务创建调度
+        if (_isRunning && _globalCancellationTokenSource != null)
         {
-            ScheduleNextRun(scheduledJob);
+            StartJobLoop(scheduledJob, _globalCancellationTokenSource.Token);
         }
     }
 
@@ -136,7 +139,7 @@ public class LunariumScheduler : IDisposable
     /// 移除指定类型的定时任务
     /// </summary>
     /// <typeparam name="TJob">要移除的任务类型</typeparam>
-    /// <returns>如果找到并移除返回 true，否则返回 false</returns>
+    /// <returns>如果找到并移除返回 true, 否则返回 false</returns>
     public bool Remove<TJob>() where TJob : IJob
     {
         lock (_lock)
@@ -153,9 +156,10 @@ public class LunariumScheduler : IDisposable
                 return false;
             }
             
-            // 释放 Timer
-            jobToRemove.CurrentTimer?.Dispose();
-            jobToRemove.CurrentTimer = null;
+            // 取消任务调度循环
+            jobToRemove.LoopCancellationTokenSource?.Cancel();
+            jobToRemove.LoopCancellationTokenSource?.Dispose();
+            jobToRemove.LoopCancellationTokenSource = null;
 
             // 从列表移除
             _jobs.Remove(jobToRemove);
@@ -174,7 +178,7 @@ public class LunariumScheduler : IDisposable
     /// 移除指定名称的定时任务
     /// </summary>
     /// <param name="name">任务名称</param>
-    /// <returns>如果找到并移除返回 true，否则返回 false</returns>
+    /// <returns>如果找到并移除返回 true, 否则返回 false</returns>
     public bool Remove(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -189,21 +193,23 @@ public class LunariumScheduler : IDisposable
             if (jobToRemove == null)
             {
                 _logger.LogWarning(
-                    "尝试移除不存在的任务: {JobType}",
+                    "尝试移除不存在的任务: {JobName}",
                     name
                 );
                 return false;
             }
 
-            jobToRemove.CurrentTimer?.Dispose();
-            jobToRemove.CurrentTimer = null;
+            // 取消任务调度循环
+            jobToRemove.LoopCancellationTokenSource?.Cancel();
+            jobToRemove.LoopCancellationTokenSource?.Dispose();
+            jobToRemove.LoopCancellationTokenSource = null;
 
             _jobs.Remove(jobToRemove);
 
             _logger.LogInformation(
                 "已移除任务: {JobName} (类型: {JobType})",
                 jobToRemove.Name,
-                name
+                jobToRemove.JobType.Name
             );
 
             return true;
@@ -222,28 +228,31 @@ public class LunariumScheduler : IDisposable
         // 线程安全地检查和设置状态
         lock (_lock)
         {
-            // 如果已经在运行，直接返回
+            // 如果已经在运行, 直接返回
             if (_isRunning)
             {
-                _logger.LogWarning("调度器已经在运行，忽略重复启动");
+                _logger.LogWarning("调度器已经在运行, 忽略重复启动");
                 return;
             }
 
+            // 创建全局取消令牌
+            _globalCancellationTokenSource = new CancellationTokenSource();
+
             // 标记为运行状态
             _isRunning = true;
-            _logger.LogInformation("调度器启动，共有 {JobCount} 个任务", _jobs.Count);
+            _logger.LogInformation("调度器启动, 共有 {JobCount} 个任务", _jobs.Count);
         }
 
-        // 为所有已注册的任务创建调度
+        // 为所有已注册的任务创建调度循环
         lock (_lock)
         {
             foreach (var job in _jobs)
             {
-                ScheduleNextRun(job);
+                StartJobLoop(job, _globalCancellationTokenSource!.Token);
                 _logger.LogInformation(
-                    "为任务 {JobName} 创建调度，下次执行: {NextRun:yyyy-MM-dd HH:mm:ss}",
+                    "为任务 {JobName} 创建调度, 下次执行: {NextRun}",
                     job.Name,
-                    job.NextRun
+                    job.NextRun?.ToString("yyyy-MM-dd HH:mm:ss zzz") ?? "未计算"
                 );
             }
         }
@@ -259,10 +268,10 @@ public class LunariumScheduler : IDisposable
         // 线程安全地检查和设置状态
         lock (_lock)
         {
-            // 如果没有运行，直接返回
+            // 如果没有运行, 直接返回
             if (!_isRunning)
             {
-                _logger.LogWarning("调度器未运行，忽略停止操作");
+                _logger.LogWarning("调度器未运行, 忽略停止操作");
                 return;
             }
 
@@ -271,21 +280,20 @@ public class LunariumScheduler : IDisposable
             _logger.LogInformation("正在停止调度器...");
         }
 
+        // 取消所有任务的调度循环
+        _globalCancellationTokenSource?.Cancel();
+
         int stoppedCount = 0;
-        // 停止所有任务的调度
         lock (_lock)
         {
             foreach (var job in _jobs)
             {
-                // 释放 Timer
-                job.CurrentTimer?.Dispose();
-                // 清空引用
-                job.CurrentTimer = null;
-
+                job.LoopCancellationTokenSource?.Cancel();
                 stoppedCount++;
             }
         }
-        _logger.LogInformation("调度器已停止，共停止了 {Count} 个任务", stoppedCount);
+        
+        _logger.LogInformation("调度器已停止, 共停止了 {Count} 个任务的调度", stoppedCount);
     }
     
     #endregion
@@ -296,7 +304,7 @@ public class LunariumScheduler : IDisposable
     /// 获取指定任务的信息
     /// </summary>
     /// <typeparam name="TJob">任务类型</typeparam>
-    /// <returns>任务信息字符串，如果任务不存在返回 null</returns>
+    /// <returns>任务信息字符串, 如果任务不存在返回 null</returns>
     public string? GetJobInfo<TJob>() where TJob : IJob
     {
         lock (_lock)
@@ -316,7 +324,7 @@ public class LunariumScheduler : IDisposable
     /// 获取指定名称任务的信息
     /// </summary>
     /// <param name="name">任务名称</param>
-    /// <returns>任务信息字符串，如果任务不存在返回 null</returns>
+    /// <returns>任务信息字符串, 如果任务不存在返回 null</returns>
     public string? GetJobInfo(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -379,21 +387,73 @@ public class LunariumScheduler : IDisposable
 
     #endregion
 
-    #region IDisposable 实现
+    #region IAsyncDisposable 实现
 
     /// <summary>
-    /// 释放调度器资源
+    /// 释放调度器资源(异步)
     /// </summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         // 停止调度
         Stop();
 
+        // 等待所有任务完成
+        _logger.LogInformation("等待所有任务执行完成...");
+        
+        List<Task> tasksToWait;
+        lock (_lock)
+        {
+            tasksToWait = _jobs
+                .Select(j => j.WaitForCompletionAsync())
+                .ToList();
+        }
+
+        try
+        {
+            await Task.WhenAll(tasksToWait);
+            _logger.LogInformation("所有任务已完成");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "等待任务完成时发生错误");
+        }
+
+        // 等待所有调度循环结束
+        lock (_lock)
+        {
+            var loopTasks = _jobs
+                .Where(j => j.LoopTask != null)
+                .Select(j => j.LoopTask!)
+                .ToList();
+
+            if (loopTasks.Count > 0)
+            {
+                try
+                {
+                    Task.WaitAll(loopTasks.ToArray(), TimeSpan.FromSeconds(5));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "等待调度循环结束时超时或发生错误");
+                }
+            }
+        }
+
+        // 释放取消令牌
+        _globalCancellationTokenSource?.Dispose();
+        _globalCancellationTokenSource = null;
+
         // 清空任务列表
         lock (_lock)
         {
+            foreach (var job in _jobs)
+            {
+                job.LoopCancellationTokenSource?.Dispose();
+            }
             _jobs.Clear();
         }
+        
+        _logger.LogInformation("调度器资源已释放");
     }
 
     #endregion
@@ -401,35 +461,168 @@ public class LunariumScheduler : IDisposable
     #region 私有方法 - 核心调度与执行逻辑
 
     /// <summary>
-    /// Timer 触发时的回调方法
+    /// 启动任务的调度循环
     /// </summary>
-    /// <param name="scheduledJob">要执行的任务</param>
-    private void OnTimerElapsed(ScheduledJob scheduledJob)
+    /// <param name="scheduledJob">要调度的任务</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    private void StartJobLoop(ScheduledJob scheduledJob, CancellationToken cancellationToken)
     {
-        // 根据任务类型选择执行方式
+        // 为每个任务创建独立的取消令牌源
+        var jobCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        scheduledJob.LoopCancellationTokenSource = jobCts;
+
+        // 启动调度循环
+        scheduledJob.LoopTask = Task.Run(async () =>
+        {
+            await RunJobLoopAsync(scheduledJob, jobCts.Token);
+        }, jobCts.Token);
+    }
+
+    /// <summary>
+    /// 任务调度循环(替代 Timer 的实现)
+    /// </summary>
+    /// <param name="scheduledJob">要调度的任务</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    private async Task RunJobLoopAsync(ScheduledJob scheduledJob, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                // 计算下次执行时间
+                var nextOccurrence = scheduledJob.CronExpression.GetNextOccurrence(
+                    DateTimeOffset.UtcNow,
+                    scheduledJob.TimeZone
+                );
+
+                // 如果没有下次执行时间, 退出循环
+                if (nextOccurrence == null)
+                {
+                    _logger.LogWarning(
+                        "任务 {JobName} 在时区 {TimeZoneId} 没有下次执行时间, 调度循环结束",
+                        scheduledJob.Name,
+                        scheduledJob.TimeZone.Id
+                    );
+                    break;
+                }
+
+                // 更新下次执行时间
+                scheduledJob.NextRun = nextOccurrence.Value;
+
+                // 计算延迟时间
+                var delay = nextOccurrence.Value - DateTimeOffset.UtcNow;
+
+                // 如果延迟为负(已经过期), 立即执行
+                if (delay < TimeSpan.Zero)
+                {
+                    delay = TimeSpan.Zero;
+                    _logger.LogWarning(
+                        "任务 {JobName} 的下次执行时间已过期, 将立即执行",
+                        scheduledJob.Name
+                    );
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "任务 {JobName} 下次执行时间: {NextRun} (延迟: {Delay})",
+                        scheduledJob.Name,
+                        nextOccurrence.Value.ToString("yyyy-MM-dd HH:mm:ss zzz"),
+                        delay
+                    );
+                }
+
+                // 等待到执行时间
+                try
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogDebug(
+                        "任务 {JobName} 的调度循环被取消",
+                        scheduledJob.Name
+                    );
+                    break;
+                }
+
+                // 检查是否被取消
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                // 执行任务
+                await ExecuteJobWithTrackingAsync(scheduledJob, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "任务 {JobName} 的调度循环发生未处理的异常",
+                scheduledJob.Name
+            );
+        }
+    }
+
+    /// <summary>
+    /// 执行任务并追踪(统一入口)
+    /// </summary>
+    private async Task ExecuteJobWithTrackingAsync(ScheduledJob scheduledJob, CancellationToken cancellationToken)
+    {
+        // 检查任务是否正在运行
+        if (!scheduledJob.TryBeginExecution())
+        {
+            _logger.LogWarning(
+                "任务 {JobName} 仍在执行中, 跳过本次调度",
+                scheduledJob.Name
+            );
+            return;
+        }
+
+        Task executionTask;
+
+        // 根据任务类型创建执行任务
         if (scheduledJob.IsAsync)
         {
-            // 异步任务：不等待完成，让任务在后台执行
-            _ = ExecuteJobAsync(scheduledJob);
+            executionTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await ExecuteJobAsync(scheduledJob);
+                }
+                finally
+                {
+                    scheduledJob.EndExecution();
+                }
+            }, cancellationToken);
         }
         else
         {
-            // 同步任务：直接执行
-            ExecuteJob(scheduledJob);
+            executionTask = Task.Run(() =>
+            {
+                try
+                {
+                    ExecuteJob(scheduledJob);
+                }
+                finally
+                {
+                    scheduledJob.EndExecution();
+                }
+            }, cancellationToken);
         }
 
-        // 调度下次执行(递归调用)
-        // 重新调度前，必须检查调度器是否仍在运行
-        lock (_lock)
-        {
-            // 如果在任务执行期间，调度器被停止了，则不再安排下一次
-            if (!_isRunning)
-            {
-                return;
-            }
+        // 追踪任务
+        scheduledJob.SetRunningTask(executionTask);
 
-            // 只有仍在运行时，才调度下一次
-            ScheduleNextRun(scheduledJob);
+        // 等待任务完成(但不阻塞调度循环)
+        try
+        {
+            await executionTask;
+        }
+        catch
+        {
+            // 异常已在 ExecuteJob/ExecuteJobAsync 中处理
         }
     }
 
@@ -446,6 +639,10 @@ public class LunariumScheduler : IDisposable
         );
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var history = new JobExecutionHistory
+        {
+            ExecutedAt = DateTimeOffset.UtcNow
+        };
         
         try
         {
@@ -461,26 +658,43 @@ public class LunariumScheduler : IDisposable
             // 执行任务
             job.Execute();
 
+            stopwatch.Stop();
+
+            // 记录成功
+            history.Success = true;
+            history.Duration = stopwatch.Elapsed;
+
             // 更新最后执行时间
-            scheduledJob.LastRun = DateTime.UtcNow;  
-            
-            scheduledJob.LastRun = DateTime.UtcNow;      
+            scheduledJob.LastRun = DateTimeOffset.UtcNow;  
+             
             _logger.LogInformation(
-                "任务执行成功: {JobName}，耗时: {Elapsed:0.00}ms",
+                "任务执行成功: {JobName}, 耗时: {Elapsed:0.00}ms",
                 scheduledJob.Name,
                 stopwatch.Elapsed.TotalMilliseconds
-        );
+            );
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            // 捕获所有异常，记录但不中断调度
+
+            // 记录失败
+            history.Success = false;
+            history.Duration = stopwatch.Elapsed;
+            history.ErrorMessage = ex.Message;
+            history.StackTrace = ex.StackTrace;
+
+            // 捕获所有异常, 记录但不中断调度
             _logger.LogError(
                 ex,
-                "任务执行失败: {JobName}，耗时: {Elapsed:0.00}ms",
+                "任务执行失败: {JobName}, 耗时: {Elapsed:0.00}ms",
                 scheduledJob.Name,
                 stopwatch.Elapsed.TotalMilliseconds
             );
+        }
+        finally
+        {
+            // 记录执行历史
+            scheduledJob.RecordExecution(history);
         }
     }
 
@@ -497,6 +711,10 @@ public class LunariumScheduler : IDisposable
         );
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var history = new JobExecutionHistory
+        {
+            ExecutedAt = DateTimeOffset.UtcNow
+        };
 
         try
         {
@@ -512,12 +730,17 @@ public class LunariumScheduler : IDisposable
             // 异步执行任务
             await job.ExecuteAsync();
 
-            // 更新最后执行时间
-            scheduledJob.LastRun = DateTime.UtcNow;
-
             stopwatch.Stop();
+
+            // 记录成功
+            history.Success = true;
+            history.Duration = stopwatch.Elapsed;
+
+            // 更新最后执行时间
+            scheduledJob.LastRun = DateTimeOffset.UtcNow;
+
             _logger.LogInformation(
-                "异步任务执行成功: {JobName}，耗时: {Elapsed:0.00}ms",
+                "异步任务执行成功: {JobName}, 耗时: {Elapsed:0.00}ms",
                 scheduledJob.Name,
                 stopwatch.Elapsed.TotalMilliseconds
             );
@@ -525,70 +748,26 @@ public class LunariumScheduler : IDisposable
         catch (Exception ex)
         {
             stopwatch.Stop();
-            // 捕获所有异常，记录但不中断调度
+
+            // 记录失败
+            history.Success = false;
+            history.Duration = stopwatch.Elapsed;
+            history.ErrorMessage = ex.Message;
+            history.StackTrace = ex.StackTrace;
+
+            // 捕获所有异常, 记录但不中断调度
             _logger.LogError(
                 ex,
-                "异步任务执行失败: {JobName}，耗时: {Elapsed:0.00}ms",
+                "异步任务执行失败: {JobName}, 耗时: {Elapsed:0.00}ms",
                 scheduledJob.Name,
                 stopwatch.Elapsed.TotalMilliseconds
             );
         }
-    }
-
-    /// <summary>
-    /// 为任务调度下次执行
-    /// </summary>
-    /// <param name="scheduledJob">要调度的任务</param>
-    private void ScheduleNextRun(ScheduledJob scheduledJob)
-    {
-        // 计算下次执行时间
-        var now = DateTime.UtcNow;
-        var nextOccurrence = scheduledJob.CronExpression.GetNextOccurrence(DateTimeOffset.UtcNow,scheduledJob.TimeZone);
-
-        // 如果没有下次执行时间，退出
-        if (nextOccurrence == null)
+        finally
         {
-            _logger.LogWarning(
-                "任务 {JobName} 在时区 {TimeZoneId} 没有下次执行时间，可能已到期",
-                scheduledJob.Name,
-                scheduledJob.TimeZone.Id
-            );
-            return;
+            // 记录执行历史
+            scheduledJob.RecordExecution(history);
         }
-
-        // 更新任务的下次执行时间
-        scheduledJob.NextRun = nextOccurrence.Value.UtcDateTime;
-
-        // 计算延迟时间
-        var delay = nextOccurrence.Value - DateTimeOffset.UtcNow;
-
-        // 防止负延迟(如果计算时间超过了触发点)
-        if (delay < TimeSpan.Zero)
-        {
-            delay = TimeSpan.Zero;
-            _logger.LogWarning(
-            "任务 {JobName} 的下次执行时间已过期，将立即执行",
-            scheduledJob.Name
-            );
-        }
-
-        // 释放旧的 Timer(如果存在)
-        scheduledJob.CurrentTimer?.Dispose();
-
-        // 创建新的 Timer
-        scheduledJob.CurrentTimer = new Timer(
-            callback: _ => OnTimerElapsed(scheduledJob),
-            state: null,
-            dueTime: delay,
-            period: Timeout.InfiniteTimeSpan
-        );
-
-        _logger.LogInformation(
-            "任务 {JobName} 下次执行时间: {NextRun} (UTC: {NextRunUtc:yyyy-MM-dd HH:mm:ss})",
-            scheduledJob.Name,
-            nextOccurrence.Value,
-            scheduledJob.NextRun 
-        );
     }
 
     #endregion
@@ -608,13 +787,13 @@ public class LunariumScheduler : IDisposable
         sb.AppendLine($"任务类型: {job.JobType.Name}");
         sb.AppendLine($"Cron 表达式: {job.CronExpression}");
         sb.AppendLine($"任务模式: {(job.IsAsync ? "异步" : "同步")}");
-        sb.AppendLine($"时区: {job.TimeZone.Id}");
+        sb.AppendLine($"时区: {job.TimeZone.Id} ({job.TimeZone.StandardName})");
 
         if (job.NextRun.HasValue)
         {
-            var localNextRun = TimeZoneInfo.ConvertTimeFromUtc(job.NextRun.Value, job.TimeZone);
-            sb.AppendLine($"下次执行 (UTC): {job.NextRun.Value:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"下次执行 (本地): {localNextRun:yyyy-MM-dd HH:mm:ss} ({job.TimeZone.StandardName})");
+            var localNextRun = TimeZoneInfo.ConvertTime(job.NextRun.Value, job.TimeZone);
+            sb.AppendLine($"下次执行 (UTC): {job.NextRun.Value:yyyy-MM-dd HH:mm:ss zzz}");
+            sb.AppendLine($"下次执行 (本地): {localNextRun:yyyy-MM-dd HH:mm:ss zzz}");
         }
         else
         {
@@ -623,16 +802,43 @@ public class LunariumScheduler : IDisposable
 
         if (job.LastRun.HasValue)
         {
-            var localLastRun = TimeZoneInfo.ConvertTimeFromUtc(job.LastRun.Value, job.TimeZone);
-            sb.AppendLine($"上次执行 (UTC): {job.LastRun.Value:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"上次执行 (本地): {localLastRun:yyyy-MM-dd HH:mm:ss} ({job.TimeZone.StandardName})");
+            var localLastRun = TimeZoneInfo.ConvertTime(job.LastRun.Value, job.TimeZone);
+            sb.AppendLine($"上次执行 (UTC): {job.LastRun.Value:yyyy-MM-dd HH:mm:ss zzz}");
+            sb.AppendLine($"上次执行 (本地): {localLastRun:yyyy-MM-dd HH:mm:ss zzz}");
         }
         else
         {
             sb.AppendLine("上次执行: 从未执行");
         }
 
-        sb.AppendLine($"运行状态: {(job.CurrentTimer != null ? "已调度" : "未调度")}");
+        sb.AppendLine($"运行状态: {(job.LoopTask != null && !job.LoopTask.IsCompleted ? "已调度" : "未调度")}");
+        sb.AppendLine($"是否正在执行: {(job.IsRunning ? "是" : "否")}");
+
+        // 显示执行历史统计
+        var history = job.GetHistory();
+        if (history.Count > 0)
+        {
+            sb.AppendLine($"执行历史记录数: {history.Count}");
+            sb.AppendLine($"成功次数: {job.GetSuccessCount()}");
+            sb.AppendLine($"失败次数: {job.GetFailureCount()}");
+
+            var lastHistory = job.GetLastHistory();
+            if (lastHistory != null)
+            {
+                sb.AppendLine($"最近一次执行:");
+                sb.AppendLine($"  时间: {lastHistory.ExecutedAt:yyyy-MM-dd HH:mm:ss zzz}");
+                sb.AppendLine($"  结果: {(lastHistory.Success ? "成功" : "失败")}");
+                sb.AppendLine($"  耗时: {lastHistory.Duration.TotalMilliseconds:0.00}ms");
+                if (!lastHistory.Success && !string.IsNullOrEmpty(lastHistory.ErrorMessage))
+                {
+                    sb.AppendLine($"  错误: {lastHistory.ErrorMessage}");
+                }
+            }
+        }
+        else
+        {
+            sb.AppendLine("执行历史: 无");
+        }
 
         return sb.ToString();
     }

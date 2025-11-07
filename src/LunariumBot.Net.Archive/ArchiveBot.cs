@@ -24,7 +24,7 @@ using LunariumBot.Net.Archive.Archiver;
 
 namespace LunariumBot.Net.Archive;
 
-public class ArchiveBotService : IHostedService
+public sealed class ArchiveBotService : IHostedService
 {
     // --- token ---
     private readonly string _token;
@@ -137,8 +137,22 @@ public class ArchiveBotService : IHostedService
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.Info("正在停止 ArchiveBot 服务...");
+
+        // 取消所有事件订阅
+        _client.Log -= LogAsync;
+        _client.Ready -= ReadyAsync;
+        _client.InteractionCreated -= HandleInteractionAsync;
         _client.MessageReceived -= HandleMessageCommandAsync;
+
         await _client.StopAsync();
+
+        // 释放私有服务容器
+        if (_privateServices is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+        
+        _logger.Info("✅ ArchiveBot 服务已停止。");
     }
 
     private Task LogAsync(LogMessage log)

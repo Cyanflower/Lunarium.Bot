@@ -161,13 +161,22 @@ public class ExamplesBotService : IHostedService
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.Info("正在停止 ExamplesBot 服务...");
+        
         // 取消事件订阅，防止在关闭过程中处理新的事件
         _client.MessageReceived -= HandleMessageCommandAsync;
         _client.InteractionCreated -= HandleInteractionAsync;
         _client.Ready -= ReadyAsync;
         _client.Log -= LogAsync;
+
         // 停止客户端连接
         await _client.StopAsync();
+
+        // 释放私有服务容器
+        if (_privateServices is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+
         _logger.Info("✅ ExamplesBot 服务已停止。");
     }
 
@@ -274,6 +283,9 @@ public class ExamplesBotService : IHostedService
             // 7. 清除各个服务器中的命令
             // 如果希望命令只部署到特定服务器，请使用此逻辑。
             // 否则，请注释掉此部分，并使用 RegisterCommandsGloballyAsync。
+            // 因为本项目为示例
+            // 这里只作为 Example
+            // 实际逻辑可以参考解决方案内的其他具体项目的真正实现
             // foreach (var guildId in _configLoader.Config.DeployGuildConfig.Keys)
             // {
             //     try

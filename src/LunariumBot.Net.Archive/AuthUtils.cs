@@ -10,7 +10,7 @@ using LunariumBot.Net.Archive.Utils;
 
 namespace LunariumBot.Net.Archive.AppInteractionService;
 
-public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
+public sealed class AuthUtils : InteractionModuleBase<SocketInteractionContext>
 {
     private readonly ConfigLoader _configLoader;
     private readonly ILogger _logger;

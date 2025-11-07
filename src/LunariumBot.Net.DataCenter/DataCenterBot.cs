@@ -46,7 +46,8 @@ public class DataCenterBotService : IHostedService
     private readonly Listener _listener;
     private bool _isFirstTime = true;
     private readonly AuthUtils _authUtils;
-
+    private readonly LunariumScheduler _scheduler;
+    private readonly HealthMonitoring _healthMonitoring;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(25, 25);
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -75,6 +76,9 @@ public class DataCenterBotService : IHostedService
         _listener = _privateServices.GetRequiredService<Listener>();
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
         
+        _scheduler = _privateServices.GetRequiredService<LunariumScheduler>();
+        _healthMonitoring = _privateServices.GetRequiredService<HealthMonitoring>();
+
         _logger.Info("✅ DataCenterBot 服务初始化完成。");
     }
 
@@ -145,14 +149,16 @@ public class DataCenterBotService : IHostedService
             // ==== [定时任务] ====
             .AddSingleton<AnalysisJob>()
             .AddSingleton<FullSyncJob>()
+            .AddSingleton<SystemMonitorJob>()
             .AddSingleton<LunariumScheduler>(provider =>
             {
                 return new LunariumScheduler(provider, logger.ToMicrosoftLogger("Scheduler"));
             })
+            .AddSingleton<HealthMonitoring>()
 
             // 构建 DI 容器
             .BuildServiceProvider();
-
+            
         return services;
     }
 
@@ -175,16 +181,16 @@ public class DataCenterBotService : IHostedService
         // [测试] 分析器
         // await _analysis.RunAndSaveAnalysisReportAsync();
         _logger.Info("⚙️ 正在配置定时任务调度器...");
-        var scheduler = _privateServices.GetRequiredService<LunariumScheduler>();
         var TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
-        scheduler.ScheduleAsync<FullSyncJob>("0 4 * * 2", "同步扫描",TimeZone);
-        scheduler.ScheduleAsync<AnalysisJob>("0 4 * * *", "每日分析", TimeZone);
-        scheduler.Start();
+        _scheduler.ScheduleWeeklyAsync<FullSyncJob>(dayOfWeek: DayOfWeek.Tuesday, hour: 3, minute: 30, name: "同步扫描", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<AnalysisJob>(hour: 4, name: "每日分析", timeZone: TimeZone);
+        _scheduler.ScheduleIntervalAsync<SystemMonitorJob>(5, "系统监控", timeZone: TimeZone);
+        _scheduler.Start();
         _logger.Info("✅ 定时任务已配置完成。");
         // 示例：每天凌晨 4:00 执行 FullSyncJob
         // Cron 表达式 "0 4 * * 1" 的意思是：
         // 分钟=0, 小时=4, 日=任意, 月=任意, 星期几=1
-        _logger.Info($"\n{scheduler.GetAllJobsInfo()}");
+        _logger.Info($"\n{_scheduler.GetAllJobsInfo()}");
         
         
         // 登录和启动
@@ -198,9 +204,25 @@ public class DataCenterBotService : IHostedService
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.Info("正在停止 DataCenterBot 服务...");
+
+        // 取消所有事件订阅
+        _client.Log -= LogAsync;
+        _client.Ready -= ReadyAsync;
+        _client.InteractionCreated -= HandleInteractionAsync;
         _client.MessageReceived -= HandleMessageCommandAsync;
+
+        _healthMonitoring.RemoveConnectEventHandler();
         _listener.RemoveEventHandlers();
+
         await _client.StopAsync();
+
+        // 释放私有服务容器
+        if (_privateServices is IAsyncDisposable asyncDisposable)
+        {
+            await asyncDisposable.DisposeAsync();
+        }
+        
+        _logger.Info("✅ DataCenterBot 服务已停止。");
     }
 
     private Task LogAsync(LogMessage log)
@@ -238,7 +260,56 @@ public class DataCenterBotService : IHostedService
                 // 现在 bot 完全就绪，可以安全地同步命令
                 await SyncCommandsAsync();
                 _listener.AddEventHandlers();
+                _healthMonitoring.AddConnectEventHandler();
                 _isFirstTime = false;
+
+                var loginEmbed = new EmbedBuilder()
+                    .WithTitle("数据中心监控")
+                    .WithAuthor(_client.CurrentUser)
+                    .WithDescription($"""
+                        ### 服务已启动
+                        登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
+                        BOT Latency: {_client.Latency}
+                        {await _databaseService.GetDatabaseState()}
+                        {_scheduler.GetAllJobsInfo()}
+                        """)
+                    .Build();
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
+                if (channelCache is not null) await channelCache.SendMessageAsync(embed: loginEmbed);
+            }
+            else
+            {
+                var loginEmbed = new EmbedBuilder()
+                    .WithTitle("数据中心监控")
+                    .WithAuthor(_client.CurrentUser)
+                    .WithDescription($"""
+                        ### BOT 客户端重新连接
+                        登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
+                        检测到 BOT 客户端在运行时重新连接 Discord API 网关事件
+                        <@867658156510150716>
+                        以下文件是最近延迟信息于网关事件
+                        {_databaseService.GetDatabaseState()}
+                        {_scheduler.GetAllJobsInfo()}
+                        """)
+                    .Build();
+                // 获取监控日志字符串
+                var latencysLog = _healthMonitoring.GetLatencysLog();
+                var connectStatesLog = _healthMonitoring.GetConnectStatesLog();
+
+                // 把字符串转换成内存流
+                using var latencyStream = new MemoryStream(Encoding.UTF8.GetBytes(latencysLog));
+                using var connectStateStream = new MemoryStream(Encoding.UTF8.GetBytes(connectStatesLog));
+
+                // 为每个流创建一个 FileAttachment
+                var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
+                var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
+                
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
+                if (channelCache is not null)
+                {
+                    await channelCache.SendMessageAsync(embed: loginEmbed);
+                    await channelCache.SendFilesAsync(text:"<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                }
             }
         }
         catch (Exception ex)
@@ -386,7 +457,7 @@ public class DataCenterBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("处理交互时发生错误。",ex);
+            _logger.Error("处理交互时发生错误。", ex);
         }
     }
 }

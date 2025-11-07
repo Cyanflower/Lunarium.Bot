@@ -19,6 +19,7 @@ EXCLUDED_DIRS = {
     'Discord.Net',
     'LunariumBot.Net.Extensions',
     'LunariumBot.Net.Logger',
+    'LunariumBot.Net.Scheduler',
 }
 
 # 服务器配置

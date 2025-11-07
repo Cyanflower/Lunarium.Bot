@@ -20,7 +20,7 @@ namespace LunariumBot.Net.Archive.Archiver;
 /// Discord 线程归档服务
 /// 负责定期清理和归档 Discord 服务器中的非活跃线程，维护置顶帖状态
 /// </summary>
-public class ArchiverService : IDisposable
+public sealed class ArchiverService : IDisposable
 {
     #region 私有字段
 

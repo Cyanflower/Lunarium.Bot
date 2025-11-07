@@ -260,7 +260,8 @@ public class Scanner
                 statsBuilder.AppendLine("⏰ 定时任务调度计划:");
 
                 string schedulerInfo = _scheduler.GetAllJobsInfo();
-                string formattedSchedulerInfo = schedulerInfo.Replace("\n", "\n> ");
+                // 先移除末尾换行符, 再替换
+                string formattedSchedulerInfo = schedulerInfo.TrimEnd('\n', '\r').Replace("\n", "\n> ");
                 statsBuilder.AppendLine($"> {formattedSchedulerInfo}");
 
             return statsBuilder.ToString();

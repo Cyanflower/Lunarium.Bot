@@ -11,7 +11,7 @@ using LunariumBot.Net.Archive.Model;
 
 namespace LunariumBot.Net.Archive;
 
-public class ConfigLoader
+public sealed class ConfigLoader
 {
     public ArchiveConfig Config { get; private set; }
     private readonly object _lockObject = new();

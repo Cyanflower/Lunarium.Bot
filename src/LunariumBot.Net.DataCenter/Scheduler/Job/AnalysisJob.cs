@@ -68,7 +68,7 @@ public class AnalysisJob : IAsyncJob
             {
                 var guildId = kvp.Key;
                 var reports = kvp.Value;
-                var taskLogger = _logger.ForContext($"Guild-{guildId}");
+                var taskLogger = _logger.ForContext($"Task: Guild-{guildId}");
 
                 try
                 {

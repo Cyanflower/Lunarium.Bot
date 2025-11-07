@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Logger.Models;
 
 namespace LunariumBot.Net.Logger.Extensions;
 

@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
+  <!-- 类库 -->
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net9.0</TargetFramework>

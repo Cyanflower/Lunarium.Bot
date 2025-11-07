@@ -70,6 +70,8 @@ Example/
 SourceCodeDoc/
 # Test
 LunariumBot.Net.Tests/
+# OpsLog
+synced_logs
 
 # === Other ===
 # 无关的环境文件

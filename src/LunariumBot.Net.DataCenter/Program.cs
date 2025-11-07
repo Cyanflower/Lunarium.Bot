@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Logger.Models;
 using LunariumBot.Net.Logger.Extensions;
 
 // 项目内命名空间
@@ -30,12 +31,18 @@ public class Program
             }
             var envConsoleLogLevel = Environment.GetEnvironmentVariable("CONSOLE_LOG_LEVEL");
             var consoleLogLevel = LogLevel.Info;
-            if (!string.IsNullOrEmpty(envConsoleLogLevel) && 
+            if (!string.IsNullOrEmpty(envConsoleLogLevel) &&
                 Enum.TryParse<LogLevel>(envConsoleLogLevel, true, out var parsedConsoleLevel))
             {
                 consoleLogLevel = parsedConsoleLevel;
             }
             // === 构建日志 ===
+            GlobalConfigurator.Configure()
+                .UseLocalTimestamp()
+                .UseJsonISO8601Timestamp()
+                .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
+                .EnableAutoDestructuring()
+                .Apply();
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(
@@ -45,7 +52,17 @@ public class Program
                     sinkConfiguration: new SinkConfiguration
                     {
                         ContextFilterExcludes = ["DataCenterBotService.CommandAuth"],
-                        LogMinLevel = fileLogLevel
+                        LogMinLevel = fileLogLevel,
+                    })
+                .AddSizedRotatingFileSink(
+                    logFilePath: "Logs/Runtime/Runtime.jsonl",
+                    maxFileSizeMB: 10,
+                    maxFile: 5,
+                    sinkConfiguration: new SinkConfiguration
+                    {
+                        ContextFilterExcludes = ["DataCenterBotService.CommandAuth"],
+                        LogMinLevel = fileLogLevel,
+                        ToJson = true
                     })
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/CommandAuth/CommandAuth.log",
@@ -72,6 +89,25 @@ public class Program
                     {
                         LogMinLevel = LogLevel.Warning,
                         LogMaxLevel = LogLevel.Warning
+                    })
+                .AddSizedRotatingFileSink(
+                    logFilePath: "Logs/EW/Error.jsonl",
+                    maxFileSizeMB: 10,
+                    maxFile: 5,
+                    sinkConfiguration: new SinkConfiguration
+                    {
+                        LogMinLevel = LogLevel.Error,
+                        ToJson = true
+                    })
+                .AddSizedRotatingFileSink(
+                    logFilePath: "Logs/EW/Warning.jsonl",
+                    maxFileSizeMB: 10,
+                    maxFile: 5,
+                    sinkConfiguration: new SinkConfiguration
+                    {
+                        LogMinLevel = LogLevel.Warning,
+                        LogMaxLevel = LogLevel.Warning,
+                        ToJson = true
                     })
                 .AddConsoleSink(
                     sinkConfiguration: new SinkConfiguration

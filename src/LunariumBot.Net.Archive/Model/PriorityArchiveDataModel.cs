@@ -2,7 +2,7 @@ using Discord;
 
 namespace LunariumBot.Net.Archive.Model;
 
-public class PriorityThreadInfo
+public sealed class PriorityThreadInfo
 {
     // 帖子ID
     public ulong ThreadId { get; set; }

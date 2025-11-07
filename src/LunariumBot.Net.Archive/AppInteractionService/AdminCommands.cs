@@ -9,7 +9,7 @@ using LunariumBot.Net.Archive.Archiver;
 namespace LunariumBot.Net.Archive.AppInteractionService;
 
 [Group("admin", "管理员专属配置命令")]
-public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
+public sealed class AdminCommands : InteractionModuleBase<SocketInteractionContext>
 {
     private readonly ConfigLoader _configLoader;
     private readonly AuthUtils _authUtils;

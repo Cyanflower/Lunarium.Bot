@@ -14,6 +14,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="LunariumBot.Net.Logger.Tests" />
+    <InternalsVisibleTo Include="LunariumBot.Net.LoggerParser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="SelfLog/" />
   </ItemGroup>
 
 </Project>

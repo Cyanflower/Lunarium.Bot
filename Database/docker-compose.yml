@@ -22,7 +22,7 @@ services:
       # 备份目录 - 方便从容器内备份
       - /opt/backups/postgres:/backups
       # 使用相对路径（相对于 docker-compose.yml 文件）
-      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./custom.conf:/var/lib/postgresql/data/conf.d/99-custom.conf
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U LunariumBot.NET -d LunariumBot.NET.DB"] # 健康检查

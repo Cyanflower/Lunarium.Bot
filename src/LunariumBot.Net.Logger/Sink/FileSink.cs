@@ -1,17 +1,20 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 
-using LunariumBot.Net.Logger.Interfaces;
-using LunariumBot.Net.Logger.Formatting;
+using LunariumBot.Net.Logger.Writer;
 
 namespace LunariumBot.Net.Logger.Sink;
+
+public abstract class FileSink
+{
+    public abstract string LogFilePath { get; }
+}
 
 /// <summary>
 /// 一个将日志写入文件的 Sink，并支持根据文件大小进行轮转。
 /// 当文件达到指定大小时，会自动创建一个新的带时间戳的日志文件，并可以限制日志文件的最大数量。
 /// </summary>
-public class RotatingFileSink : ILogSink
+public class RotatingFileSink : FileSink, ILogSink
 {
     // 锁，虽然 Emit 是串行的，但在轮转等复杂操作时加个保险总是好的
     private readonly object _lock = new();
@@ -20,9 +23,13 @@ public class RotatingFileSink : ILogSink
     private readonly Timer _flushTimer;
     private bool _disposed = false;
 
+    public override string LogFilePath { get { return _logFilePath; } }
+
     // === 日志配置 ===
     // 日志文件的基础路径和文件名
+    // 当前使用的文件
     private string? _currentLogFilePath;
+    // 配置的日志路径
     private readonly string _logFilePath;
     // 单个日志文件的最大大小, 单位：字节, 0或负数为无限制
     private readonly long _maxFileSize;
@@ -67,9 +74,9 @@ public class RotatingFileSink : ILogSink
         try
         {
             _flushTimer = new Timer(
-                callback: FlushTimerCallback, 
-                state: null, 
-                dueTime: TimeSpan.FromSeconds(10), 
+                callback: FlushTimerCallback,
+                state: null,
+                dueTime: TimeSpan.FromSeconds(10),
                 period: TimeSpan.FromSeconds(10)
             );
         }
@@ -94,19 +101,18 @@ public class RotatingFileSink : ILogSink
                     return;
                 }
                 // [Debug]
-                // Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
+                // Console.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss}] Timer is flushing the log buffer...");
 
                 // 检查文件存在性
                 EnsureFileExists();
 
                 // 直接调用 Flush，把缓冲区的内容写入 log 文件
-                _writer?.Flush(); 
+                _writer?.Flush();
             }
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Critical error in timer flush: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Critical error in timer flush");
         }
     }
 
@@ -114,52 +120,52 @@ public class RotatingFileSink : ILogSink
     /// 将日志条目写入文件。在写入前会检查是否需要进行文件轮转。
     /// </summary>
     /// <param name="entry">要写入的日志条目。</param>
-    public void Emit(LogEntry entry, bool toJson, bool indented)
+    public void Emit(LogEntry entry, bool toJson)
     {
-        lock (_lock)
+
+        try
         {
-            // 检查是否需要轮转
-            CheckForRotation();
-
-            // 如果 writer 因为某些原因没创建成功，就放弃写入
-            if (_writer == null)
+            LogWriter logWriter = toJson ? WriterPool.Get<LogJsonWriter>() : WriterPool.Get<LogTextWriter>();
+            logWriter.Render(entry);
+            
+            lock (_lock)
             {
-                var log_err_msg = "Log Writer FAILED: _writer is null".Color(ConsoleColor.DarkMagenta);
-                Console.WriteLine(log_err_msg);
-                return;
-            }
+                // 检查是否需要轮转
+                CheckForRotation();
 
-            try
-            {
-                string formattedMessage = FileFormatter.Format(entry, toJson, indented);
-    
-                _writer.WriteLine(formattedMessage);
-    
+                // 如果 writer 因为某些原因没创建成功，就放弃写入
+                if (_writer == null)
+                {
+                    InternalLogger.Error("Log Writer FAILED: _writer is null");
+                    return;
+                }
+
+                logWriter.FlushTo(_writer);
+
                 // 分级刷新策略
-                if (entry.Level >= LogLevel.Error)
+                if (entry.LogLevel >= LogLevel.Error)
                 {
                     // 检查文件存在性
                     EnsureFileExists();
                     _writer.Flush();
                 }
-    
-                // 更新当前文件大小。使用 BaseStream.Position 更准确
-                _currentFileSize = _writer.BaseStream.Position;
             }
-            catch (IOException ex)
+
+            // 更新当前文件大小。使用 BaseStream.Position 更准确
+            _currentFileSize = _writer.BaseStream.Position;
+        }
+        catch (IOException ex)
+        {
+            InternalLogger.Error(ex, "Log Writer FAILED: catch IOException:");
+
+            // 恢复
+            CloseCurrentWriter();
+            OpenFile();
+
+            // 恢复后要检查是否需要清理旧文件
+            if (_writer != null && _maxFile > 0)
             {
-                var log_err_msg = $"Log Writer FAILED: catch IOException: \n{ex}".Color(ConsoleColor.DarkMagenta);
-                Console.WriteLine(log_err_msg);
-
-                // 恢复
-                CloseCurrentWriter();
-                OpenFile();
-
-                // 恢复后要检查是否需要清理旧文件
-                if (_writer != null && _maxFile > 0)
-                {
-                    CleanupOldFiles();
-                }
+                CleanupOldFiles();
             }
         }
     }
@@ -217,7 +223,7 @@ public class RotatingFileSink : ILogSink
             }
         }
     }
-    
+
     /// <summary>
     /// 打开一个新的日志文件用于写入。
     /// 如果配置了大小限制，会寻找最新的未满文件或创建新文件。
@@ -259,8 +265,7 @@ public class RotatingFileSink : ILogSink
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Failed to open log file: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Failed to open log file:");
             _writer = null;
         }
     }
@@ -295,7 +300,7 @@ public class RotatingFileSink : ILogSink
         }
 
         // 没有合适的现有文件，创建新文件
-        var timestamp = DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss");
+        var timestamp = DateTimeOffset.Now.ToString("yyyy-MM-dd-HH-mm-ss");
         return Path.Combine(directory ?? "", $"{fileName}-{timestamp}{extension}");
     }
 
@@ -334,8 +339,7 @@ public class RotatingFileSink : ILogSink
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Failed to clean up old log files: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Failed to clean up old log files");
         }
     }
 
@@ -373,7 +377,7 @@ public class RotatingFileSink : ILogSink
 /// 一个将日志写入文件的 Sink，并支持根据日期进行轮转（每天一个新文件）。
 /// 还可以配置保留的最大日志文件数量。
 /// </summary>
-public class TimedRotatingFileSink : ILogSink
+public class TimedRotatingFileSink : FileSink, ILogSink
 {
     // 锁，用于在轮转等操作时保证线程安全
     private readonly object _lock = new();
@@ -382,9 +386,14 @@ public class TimedRotatingFileSink : ILogSink
     private readonly Timer _flushTimer;
     private bool _disposed = false;
 
+    // 返回当前配置的日志路径
+    public override string LogFilePath { get { return _logFilePath; } }
+
     // === 日志配置 ===
     // 日志文件的基础路径和文件名
+    // 当前使用的文件
     private string? _currentLogFilePath;
+    // 配置的日志路径
     private readonly string _logFilePath;
     // 最大轮转文件数量, 0或负数为无限制
     private readonly int _maxFile;
@@ -393,7 +402,7 @@ public class TimedRotatingFileSink : ILogSink
     // 当前文件写入流
     private StreamWriter? _writer;
     // 当前文件的日期，用于判断是否需要轮转
-    private DateTime? _currentFileDate;
+    private DateTimeOffset? _currentFileDate;
     
     /// <summary>
     /// 初始化一个新的、按天轮转的文件日志 Sink。
@@ -427,8 +436,8 @@ public class TimedRotatingFileSink : ILogSink
                     return;
                 }
                 // [Debug]
-                // Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Timer is flushing the log buffer...");
-                
+                // Console.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss}] Timer is flushing the log buffer...");
+
                 // 检查文件存在性
                 EnsureFileExists();
 
@@ -438,8 +447,7 @@ public class TimedRotatingFileSink : ILogSink
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Critical error in timer flush: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Critical error in timer flush");
         }
     }
 
@@ -447,49 +455,49 @@ public class TimedRotatingFileSink : ILogSink
     /// 将日志条目写入当天的日志文件。在写入前会检查是否需要切换到新一天的文件。
     /// </summary>
     /// <param name="entry">要写入的日志条目。</param>
-    public void Emit(LogEntry entry, bool toJson, bool indented)
+    public void Emit(LogEntry entry, bool toJson)
     {
-        lock (_lock)
+
+        try
         {
-            // 检查是否需要轮转
-            CheckForRotation(entry.Timestamp);
+            using LogWriter logWriter = toJson ? WriterPool.Get<LogJsonWriter>() : WriterPool.Get<LogTextWriter>();
+            logWriter.Render(entry);
 
-            // 如果 writer 因为某些原因没创建成功，就放弃写入
-            if (_writer == null)
+            lock (_lock)
             {
-                var log_err_msg = "Log Writer FAILED: _writer is null".Color(ConsoleColor.DarkMagenta);
-                Console.WriteLine(log_err_msg);
-                return;
-            }
+                // 检查是否需要轮转
+                CheckForRotation(entry.Timestamp);
 
-            try
-            {
-                string formattedMessage = FileFormatter.Format(entry, toJson, indented);
-                
-                _writer.WriteLine(formattedMessage);
+                // 如果 writer 因为某些原因没创建成功，就放弃写入
+                if (_writer == null)
+                {
+                    InternalLogger.Error("Log Writer FAILED: _writer is null");
+                    return;
+                }
+
+                logWriter.FlushTo(_writer);
     
                 // 分级刷新策略
-                if (entry.Level >= LogLevel.Error)
+                if (entry.LogLevel >= LogLevel.Error)
                 {
                     // 检查文件存在性
                     EnsureFileExists();
                     _writer.Flush();
                 }
             }
-            catch (IOException ex)
-            {
-                var log_err_msg = $"Log Writer FAILED: catch IOException: \n{ex}".Color(ConsoleColor.DarkMagenta);
-                Console.WriteLine(log_err_msg);
-                
-                // 恢复
-                CloseCurrentWriter();
-                OpenFile(DateTime.Now);
+        }
+        catch (IOException ex)
+        {
+            InternalLogger.Error(ex, "Log Writer FAILED: catch IOException");
 
-                // 恢复后要检查是否需要清理旧文件
-                if (_writer != null && _maxFile > 0)
-                {
-                    CleanupOldFiles();
-                }
+            // 恢复
+            CloseCurrentWriter();
+            OpenFile(DateTimeOffset.Now);
+
+            // 恢复后要检查是否需要清理旧文件
+            if (_writer != null && _maxFile > 0)
+            {
+                CleanupOldFiles();
             }
         }
     }
@@ -503,7 +511,7 @@ public class TimedRotatingFileSink : ILogSink
         // 如果当前没有 writer
         if (_writer == null)
         {
-            OpenFile(DateTime.Now);
+            OpenFile(DateTimeOffset.Now);
             return;
         }
 
@@ -516,13 +524,13 @@ public class TimedRotatingFileSink : ILogSink
             if (!File.Exists(_currentLogFilePath))
             {
                 CloseCurrentWriter();
-                OpenFile(DateTime.Now);
+                OpenFile(DateTimeOffset.Now);
             }
         }
         catch (Exception)
         {
             CloseCurrentWriter();
-            OpenFile(DateTime.Now);
+            OpenFile(DateTimeOffset.Now);
         }
     }
     
@@ -531,7 +539,7 @@ public class TimedRotatingFileSink : ILogSink
     /// 当第一次写入或日志条目的日期与当前文件日期不一致时触发。
     /// </summary>
     /// <param name="timestamp">当前日志条目的时间戳。</param>
-    private void CheckForRotation(DateTime timestamp)
+    private void CheckForRotation(DateTimeOffset timestamp)
     {
         // 如果是第一次写入，或者当前日志的日期与记录的文件日期不符（新的一天开始了）
         if (_writer == null || timestamp.Date != _currentFileDate)
@@ -553,7 +561,7 @@ public class TimedRotatingFileSink : ILogSink
     /// 根据给定的日期打开一个新的日志文件。
     /// </summary>
     /// <param name="date">要创建的日志文件的日期。</param>
-    private void OpenFile(DateTime date)
+    private void OpenFile(DateTimeOffset date)
     {
         try
         {
@@ -580,8 +588,7 @@ public class TimedRotatingFileSink : ILogSink
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Failed to open timed log file: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Failed to open timed log file");
             _writer = null;
         }
     }
@@ -620,8 +627,7 @@ public class TimedRotatingFileSink : ILogSink
         }
         catch (Exception ex)
         {
-            var logErrMsg = $"[LunariumLogger.InternalError] Failed to clean up old timed log files: {ex.Message}".Color(ConsoleColor.DarkRed);
-            Console.WriteLine(logErrMsg);
+            InternalLogger.Error(ex, "Failed to clean up old timed log files");
         }
     }
 

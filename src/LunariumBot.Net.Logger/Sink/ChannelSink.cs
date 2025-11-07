@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-using LunariumBot.Net.Logger.Interfaces;
+using LunariumBot.Net.Logger.Writer;
 
 namespace LunariumBot.Net.Logger.Sink;
 
@@ -11,13 +11,13 @@ namespace LunariumBot.Net.Logger.Sink;
 public class ChannelSink : ILogSink
 {
     // 存放用于写入日志条目的 ChannelWriter
-    private readonly ChannelWriter<LogEntry> _writer;
+    private readonly ChannelWriter<string> _writer;
 
     /// <summary>
     /// 初始化一个新的 ChannelSink 实例。
     /// </summary>
     /// <param name="writer">用于接收日志条目的 ChannelWriter。</param>
-    public ChannelSink(ChannelWriter<LogEntry> writer)
+    public ChannelSink(ChannelWriter<string> writer)
     {
         _writer = writer;
     }
@@ -26,10 +26,12 @@ public class ChannelSink : ILogSink
     /// 将日志条目异步写入到 Channel 中。
     /// </summary>
     /// <param name="entry">要写入的日志条目。</param>
-    public void Emit(LogEntry entry, bool toJson, bool indented)
+    public void Emit(LogEntry entry, bool toJson)
     {
         // 尝试写入，如果 Channel 已关闭或发生其他问题，它会无声地失败，不会阻塞或抛出异常。
-        _writer.TryWrite(entry);
+        using LogWriter logWriter = toJson ? WriterPool.Get<LogJsonWriter>() : WriterPool.Get<LogTextWriter>();
+        logWriter.Render(entry);
+        _writer.TryWrite(logWriter.ToString());
     }
 
     /// <summary>

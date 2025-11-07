@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using LunariumBot.Net.Logger.Models;
 
 namespace LunariumBot.Net.Logger;
 
