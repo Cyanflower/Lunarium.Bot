@@ -19,6 +19,8 @@ public class Program
 
         try
         {
+            // === 配置日志 ===
+            // 读取环境变量
             var envFileLogLevel = Environment.GetEnvironmentVariable("FILE_LOG_LEVEL");
             var fileLogLevel = LogLevel.Info;
             if (!string.IsNullOrEmpty(envFileLogLevel) && 
@@ -28,12 +30,18 @@ public class Program
             }
             var envConsoleLogLevel = Environment.GetEnvironmentVariable("CONSOLE_LOG_LEVEL");
             var consoleLogLevel = LogLevel.Info;
-            if (!string.IsNullOrEmpty(envConsoleLogLevel) && 
+            if (!string.IsNullOrEmpty(envConsoleLogLevel) &&
                 Enum.TryParse<LogLevel>(envConsoleLogLevel, true, out var parsedConsoleLevel))
             {
                 consoleLogLevel = parsedConsoleLevel;
             }
-            // === 配置日志 ===
+            GlobalConfigurator.Configure()
+                .UseLocalTimestamp()
+                .UseJsonISO8601Timestamp()
+                .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
+                .EnableAutoDestructuring()
+                .Apply();
+            // === 构建日志 ===
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(

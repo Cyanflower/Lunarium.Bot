@@ -1,5 +1,3 @@
-using LunariumBot.Net.Logger.Models;
-
 namespace LunariumBot.Net.Logger.Sink;
 
 /// <summary>

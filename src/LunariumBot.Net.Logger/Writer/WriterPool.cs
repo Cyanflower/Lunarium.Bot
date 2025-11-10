@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 
+using LunariumBot.Net.Logger.Writer;
+
 namespace LunariumBot.Net.Logger.Writer;
 
 internal static class WriterPool

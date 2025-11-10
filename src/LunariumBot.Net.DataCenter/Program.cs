@@ -36,13 +36,13 @@ public class Program
             {
                 consoleLogLevel = parsedConsoleLevel;
             }
-            // === 构建日志 ===
             GlobalConfigurator.Configure()
                 .UseLocalTimestamp()
                 .UseJsonISO8601Timestamp()
                 .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
                 .EnableAutoDestructuring()
                 .Apply();
+            // === 构建日志 ===
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(
@@ -53,16 +53,6 @@ public class Program
                     {
                         ContextFilterExcludes = ["DataCenterBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel,
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/Runtime/Runtime.jsonl",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
-                    {
-                        ContextFilterExcludes = ["DataCenterBotService.CommandAuth"],
-                        LogMinLevel = fileLogLevel,
-                        ToJson = true
                     })
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/CommandAuth/CommandAuth.log",
@@ -89,25 +79,6 @@ public class Program
                     {
                         LogMinLevel = LogLevel.Warning,
                         LogMaxLevel = LogLevel.Warning
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/EW/Error.jsonl",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
-                    {
-                        LogMinLevel = LogLevel.Error,
-                        ToJson = true
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/EW/Warning.jsonl",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
-                    {
-                        LogMinLevel = LogLevel.Warning,
-                        LogMaxLevel = LogLevel.Warning,
-                        ToJson = true
                     })
                 .AddConsoleSink(
                     sinkConfiguration: new SinkConfiguration

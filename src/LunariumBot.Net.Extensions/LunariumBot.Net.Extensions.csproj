@@ -8,5 +8,11 @@
     <Nullable>enable</Nullable>
     <RootNamespace>LunariumBot.Net.Extensions</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.18.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../LunariumBot.Net.Logger/LunariumBot.Net.Logger.csproj" />
+  </ItemGroup>
   
 </Project>

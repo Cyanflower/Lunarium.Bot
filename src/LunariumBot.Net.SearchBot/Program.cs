@@ -21,6 +21,28 @@ public class Program
         try
         {
             // === 配置日志 ===
+            // 读取环境变量
+            var envFileLogLevel = Environment.GetEnvironmentVariable("FILE_LOG_LEVEL");
+            var fileLogLevel = LogLevel.Info;
+            if (!string.IsNullOrEmpty(envFileLogLevel) && 
+                Enum.TryParse<LogLevel>(envFileLogLevel, true, out var parsedFileLevel))
+            {
+                fileLogLevel = parsedFileLevel;
+            }
+            var envConsoleLogLevel = Environment.GetEnvironmentVariable("CONSOLE_LOG_LEVEL");
+            var consoleLogLevel = LogLevel.Info;
+            if (!string.IsNullOrEmpty(envConsoleLogLevel) &&
+                Enum.TryParse<LogLevel>(envConsoleLogLevel, true, out var parsedConsoleLevel))
+            {
+                consoleLogLevel = parsedConsoleLevel;
+            }
+            GlobalConfigurator.Configure()
+                .UseLocalTimestamp()
+                .UseJsonISO8601Timestamp()
+                .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
+                .EnableAutoDestructuring()
+                .Apply();
+            // === 配置日志 ===
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(
@@ -29,7 +51,7 @@ public class Program
                     maxFile: 5,
                     sinkConfiguration: new SinkConfiguration
                     {
-                        ContextFilterExcludes = ["SearchBotService.CommandAuth", "PerformanceMonitoringService"],
+                        ContextFilterExcludes = ["SearchBotService.CommandAuth"],
                         LogMinLevel = LogLevel.Debug
                     })
                 .AddTimedRotatingFileSink(
@@ -38,15 +60,6 @@ public class Program
                     sinkConfiguration: new SinkConfiguration
                     {
                         ContextFilterIncludes = ["SearchBotService.CommandAuth"],
-                        LogMinLevel = LogLevel.Debug
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/Performance/Performance.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
-                    {
-                        ContextFilterIncludes = ["PerformanceMonitoringService"],
                         LogMinLevel = LogLevel.Debug
                     })
                 .AddSizedRotatingFileSink(
@@ -69,7 +82,7 @@ public class Program
                 .AddConsoleSink(
                     sinkConfiguration: new SinkConfiguration
                     {
-                        ContextFilterExcludes = ["PerformanceMonitoringService"],
+                        ContextFilterExcludes = [],
                         LogMinLevel = LogLevel.Debug
                     })
                 .Build();
@@ -100,20 +113,6 @@ public class Program
                 throw ex;
             }
 
-            // gRPC 服务地址
-            // gRPC 网关
-            // http://localhost:52000
-            // var gRPCGateway = Environment.GetEnvironmentVariable("GPPC_GATEWAY");
-            // gRPC 性能监控探针
-            // http://localhost:52001
-            // var gRPCPerfProbe = "http://localhost:52001";
-            var gRPCPerfProbe = Environment.GetEnvironmentVariable("GRPC_PERF_PROBE");
-            if (string.IsNullOrWhiteSpace(gRPCPerfProbe))
-            {
-                var ex = new InvalidOperationException();
-                _mainLogger.Warning("环境变量 GRPC_PERF_PROBE 未设置！");
-            }
-
             // 配置主机服务
             var host = Host.CreateDefaultBuilder(args)
                 .ConfigureLogging((context, logging) =>
@@ -139,11 +138,6 @@ public class Program
                             var logger = provider.GetRequiredService<ILogger>();
                             var proxy = provider.GetRequiredService<ProxyConfig>();
                             return new SearchBotService(token, logger, proxy);
-                        })
-                        .AddHostedService<PerformanceMonitoringService>(provider =>
-                        {
-                            var logger = provider.GetRequiredService<ILogger>();
-                            return new PerformanceMonitoringService(logger, gRPCPerfProbe!);
                         });
                 })
                 .Build();

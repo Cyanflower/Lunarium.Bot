@@ -16,15 +16,7 @@ public class LoggerBuilder
     /// <summary>
     /// 初始化一个新的 LoggerBuilder 实例。
     /// </summary>
-    /// <param name="config">一个可选的配置对象，用于预先填充构建器的设置。</param>
-    public LoggerBuilder(LumLogConfig? config = null)
-    {
-        if (config != null)
-        {
-            _sinks = config.Sinks;
-            _loggerName = config.LoggerName;
-        }
-    }
+    public LoggerBuilder() { }
 
     /// <summary>
     /// 设置日志记录器的名称。
@@ -76,19 +68,4 @@ public class LoggerBuilder
             throw;
         }
     }
-    
-
-    /// <summary>
-    /// (静态工厂方法) 根据一个 LumLogConfig 配置对象直接创建一个 LunariumLogger 实例。
-    /// </summary>
-    /// <param name="config">包含所有配置信息的对象。</param>
-    /// <returns>一个配置好的 LunariumLogger 实例。</returns>
-    public static Logger LoggerBuilderByConfig(LumLogConfig config)
-    {
-        LoggerBuilder loggerBuilder = new(config);
-
-        return loggerBuilder.Build();
-    }
-
-
 }

@@ -84,6 +84,19 @@ public class SystemMonitorJob : IAsyncJob, IDisposable
     {
         try
         {
+            Process currentProcess = Process.GetCurrentProcess();
+            
+            // 虚拟内存大小
+            // long virtualMemory = currentProcess.VirtualMemorySize64 / 1024 / 1024;
+            // 分页内存大小
+            // long pagedMemory = currentProcess.PagedMemorySize64 / 1024 / 1024;
+            // 工作集（物理内存）
+            long workingSet = currentProcess.WorkingSet64 / 1024 / 1024;
+            // 私有内存大小
+            long privateMemory = currentProcess.PrivateMemorySize64 / 1024 / 1024;
+            // GC托管堆内存
+            long gcMemory = GC.GetTotalMemory(false) / 1024 / 1024;
+
             var dbSize = await _databaseService.GetDatabaseSize();
             var embed = new EmbedBuilder()
                 .WithAuthor(_discordClient.CurrentUser)
@@ -101,6 +114,11 @@ public class SystemMonitorJob : IAsyncJob, IDisposable
                 .AddField("📕 内存: Used/Available", $"{_usedMemoryMB} MB / {_availableMemoryMB} MB", true)
                 .AddField("📗 内存: Free", $"{_freeMemoryMB} MB", true)
                 .AddField("📘 内存: Cache", $"{_cachedMemoryMB} MB", true)
+                // .AddField("🧾 虚拟内存", $"{virtualMemory} MB", true)
+                // .AddField("📑 分页内存", $"{pagedMemory} MB", true)
+                .AddField("📋 工作集", $"{workingSet} MB", true)
+                .AddField("🗒 私有内存大小", $"{privateMemory} MB", true)
+                .AddField("🗑 GC托管堆内存", $"{gcMemory} MB", true)
                 .WithFooter("系统监控")
                 .WithTimestamp(DateTimeOffset.Now)
                 .WithThumbnailUrl(_discordClient.CurrentUser.GetAvatarUrl())

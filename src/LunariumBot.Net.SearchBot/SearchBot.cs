@@ -11,8 +11,6 @@ using Discord.Interactions;
 using Discord.Net.Rest;
 using Discord.Net.WebSockets;
 using Discord.WebSocket;
-using Coravel;
-using Coravel.Scheduling.Schedule.Interfaces;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
@@ -20,7 +18,6 @@ using LunariumBot.Net.Logger;
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Database;
 using LunariumBot.Net.SearchBot.Scheduler;
-using LunariumBot.Net.SearchBot.ThreadFetcher;
 using LunariumBot.Net.SearchBot.Utils;
 using LunariumBot.Net.SearchBot.Model;
 using LunariumBot.Net.SearchBot.AppInteractionService;
@@ -40,8 +37,6 @@ public class SearchBotService : IHostedService
     private readonly InteractionService _interactions;
     private readonly ConfigLoader _configLoader;
     private readonly DatabaseService _databaseService;
-    private readonly Scanner _scanner;
-    private readonly Listener _listener;
     private bool _isFirstTime = true;
     private readonly AuthUtils _authUtils;
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -66,8 +61,6 @@ public class SearchBotService : IHostedService
         _client = _privateServices.GetRequiredService<DiscordSocketClient>();
         _interactions = _privateServices.GetRequiredService<InteractionService>();
         _databaseService = _privateServices.GetRequiredService<DatabaseService>();
-        _scanner = _privateServices.GetRequiredService<Scanner>();
-        _listener = _privateServices.GetRequiredService<Listener>();
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
         _logger.Info("✅ SearchBot 服务初始化完成。");
     }
@@ -115,20 +108,6 @@ public class SearchBotService : IHostedService
                 new InteractionService(provider.GetRequiredService<DiscordSocketClient>())
             )
 
-            // 注册扫描服务
-            .AddSingleton<Scanner>()
-            // 注册监听器
-            .AddSingleton<Listener>(provider => new Listener(
-                provider.GetRequiredService<ILogger>(),
-                provider.GetRequiredService<DiscordSocketClient>(),
-                provider.GetRequiredService<DatabaseService>(),
-                provider.GetRequiredService<ConfigLoader>(),
-                provider.GetRequiredService<Scanner>(),
-                provider.GetRequiredService<ThreadProcessor>(),
-                proxyConfig
-            ))
-            // 注册线程处理器
-            .AddSingleton<ThreadProcessor>()
             // 注册数据库服务
             .AddSingleton<DatabaseService>()
             // 注册鉴权服务

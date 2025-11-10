@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Collections;
 using LunariumBot.Net.Logger.Parser;
 
 namespace LunariumBot.Net.Logger.Writer;
@@ -230,6 +229,36 @@ internal class LogColorTextWriter : LogWriter
 
     // 构建格式字符串: {index,alignment:format}
     private static string BuildFormatString(int? alignment, string? format)
+    {
+        // 如果超长则回退到堆分配
+        // yyyy-MM-dd HH:mm:ss.fff zzz 在格式化中较长的时间格式化, 96个字符也走过容纳前面的例子x3了
+        if (format is not null && format.Length > 96) return BuildFormatStringByHeap(alignment, format);
+        Span<char> buffer = stackalloc char[128];
+        int pos = 0;
+        
+        buffer[pos++] = '{';
+        buffer[pos++] = '0';
+        
+        if (alignment.HasValue)
+        {
+            buffer[pos++] = ',';
+            alignment.Value.TryFormat(buffer[pos..], out int written);
+            pos += written;
+        }
+        
+        if (!string.IsNullOrEmpty(format))
+        {
+            buffer[pos++] = ':';
+            format.AsSpan().CopyTo(buffer[pos..]);
+            pos += format.Length;
+        }
+        
+        buffer[pos++] = '}';
+        return new string(buffer[..pos]);
+    }
+
+    // 构建格式字符串: {index,alignment:format}
+    private static string BuildFormatStringByHeap(int? alignment, string? format)
     {
         var sb = new StringBuilder("{0");
 

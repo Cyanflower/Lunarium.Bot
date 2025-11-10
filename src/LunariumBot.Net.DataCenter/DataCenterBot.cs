@@ -47,7 +47,7 @@ public class DataCenterBotService : IHostedService
     private bool _isFirstTime = true;
     private readonly AuthUtils _authUtils;
     private readonly LunariumScheduler _scheduler;
-    private readonly HealthMonitoring _healthMonitoring;
+    private readonly HealthMonitor _healthMonitoring;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(25, 25);
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -77,7 +77,7 @@ public class DataCenterBotService : IHostedService
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
         
         _scheduler = _privateServices.GetRequiredService<LunariumScheduler>();
-        _healthMonitoring = _privateServices.GetRequiredService<HealthMonitoring>();
+        _healthMonitoring = _privateServices.GetRequiredService<HealthMonitor>();
 
         _logger.Info("✅ DataCenterBot 服务初始化完成。");
     }
@@ -154,7 +154,7 @@ public class DataCenterBotService : IHostedService
             {
                 return new LunariumScheduler(provider, logger.ToMicrosoftLogger("Scheduler"));
             })
-            .AddSingleton<HealthMonitoring>()
+            .AddSingleton<HealthMonitor>()
 
             // 构建 DI 容器
             .BuildServiceProvider();
@@ -182,8 +182,8 @@ public class DataCenterBotService : IHostedService
         // await _analysis.RunAndSaveAnalysisReportAsync();
         _logger.Info("⚙️ 正在配置定时任务调度器...");
         var TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
-        _scheduler.ScheduleWeeklyAsync<FullSyncJob>(dayOfWeek: DayOfWeek.Tuesday, hour: 3, minute: 30, name: "同步扫描", timeZone: TimeZone);
-        _scheduler.ScheduleDailyAsync<AnalysisJob>(hour: 4, name: "每日分析", timeZone: TimeZone);
+        _scheduler.ScheduleWeeklyAsync<FullSyncJob>(dayOfWeek: DayOfWeek.Tuesday, hour: 4, minute: 30, name: "同步扫描", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<AnalysisJob>(hour: 5, name: "每日分析", timeZone: TimeZone);
         _scheduler.ScheduleIntervalAsync<SystemMonitorJob>(5, "系统监控", timeZone: TimeZone);
         _scheduler.Start();
         _logger.Info("✅ 定时任务已配置完成。");
@@ -288,7 +288,7 @@ public class DataCenterBotService : IHostedService
                         检测到 BOT 客户端在运行时重新连接 Discord API 网关事件
                         <@867658156510150716>
                         以下文件是最近延迟信息于网关事件
-                        {_databaseService.GetDatabaseState()}
+                        {await _databaseService.GetDatabaseState()}
                         {_scheduler.GetAllJobsInfo()}
                         """)
                     .Build();

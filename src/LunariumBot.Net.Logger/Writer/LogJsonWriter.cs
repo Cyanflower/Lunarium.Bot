@@ -18,13 +18,13 @@ internal class LogJsonWriter : LogWriter
         return this;
     }
 
-    // 🎣 钩子：在渲染消息前写入 MessageTemplate
+    // 钩子：在渲染消息前写入 MessageTemplate
     protected override void BeforeRenderMessage(LogEntry logEntry)
     {
         WriteOriginalMessage(logEntry.MessageTemplate._messageTemplateTokens);
     }
 
-    // 🎣 钩子：在渲染消息后写入 PropertyValue
+    // 钩子：在渲染消息后写入 PropertyValue
     protected override void AfterRenderMessage(LogEntry logEntry)
     {
         WritePropertyValue(logEntry.MessageTemplate._messageTemplateTokens, logEntry.Properties);
@@ -149,7 +149,7 @@ internal class LogJsonWriter : LogWriter
                     _stringBuilder.Append('"');
                     AppendJsonStringContent(propertyToken.PropertyName);
                     _stringBuilder.Append("\":");
-                    
+
                     object? value;
                     if (propertyToken.PropertyType == PropertyType.Positional && int.TryParse(propertyToken.PropertyName.AsSpan(), out int index))
                     {
@@ -169,7 +169,7 @@ internal class LogJsonWriter : LogWriter
                         }
                         value = propertys[iteration];
                     }
-                    
+
                     // 处理解构（Destructuring）
                     if (propertyToken.Destructuring == Destructuring.Destructure || (DestructuringConfig.AutoDestructureCollections && IsCommonCollectionType(value)))
                     {
@@ -187,12 +187,12 @@ internal class LogJsonWriter : LogWriter
                     {
                         ToJsonValue(value);
                     }
-                    
+
                     _stringBuilder.Append(',');
                     iteration++;
                 }
             }
-            
+
             // 移除末尾多余的逗号
             if (_stringBuilder.Length > 0 && _stringBuilder[_stringBuilder.Length - 1] == ',')
             {
@@ -227,7 +227,7 @@ internal class LogJsonWriter : LogWriter
 
     #region 辅助方法
     // ================ 辅助方法 ================
-    
+
     /// <summary>
     /// 将字符串转义并添加 JSON 引号输出到 StringBuilder
     /// 例如：Hello "World" → "Hello \"World\""
@@ -326,7 +326,7 @@ internal class LogJsonWriter : LogWriter
         try
         {
             // 处理位置变量, 例如: {0}
-            if (propertyToken.PropertyType == PropertyType.Positional && 
+            if (propertyToken.PropertyType == PropertyType.Positional &&
                 int.TryParse(propertyToken.PropertyName.AsSpan(), out int index))
             {
                 if (index >= propertys.Length)
@@ -334,13 +334,13 @@ internal class LogJsonWriter : LogWriter
                     AppendJsonStringContent(propertyToken.RawText.Text);
                     return;
                 }
-                
+
                 if (propertys[index] is null)
                 {
                     _stringBuilder.Append("null");
                     return;
                 }
-                
+
                 // 应用格式化，然后转义输出
                 var formatted = string.Format($"{{0:{propertyToken.Format}}}", propertys[index]);
                 AppendJsonStringContent(formatted);
@@ -352,13 +352,13 @@ internal class LogJsonWriter : LogWriter
                     AppendJsonStringContent(propertyToken.RawText.Text);
                     return;
                 }
-                
+
                 if (propertys[i] is null)
                 {
                     _stringBuilder.Append("null");
                     return;
                 }
-                
+
                 // 应用格式化，然后转义输出
                 var formatted = string.Format($"{{0:{propertyToken.Format}}}", propertys[i]);
                 AppendJsonStringContent(formatted);

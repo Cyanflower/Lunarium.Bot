@@ -68,7 +68,7 @@ public static class DisplayEmbedBuilder
             }
             else
             {
-                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.MessageJumpUrl}" : "";
+                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.UpdateMessageJumpUrl}" : "";
                 var embed = new EmbedBuilder()
                     .WithDescription($"""
                         ## [{post.Title}]({post.JumpUrl})
@@ -151,7 +151,7 @@ public static class DisplayEmbedBuilder
             }
             else
             {
-                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.MessageJumpUrl}" : "";
+                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.UpdateMessageJumpUrl}" : "";
                 var embed = new EmbedBuilder()
                     .WithDescription($"""
                         ## [{post.Title}]({post.JumpUrl})
@@ -248,7 +248,7 @@ public static class DisplayEmbedBuilder
                             -# 帖子信息: 👍🏻: {post.ReactionCount} | 💬: {post.ReplyCount} | 🏷: {post.Tags}
                             -# 发帖时间: <t:{post.CreatedAt}:f> 最近活跃: <t:{post.LastActiveAt}:R>
                             该贴子有作品更新:
-                            -# 更新时间: <t:{post.UpdatedAt}:f> 最新作品链接: {post.MessageJumpUrl}
+                            -# 更新时间: <t:{post.UpdatedAt}:f> 最新作品链接: {post.UpdateMessageJumpUrl}
                             =====================================
                             **首楼摘要**: [点此跳转帖子首页]({post.JumpUrl})
                             {(post.Content != null ? post.Content.Slice(75, "...") : "无首楼内容")}
@@ -282,7 +282,7 @@ public static class DisplayEmbedBuilder
             foreach (var post in postChunk)
             {
                 postNum++;
-                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.MessageJumpUrl}" : "";
+                var updatedInfo = post.UpdatedAt != 0 ? $"\n-# 更新时间: <t:{post.UpdatedAt}:f> | <t:{post.UpdatedAt}:R>\n-# 最新作品链接: {post.UpdateMessageJumpUrl}" : "";
                 var embed = new EmbedBuilder()
                         .WithDescription($"""
                             ## [{post.Title}]({post.JumpUrl})

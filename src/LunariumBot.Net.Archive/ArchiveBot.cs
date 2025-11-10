@@ -15,11 +15,12 @@ using Discord.WebSocket;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Extensions;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;
 using LunariumBot.Net.Archive.AppInteractionService;
-using LunariumBot.Net.Extensions;
+using LunariumBot.Net.Archive.Utils;
 using LunariumBot.Net.Archive.Archiver;
 
 namespace LunariumBot.Net.Archive;
@@ -37,6 +38,7 @@ public sealed class ArchiveBotService : IHostedService
     private bool _isFirstTime = true;
     private readonly AuthUtils _authUtils;
     private readonly ArchiverService _archiverService;
+    private readonly HealthMonitor _healthMonitoring;
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "重新注册",
@@ -60,6 +62,7 @@ public sealed class ArchiveBotService : IHostedService
         _interactions = _privateServices.GetRequiredService<InteractionService>();
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
         _archiverService = _privateServices.GetRequiredService<ArchiverService>();
+        _healthMonitoring = _privateServices.GetRequiredService<HealthMonitor>();
         _logger.Info("✅ ArchiveBot 服务初始化完成。");
     }
 
@@ -104,6 +107,8 @@ public sealed class ArchiveBotService : IHostedService
 
             // 注册鉴权服务
             .AddSingleton<AuthUtils>()
+            
+            .AddSingleton<HealthMonitor>()
 
             .BuildServiceProvider();
         
@@ -190,11 +195,43 @@ public sealed class ArchiveBotService : IHostedService
                 // 现在 bot 完全就绪，可以安全地同步命令
                 await SyncCommandsAsync();
                 _isFirstTime = false;
+                // 启动归档服务
+                _archiverService.EnsureTimerIsRunning();
+                // 登录消息
+                await SendLoginNotificationAsync();
             }
-            // 启动归档服务
-            _archiverService.EnsureTimerIsRunning();
-            // 登录消息
-            await SendLoginNotificationAsync();
+            else
+            {
+                var loginEmbed = new EmbedBuilder()
+                    .WithTitle("自动归档服务")
+                    .WithAuthor(_client.CurrentUser)
+                    .WithDescription($"""
+                        ### BOT 客户端重新连接
+                        登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
+                        检测到 BOT 客户端在运行时重新连接 Discord API 网关事件
+                        <@867658156510150716>
+                        以下文件是最近延迟信息于网关事件
+                        """)
+                    .Build();
+                // 获取监控日志字符串
+                var latencysLog = _healthMonitoring.GetLatencysLog();
+                var connectStatesLog = _healthMonitoring.GetConnectStatesLog();
+
+                // 把字符串转换成内存流
+                using var latencyStream = new MemoryStream(Encoding.UTF8.GetBytes(latencysLog));
+                using var connectStateStream = new MemoryStream(Encoding.UTF8.GetBytes(connectStatesLog));
+
+                // 为每个流创建一个 FileAttachment
+                var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
+                var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
+                
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
+                if (channelCache is not null)
+                {
+                    await channelCache.SendMessageAsync(embed: loginEmbed);
+                    await channelCache.SendFilesAsync(text:"<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                }
+            }
 
         }
         catch (Exception ex)

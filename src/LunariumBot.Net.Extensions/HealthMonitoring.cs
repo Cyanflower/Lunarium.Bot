@@ -6,12 +6,9 @@ using Discord.WebSocket;
 
 using LunariumBot.Net.Logger;
 
-using LunariumBot.Net.DataCenter.Database;
-using LunariumBot.Net.DataCenter.Model;
+namespace LunariumBot.Net.Extensions;
 
-namespace LunariumBot.Net.DataCenter.Utils;
-
-public class HealthMonitoring : IDisposable
+public class HealthMonitor : IDisposable
 {
     private readonly DiscordSocketClient _discordClient;
     private readonly ILogger _logger;
@@ -26,7 +23,7 @@ public class HealthMonitoring : IDisposable
     // 客户端连接状态信息队列: 连接事件驱动
     private readonly Queue<(DateTimeOffset Time, string connectEvent, string State, int Latency, Exception? ex)> _connectStates = new();
 
-    public HealthMonitoring(DiscordSocketClient discordClient, ILogger logger)
+    public HealthMonitor(DiscordSocketClient discordClient, ILogger logger)
     {
         _discordClient = discordClient;
         _logger = logger.ForContext("HealthMonitoring");
@@ -93,6 +90,7 @@ public class HealthMonitoring : IDisposable
             {
                 sb.AppendLine($"[{latency.Time:O}] [State: {latency.State}] [Latency: {latency.Latency}]");
             }
+            _logger.Debug("GetLatencysLog: {GetLatencysLog}", sb.ToString());
             return sb.ToString();
         }
         catch (Exception ex)
@@ -111,6 +109,7 @@ public class HealthMonitoring : IDisposable
             {
                 sb.AppendLine($"[{connectStates.Time:O}] [Event: {connectStates.connectEvent}] [State: {connectStates.State}] [Latency: {connectStates.Latency}] [Exception: {(connectStates.ex is null ? "null" : connectStates.ex.Message)}]");
             }
+            _logger.Debug("GetConnectStatesLog: {GetConnectStatesLog}", sb.ToString());
             return sb.ToString();
         }
         catch (Exception ex)
@@ -131,14 +130,16 @@ public class HealthMonitoring : IDisposable
                 ConnectionState.Disconnecting => "Disconnecting",
                 _ => "Unknow State"
             };
-            if (_connectStates.Count > 96)
+            if (_connectStates.Count >= 96)
             {
                 _connectStates.Dequeue();
-                _connectStates.Append((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
+                _connectStates.Enqueue((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
+                _logger.Debug("{entry}", (DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
             }
             else
             {
-                _connectStates.Append((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
+                _connectStates.Enqueue((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
+                _logger.Debug("{entry}", (DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
             }
             
         }
@@ -162,14 +163,16 @@ public class HealthMonitoring : IDisposable
                     ConnectionState.Disconnecting => "Disconnecting",
                     _ => "Unknow State"
                 };
-                if (_latencys.Count > 96)
+                if (_latencys.Count >= 96)
                 {
                     _latencys.Dequeue();
-                    _latencys.Append((DateTimeOffset.Now, status, _discordClient.Latency));
+                    _latencys.Enqueue((DateTimeOffset.Now, status, _discordClient.Latency));
+                    _logger.Debug("{entry}", (DateTimeOffset.Now, status, _discordClient.Latency));
                 }
                 else
                 {
-                    _latencys.Append((DateTimeOffset.Now, status, _discordClient.Latency));
+                    _latencys.Enqueue((DateTimeOffset.Now, status, _discordClient.Latency));
+                    _logger.Debug("{entry}", (DateTimeOffset.Now, status, _discordClient.Latency));
                 }
                 await Task.Delay(30000, cancellationToken);
             }

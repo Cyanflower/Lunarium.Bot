@@ -23,11 +23,11 @@ using Discord.WebSocket;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
+using LunariumBot.Net.Extensions;
 
 // 项目内命名空间 (请确保创建 Model 和 AppInteractionService 文件夹及相应文件)
 using LunariumBot.Net.Examples.Model;
 using LunariumBot.Net.Examples.AppInteractionService;
-using LunariumBot.Net.Extensions;
 
 
 namespace LunariumBot.Net.Examples;
@@ -48,6 +48,7 @@ public class ExamplesBotService : IHostedService
     // (在这里声明从私有容器中解析出的服务，例如)
     private readonly ConfigLoader _configLoader;
     private readonly AuthUtils _authUtils;
+    private readonly HealthMonitor _healthMonitoring;
 
     // --- 命令常量 ---
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -79,6 +80,7 @@ public class ExamplesBotService : IHostedService
         _interactions = _privateServices.GetRequiredService<InteractionService>();
         _configLoader = _privateServices.GetRequiredService<ConfigLoader>();
         _authUtils = _privateServices.GetRequiredService<AuthUtils>();
+        _healthMonitoring = _privateServices.GetRequiredService<HealthMonitor>();
         
         _logger.Info("✅ ExamplesBot 服务初始化完成。");
     }
@@ -124,6 +126,8 @@ public class ExamplesBotService : IHostedService
 
             // 注册交互服务 (用于处理斜杠命令等)
             .AddSingleton(provider => new InteractionService(provider.GetRequiredService<DiscordSocketClient>()))
+
+            .AddSingleton<HealthMonitor>()
             
             .BuildServiceProvider();
         
@@ -206,13 +210,45 @@ public class ExamplesBotService : IHostedService
         try
         {
             _logger.Info("🎉 Bot 已就绪！当前登录为: {Username}#{Discriminator}", _client.CurrentUser.Username, _client.CurrentUser.Discriminator);
-            
+
             // 确保同步命令等一次性初始化操作只在首次连接成功时执行。
             if (_isFirstTimeReady)
             {
                 // 将所有已加载的斜杠命令注册到 Discord。
                 await SyncCommandsAsync();
                 _isFirstTimeReady = false;
+            }
+            else
+            {
+                var loginEmbed = new EmbedBuilder()
+                    .WithTitle("ExamplesBot")
+                    .WithAuthor(_client.CurrentUser)
+                    .WithDescription($"""
+                        ### BOT 客户端重新连接
+                        登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
+                        检测到 BOT 客户端在运行时重新连接 Discord API 网关事件
+                        <@867658156510150716>
+                        以下文件是最近延迟信息于网关事件
+                        """)
+                    .Build();
+                // 获取监控日志字符串
+                var latencysLog = _healthMonitoring.GetLatencysLog();
+                var connectStatesLog = _healthMonitoring.GetConnectStatesLog();
+
+                // 把字符串转换成内存流
+                using var latencyStream = new MemoryStream(Encoding.UTF8.GetBytes(latencysLog));
+                using var connectStateStream = new MemoryStream(Encoding.UTF8.GetBytes(connectStatesLog));
+
+                // 为每个流创建一个 FileAttachment
+                var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
+                var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
+                
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
+                if (channelCache is not null)
+                {
+                    await channelCache.SendMessageAsync(embed: loginEmbed);
+                    await channelCache.SendFilesAsync(text:"<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                }
             }
         }
         catch (Exception ex)

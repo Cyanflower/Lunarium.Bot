@@ -19,7 +19,6 @@ public partial class DatabaseService : IDisposable
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
     private readonly string _connectionString;
-    internal readonly string _migrationsPath;
 
     /// <summary>
     /// 初始化数据库服务。
@@ -35,9 +34,6 @@ public partial class DatabaseService : IDisposable
             ?? throw new InvalidOperationException("在配置中未找到 'PostgresSQL' 的连接字符串。");
 
         Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
-
-        // 定义迁移脚本的存放路径
-        _migrationsPath = Path.Combine(AppContext.BaseDirectory, "DBMigrations");
 
         _logger.Info("数据库服务已初始化。");
     }
