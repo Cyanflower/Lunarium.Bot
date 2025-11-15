@@ -76,7 +76,7 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
         {
             if (Context.Interaction is SocketMessageComponent interaction)
             {
-                
+
                 await DeferAsync(ephemeral: true);
                 var oldEmbed = interaction.Message.Embeds.FirstOrDefault();
                 var cancelledEmbed = new EmbedBuilder();
@@ -111,10 +111,52 @@ public partial class Buttons : InteractionModuleBase<SocketInteractionContext>
         }
         catch (Exception ex)
         {
-            _logger.Error("GeneralCancelButton {ex}", ex);
+            _logger.Error(ex, "GeneralCancelButton {ex}");
         }
     }
+    
+    /// <summary>
+    /// 通用取消按钮回调
+    /// </summary>
+    /// <returns></returns>
+    [ComponentInteraction("ComponentV2GeneralCancel")]
+    public async Task ComponentV2GeneralCancelButton()
+    {
+        // 检查 Context.Interaction 是否是 SocketMessageComponent 类型
+        // 并将其转换为一个新变量 interaction
+        try
+        {
+            if (Context.Interaction is SocketMessageComponent interaction)
+            {
+                await DeferAsync(ephemeral: true);
+                var titlePart = interaction.Message.Components.FindComponentById<TextDisplayComponent>(1000);
 
+                var componentV2 = new ComponentBuilderV2()
+                    .WithContainer(c => c
+                        .WithAccentColor(Color.Orange)
+                        .WithTextDisplay(titlePart.Content)
+                        .WithTextDisplay("操作已取消")
+                    )
+                    .Build();
+
+                await interaction.UpdateAsync(props =>
+                {
+                    props.Components = componentV2;
+                });
+            }
+            else
+            {
+                // 如果因为某些奇怪的原因，这个交互不是消息组件交互，
+                // 可以在这里处理错误，虽然理论上不应该发生。
+                await RespondAsync("这是一个无效的交互类型。", ephemeral: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "ComponentV2GeneralCancelButton Exception");
+        }
+    }
+    
     [ComponentInteraction("direct_search_menu",true)]
     public async Task HandleDirectSearchMenu(string[] selectedValues)
     {

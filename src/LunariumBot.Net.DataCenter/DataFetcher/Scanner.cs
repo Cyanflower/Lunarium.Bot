@@ -693,15 +693,7 @@ public class Scanner
             });
 
             // 验证首楼消息是否有效
-            if (firstMessage is null)
-            {
-                _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId})",
-                    restThreadChannel.Name, restThreadChannel.Id);
-                _logger.Debug($"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0");
-                isValid = false;
-                result.Status = ProcessingStatus.Invalid;
-            }
-            else
+            if (firstMessage is not null)
             {
                 // 提取首楼消息中的图片附件
                 imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
@@ -711,6 +703,14 @@ public class Scanner
                     .DefaultIfEmpty(0)
                     .Max();
             }
+            // else
+            // {
+            //     _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId})",
+            //         restThreadChannel.Name, restThreadChannel.Id);
+            //     _logger.Debug($"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0");
+            //     isValid = false;
+            //     result.Status = ProcessingStatus.Invalid;
+            // }
 
             // 获取帖子的标签信息
             string? tags = null;

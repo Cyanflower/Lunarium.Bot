@@ -1,5 +1,7 @@
 // NuGet 包依赖
 using Discord;
+using Discord.Rest;
+using Discord.WebSocket;
 using Discord.Interactions;
 
 // 解决方案内引用项目
@@ -7,10 +9,11 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Utils;
+using LunariumBot.Net.SearchBot.Model;
 
 namespace LunariumBot.Net.SearchBot.AppInteractionService;
 
-public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
+public class AuthUtils
 {
     private readonly ConfigLoader _configLoader;
     private readonly ILogger _logger;
@@ -26,129 +29,120 @@ public class AuthUtils : InteractionModuleBase<SocketInteractionContext>
             .ToHashSet();
     }
 
-    public bool IsAdmin(IEnumerable<ulong> userRoleIds)
+    public async Task<AuthorizationResult> Authorization(AuthorizationConditions requiredConditions, IInteractionContext context)
+    {
+        AuthorizationConditions actualConditions = AuthorizationConditions.None;
+        // --- 是否在配置的服务器内 ---
+        if (InGuild(context.Guild.Id))
+        {
+            actualConditions |= AuthorizationConditions.IsInAuthorizedGuild;
+        }
+        // --- 是否具有任一管理员身份 ---
+        var guildUser = context.User as IGuildUser;
+        if (guildUser is not null && IsAdmin(guildUser.RoleIds))
+        {
+            actualConditions |= AuthorizationConditions.HasRequiredPermission;
+        }
+        if (context.Channel is IThreadChannel threadChannel && threadChannel.CategoryId is not null && InPermittedChannel(threadChannel.CategoryId.Value))
+        {
+            actualConditions |= AuthorizationConditions.IsInPermittedChannel;
+        }
+
+        var result = new AuthorizationResult()
+        {
+            Status = Evaluate(requiredConditions, actualConditions),
+            ActualConditions = actualConditions
+        };
+
+        return result;
+    }
+
+    public static MessageComponent GetFailedReason(AuthorizationResult authorizationResult)
+    {
+        var component = new ComponentBuilderV2();
+        switch (authorizationResult.Status)
+        {
+            case AuthorizationStatus.NotAuthorizedGuild:
+                component.WithContainer(c => c
+                    .WithAccentColor(Color.Red)
+                    .WithTextDisplay("## ⛔️ 鉴权未通过", 1000)
+                    .WithTextDisplay("该交互必须位于 BOT 已部署的服务器内使用", 1001)
+                    );
+                break;
+            case AuthorizationStatus.PermissionDenied:
+                component.WithContainer(c => c
+                    .WithAccentColor(Color.Red)
+                    .WithTextDisplay("## ⛔️ 鉴权未通过", 1000)
+                    .WithTextDisplay("该交互需要管理组权限", 1001)
+                    );
+                break;
+            case AuthorizationStatus.NotPermittedChannel:
+                component.WithContainer(c => c
+                    .WithAccentColor(Color.Red)
+                    .WithTextDisplay("## ⛔️ 鉴权未通过", 1000)
+                    .WithTextDisplay("该交互必须位于可搜索的论坛频道内使用", 1001)
+                    );
+                break;
+        }
+        return component.Build();
+    }
+
+    private bool IsAdmin(IEnumerable<ulong> userRoleIds)
     {
         return userRoleIds.Any(_configLoader.Config.AuthConfig.AdminRoleIds.Contains);
     }
 
-    public bool InGuild(ulong guildId)
+    private bool InGuild(ulong guildId)
     {
         return _configLoader.Config.GuildsConfig.DeployGuildIds.Contains(guildId);
     }
 
-    public async Task<bool> IsAdmin(string command, IInteractionContext context)
+    private bool InPermittedChannel(ulong guildId)
     {
-        // === 鉴权与参数验证 ===
-        // --- 是否在配置的服务器内 ---
-        if (!InGuild(context.Guild.Id))
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        // --- 是否具有任一管理员身份 ---
-        // Discord.WebSocket.SocketUser 转为 Discord.IGuildUser
-        var guildUser = context.User as IGuildUser;
-        if (guildUser == null || !IsAdmin(guildUser.RoleIds))
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能由管理员使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 非管理员角色 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
-        return true;
+        return _configLoader.Config.GuildsConfig.DeployGuildIds.Contains(guildId);
     }
 
-    public async Task<bool> InScanChannelThread(string command, IInteractionContext context)
+    private AuthorizationStatus Evaluate(
+        AuthorizationConditions requiredConditions,
+        AuthorizationConditions actualConditions)
     {
-        // === 鉴权与参数验证 ===
-        // --- 是否在配置的服务器内 ---
-        if (!InGuild(context.Guild.Id))
+        // --- 检查是否完全成功 ---
+        // 使用位与操作检查 actualConditions 是否 包含 requiredConditions 的所有位。
+        if ((actualConditions & requiredConditions) == requiredConditions)
         {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        // --- 是否在论坛频道的帖子中 ---
-        // Discord.WebSocket.SocketUser 转为 Discord.IGuildUser
-        if (context.Channel is not IThreadChannel threadChannel)
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        // --- 是否在扫描的分区内 ---
-        if (threadChannel.CategoryId is ulong categoryId)
-        {
-            if (!_allScanChannelIds.Contains(categoryId))
-            {
-                var description = "该命令只能在以下分区内使用:\n" + string.Join("\n", _scanCategories.Select(s => $"> - {s}"));
-                await FollowupAsync(embed: EmbedUtils.AuthEmbed(description), ephemeral: true);
-                _logger.Info("鉴权失败: 用户 {context.User.Username} 在分区外中执行了[/{command}]命令", context.User.Username, command);
-                return false;
-            }
-        }
-        else
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("出现网络错误, 请重试"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息", context.User.Username, command);
-            return false;
-        }
-        _logger.Info("鉴权通过: 用户 {context.User.Username} 订阅了帖子 {threadChannel.Name}({threadChannel.Id})", context.User.Username, threadChannel.Name, threadChannel.Id);
-
-        return true;
-    }
-
-    public async Task<bool> InGuildThread(string command, IInteractionContext context)
-    {
-        // === 鉴权与参数验证 ===
-        // --- 是否在配置的服务器内 ---
-        if (!InGuild(context.Guild.Id))
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        _logger.Debug($"context.Interaction.Channel: {context.Channel}", context.Channel.Name);
-        _logger.Debug($"context.Channel: {context.Channel}", context.Channel.Name);
-        // --- 是否在论坛频道的帖子中 ---
-        if (context.Channel is not IThreadChannel threadChannel)
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非帖子中执行了[/{command}]命令", context.User.Username, command);
-            return false;
-        }
-        if (threadChannel.CategoryId != null)
-        {
-            var parentChannel = await threadChannel.Guild.GetChannelAsync(threadChannel.CategoryId.Value, CacheMode.AllowDownload);
-            if (parentChannel is not IForumChannel)
-            {
-                await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在帖子中使用"), ephemeral: true);
-                _logger.Warning("鉴权失败: 用户 {context.User.Username} 在文字频道的子区中执行了[/{command}]命令", context.User.Username, command);
-                return false;
-            }
-        }
-        else
-        {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("出现网络错误, 请重试"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在执行了[/{command}]命令, 未能成功获取父频道信息", context.User.Username, command);
-            return false;
+            return AuthorizationStatus.Success;
         }
 
-        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
-        return true;
-    }
-    public async Task<bool> InGuild(string command, IInteractionContext context)
-    {
-        // === 鉴权与参数验证 ===
-        // --- 是否在配置的服务器内 ---
-        if (!InGuild(context.Guild.Id))
+        // --- 按优先级检查失败原因 ---
+        // 这里的 if 语句顺序至关重要, 负责实现状态原因优先级
+
+        // 优先级 1: 检查服务器授权
+        // 条件：必需在授权 Guild 中, 但实际不在
+        if (requiredConditions.HasFlag(AuthorizationConditions.IsInAuthorizedGuild) &&
+            !actualConditions.HasFlag(AuthorizationConditions.IsInAuthorizedGuild))
         {
-            await FollowupAsync(embed: EmbedUtils.AuthEmbed("该命令只能在授权服务器中使用"), ephemeral: true);
-            _logger.Warning("鉴权失败: 用户 {context.User.Username} 在非授权服务器中执行了[/{command}]命令", context.User.Username, command);
-            return false;
+            return AuthorizationStatus.NotAuthorizedGuild;
         }
-        _logger.Info("鉴权通过: 用户 {context.User.Username} 执行了[/{command}]命令", context.User.Username, command);
-        return true;
+
+        // 优先级 2: 检查用户权限
+        // 条件：必需特定权限, 但实际并未拥有
+        if (requiredConditions.HasFlag(AuthorizationConditions.HasRequiredPermission) &&
+            !actualConditions.HasFlag(AuthorizationConditions.HasRequiredPermission))
+        {
+            return AuthorizationStatus.PermissionDenied;
+        }
+
+        // 优先级 3: 检查频道限制
+        // 条件：必需在允许的频道, 但实际不在
+        if (requiredConditions.HasFlag(AuthorizationConditions.IsInPermittedChannel) &&
+            !actualConditions.HasFlag(AuthorizationConditions.IsInPermittedChannel))
+        {
+            return AuthorizationStatus.NotPermittedChannel;
+        }
+
+        // --- 最终的保底返回 ---
+        // 如果成功检查失败了, 但上面的所有具体失败检查都没匹配上
+        // 这说明可能存在一个未处理的条件组合, 返回一个通用的内部错误
+        return AuthorizationStatus.InternalError;
     }
 }

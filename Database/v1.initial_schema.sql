@@ -197,7 +197,6 @@ CREATE TABLE IF NOT EXISTS post_members (
     last_leave_at TIMESTAMPTZ,
     is_leave BOOLEAN NOT NULL,
     message_count INTEGER DEFAULT 0,
-    message_edit_history JSONB,
     -- 一些非发送消息事件也可以导致用户被添加到帖子里, 所以消息相关非必须
     last_message_id BIGINT,
     last_message_at TIMESTAMPTZ,
@@ -255,7 +254,7 @@ CREATE TABLE IF NOT EXISTS user_push_list (
 CREATE TABLE IF NOT EXISTS user_fast_search_command (
     user_id BIGINT,
     command_name TEXT,
-    criteria_json JSONB, -- 使用 JSONB 类型存储，效率更高
+    search_conditions TEXT,
     PRIMARY KEY (user_id, command_name)
 );
 
@@ -263,9 +262,15 @@ CREATE TABLE IF NOT EXISTS user_fast_search_command (
 -- 描述: 记录用户屏蔽的作者
 CREATE TABLE IF NOT EXISTS user_blocked_authors (
     user_id BIGINT NOT NULL,
-    blocked_user_id BIGINT NOT NULL,
+    blocked_author_id BIGINT NOT NULL,
     added_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (user_id, blocked_user_id)
+    PRIMARY KEY (user_id, blocked_author_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    PRIMARY KEY (user_id, role_id)
 );
 
 -- ===================================================================
@@ -315,15 +320,28 @@ FOR EACH ROW EXECUTE FUNCTION update_tag_usage_count();
 -- 职责: 此函数收由 C# 应用层传入的、已经分好词并用空格隔开的文本，
 --      然后使用 'simple' 配置将其高效地转换为 tsvector 格式。
 --      'simple' 配置在这里非常合适，因为它能正确处理空格分隔的词汇。
+--      此函数会在插入新行，或者在更新时 title_tokenized 或 content_tokenized 列发生变化时，重新计算 search_vector。
 CREATE OR REPLACE FUNCTION update_search_vector()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- to_tsvector 的输入源为 tokenized 列
-    -- 使用 'simple' 配置，因为它能完美处理已经用空格分好词的文本。
-    -- 它会把 "我 爱 lunarium" 转换成 {'我', '爱', 'lunarium'} 的 tsvector。
-    NEW.search_vector := 
-        setweight(to_tsvector('simple', COALESCE(NEW.title_tokenized, '')), 'A') || 
-        setweight(to_tsvector('simple', COALESCE(NEW.content_tokenized, '')), 'B');
+    -- 判断触发条件:
+    -- 1. 如果是 INSERT 操作 (TG_OP = 'INSERT')，则无条件执行。
+    -- 2. 如果是 UPDATE 操作 (TG_OP = 'UPDATE')，则仅当 title_tokenized 或 content_tokenized 的值发生改变时才执行。
+    --    使用 `IS DISTINCT FROM` 来比较新旧值，它可以正确处理 NULL 值，比 `!=` 更健壮。
+    IF (TG_OP = 'INSERT') OR 
+       (TG_OP = 'UPDATE' AND 
+           (NEW.title_tokenized IS DISTINCT FROM OLD.title_tokenized OR
+            NEW.content_tokenized IS DISTINCT FROM OLD.content_tokenized)
+       )
+    THEN
+        -- to_tsvector 的输入源为 tokenized 列
+        -- 使用 'simple' 配置，因为它能完美处理已经用空格分好词的文本。
+        -- 它会把 "我 爱 lunarium" 转换成 {'我', '爱', 'lunarium'} 的 tsvector。
+        NEW.search_vector := 
+            setweight(to_tsvector('simple', COALESCE(NEW.title_tokenized, '')), 'A') || 
+            setweight(to_tsvector('simple', COALESCE(NEW.content_tokenized, '')), 'B');
+    END IF;
+
     RETURN NEW; -- 对于 BEFORE 触发器，必须返回 NEW 以便将修改后的行写入表中。
 END;
 $$ LANGUAGE plpgsql;

@@ -4,28 +4,29 @@ services:
     container_name: LunariumBot.NET.DB # 容器名字
     shm_size: 512mb
     restart: always              # 保证 Docker 重启或服务器重启后容器会自动启动
+    command: -c config_file=/etc/postgresql/postgresql-custom.conf
     environment:
       # --- 基础配置 ---
       POSTGRES_USER: 'LunariumBot.NET'              # 数据库用户名
-      POSTGRES_PASSWORD: 'kH7!p@wRz*bUvN9mG2c'  # 数据库密码
+      POSTGRES_PASSWORD: 'sk-LunariumDb-F7spNBPTjjH73NpjDBQfBb2G-mIasTHF'  # 数据库密码
       POSTGRES_DB: 'LunariumBot.NET.DB'                 # 数据库名
 
       # --- 语言与区域设置 ---
       TZ: "Asia/Shanghai"                       # 设置容器时区为东八区
       PGTZ: "Asia/Shanghai"                     # 设置 PostgreSQL 内部时区
     ports:
-      - "127.0.0.1:52001:5432"  # 将容器的 52001 端口映射到主机的 5432 端口
-                                # "127.0.0.1" 只允许本机访问
+      - "0.0.0.0:52001:5432"  # 将容器的 52001 端口映射到主机的 5432 端口
+
     volumes:
       # 数据目录 - 绑定到宿主机
-      - /opt/docker-data/postgres:/var/lib/postgresql/data
+      - /opt/docker-data/postgres-LunariumBot.NET.DB:/var/lib/postgresql/data
       # 备份目录 - 方便从容器内备份
-      - /opt/backups/postgres:/backups
+      - /opt/backups/postgres-LunariumBot.NET.DB:/backups
       # 使用相对路径（相对于 docker-compose.yml 文件）
-      - ./custom.conf:/var/lib/postgresql/data/conf.d/99-custom.conf
+      - ./postgresql-custom.conf:/etc/postgresql/postgresql-custom.conf
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U LunariumBot.NET -d LunariumBot.NET.DB"] # 健康检查
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 30

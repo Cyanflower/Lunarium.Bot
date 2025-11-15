@@ -55,7 +55,7 @@ public static class DisplayEmbedBuilder
                         =====================================
                         """)
                     .AddField("统计信息:", $"""
-                        -# 收藏类别: {post.FavoriteAS ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
+                        -# 收藏类别: {post.FavoriteAs ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                         帖子可复制链接:
                         ```
                         {shortJumpUrl}
@@ -82,7 +82,7 @@ public static class DisplayEmbedBuilder
                         =====================================
                         """)
                     .AddField("收藏信息:", $"""
-                        -# 收藏类别: {post.FavoriteAS ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
+                        -# 收藏类别: {post.FavoriteAs ?? "未分类"} 收藏时间: <t:{post.AddedAt}:f>|<t:{post.AddedAt}:R>
                         帖子可复制链接:
                         ```
                         {shortJumpUrl}

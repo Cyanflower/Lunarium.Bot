@@ -1,11 +1,3 @@
-// .NET 核心库
-using System.Collections.Immutable;
-
-// NuGet 包依赖
-using Discord;
-using Discord.Rest;
-using Discord.Interactions;
-
 namespace LunariumBot.Net.SearchBot.Model;
 
 // ============================================
@@ -157,7 +149,7 @@ public class PostDisplayModel
     /// 跳转到帖子的 URL
     /// </summary>
     public string? JumpUrl { get; set; }
-    
+
     /// <summary>
     /// 跳转到更新消息的 URL (用于推送通知)
     /// </summary>
@@ -193,7 +185,7 @@ public class PostDisplayModel
     /// 帖子所在服务器的名称
     /// </summary>
     public string? GuildName { get; set; }
-    
+
     // ================== 统计数据 ==================
     /// <summary>
     /// 帖子的回应 (Reaction) 数量
@@ -204,7 +196,7 @@ public class PostDisplayModel
     /// 帖子的回复数量
     /// </summary>
     public int ReplyCount { get; set; }
-    
+
     // ================== 时间戳 (Unix Timestamp) ==================
     /// <summary>
     /// 帖子创建时间的 Unix 时间戳
@@ -215,7 +207,7 @@ public class PostDisplayModel
     /// 帖子最后活跃时间的 Unix 时间戳
     /// </summary>
     public long LastActiveAt { get; set; }
-    
+
     /// <summary>
     /// 帖子最后更新时间的 Unix 时间戳 (用于推送)
     /// </summary>
@@ -226,7 +218,7 @@ public class PostDisplayModel
     /// 帖子的标签, 以逗号分隔的字符串
     /// </summary>
     public string? Tags { get; set; }
-    
+
     // ================== 用户界面与元数据 ==================
     /// <summary>
     /// (在收藏夹中) 收藏此帖子的时间
@@ -236,10 +228,16 @@ public class PostDisplayModel
     /// <summary>
     /// (在收藏夹中) 用户为此收藏设置的别名
     /// </summary>
-    public string? FavoriteAS { get; set; }
-    
+    public string? FavoriteAs { get; set; }
+
     /// <summary>
     /// 指示这是否为从 Discord API 实时获取的回退数据
     /// </summary>
     public bool IsFallbackData { get; set; } = false;
+}
+
+public class BlackedInfo
+{
+    public ulong BlockedAuthorId { get; set; }
+    public DateTimeOffset AddedAt { get; set; }
 }

@@ -45,11 +45,11 @@ internal static class LogParser
             if (_templateCache.TryGetValue(message, out var cachedResult))
                 return cachedResult;
     
-            var parser = Parser(message);
+            var result = Parser(message);
     
             if (_templateCache.Count == CacheMaxCountLimit) _templateCache.Clear();
-            _templateCache[message] = parser;
-            return parser;
+            _templateCache[message] = result;
+            return result;
         }
         catch (Exception ex)
         {

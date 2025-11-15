@@ -58,11 +58,6 @@ public partial class DataProcessService
     /// <summary>中文分词服务，用于处理搜索功能</summary>
     private readonly ITokenizerService _tokenizerService;
 
-    /// <summary>
-    /// 消息数据到帖子数据的映射字典，用于处理创建帖子时的消息关联。
-    /// 键为消息ID，值为消息内容和任务完成源的元组。
-    /// </summary>
-    private readonly ConcurrentDictionary<ulong, (string MessageContent, TaskCompletionSource<bool> TaskCompletionSource)> _messageDataToThreadDataForCreateThread = new();
     #endregion
 
     #region 构造函数

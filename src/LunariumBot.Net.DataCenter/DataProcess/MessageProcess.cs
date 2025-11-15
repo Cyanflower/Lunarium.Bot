@@ -399,6 +399,51 @@ public partial class DataProcessService
     }
 
     /// <summary>
+    /// 处理首楼更新
+    /// </summary>
+    /// <param name="message">接收到的消息对象</param>
+    /// <param name="channelId">消息所在频道的id</param>
+    public async Task ThreadFirstMessageUpdateProcess(SocketMessage message, ulong channelId)
+    {
+        try
+        {
+
+            // 准备消息数据
+            var threadData = new ThreadData()
+            {
+                FirstMessageContent = message.Content,
+                ContentTokenized = message.Content is not null ? _tokenizerService.CutForSearch(message.Content) : null,
+            };
+
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpdateThreadContentAsync(transaction, threadData);
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+
+            });
+            _logger.Debug("✅ 成功更新帖子首楼消息: 消息ID {MessageId}", message.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 处理更新帖子首楼消息失败: 消息ID: {MessageId}, 链接: {MessageJumpUrl}",
+                message.Id, message.GetJumpUrl());
+        }
+    }
+
+    /// <summary>
     /// 批量处理消息删除事件。
     /// 将删除的消息ID列表传递给数据库服务进行处理。
     /// </summary>
@@ -427,7 +472,7 @@ public partial class DataProcessService
                 }
             });
 
-            _logger.Info("✅ 成功处理批量消息删除: 数量 {Count}", deletedMessage.Count);
+            _logger.Info("✅ 成功处理消息删除: 数量 {Count}", deletedMessage.Count);
         }
         catch (Exception ex)
         {

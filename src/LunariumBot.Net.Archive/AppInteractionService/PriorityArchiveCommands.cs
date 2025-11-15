@@ -28,6 +28,12 @@ public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketIntera
         _logger = logger.ForContext("PriorityArchiveCommands");
     }
 
+    public override async Task BeforeExecuteAsync(ICommandInfo command)
+    {
+        // override 父类方法, 在响应前统一执行DeferAsync
+        await DeferAsync(ephemeral: true);
+    }
+
     /// <summary>
     /// 添加帖子到优先归档列表
     /// </summary>
@@ -38,9 +44,6 @@ public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketIntera
         [Summary("权重", "权重值 (越高越优先归档, 推荐 1-65535)")] ushort priority
     )
     {
-        // 延迟响应，防止3秒超时
-        await DeferAsync(ephemeral: true);
-
         // 鉴权：必须是管理员
         if (!await _authUtils.IsAdmin("优先归档 添加", Context))
         {
@@ -108,8 +111,6 @@ public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketIntera
         [Summary("链接", "需要移除的帖子链接")] string threadUrl
     )
     {
-        await DeferAsync(ephemeral: true);
-
         // 鉴权：必须是管理员
         if (!await _authUtils.IsAdmin("优先归档 移除", Context))
         {
@@ -144,8 +145,6 @@ public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketIntera
     [SlashCommand("查看列表", "查看当前优先归档帖子列表")]
     public async Task ListPriorityArchives()
     {
-        await DeferAsync(ephemeral: true);
-        
         // 鉴权：必须是管理员
         if (!await _authUtils.IsAdmin("优先归档 查看列表", Context))
         {
@@ -211,8 +210,6 @@ public sealed class PriorityArchiveCommands : InteractionModuleBase<SocketIntera
         [Summary("链接", "需要查询的帖子链接")] string threadUrl
     )
     {
-        await DeferAsync(ephemeral: true);
-        
         // 鉴权：必须是管理员
         if (!await _authUtils.IsAdmin("优先归档 添加", Context))
         {

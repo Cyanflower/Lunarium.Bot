@@ -13,6 +13,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.Extensions;
 
 using LunariumBot.Net.Archive.Model;
+using Discord.Rest;
 
 namespace LunariumBot.Net.Archive.Archiver;
 
@@ -46,8 +47,8 @@ public sealed class ArchiverService : IDisposable
     private ConcurrentDictionary<ulong, Dictionary<ulong, Discord.Rest.RestThreadChannel>> _pinnedThreadsCache = new();
 
     /// <summary>
-    /// 缓存的置顶帖信息
-    /// 结构: [服务器ID][频道ID] = 线程对象
+    /// 有限归档帖子列表
+    /// 结构: [服务器ID][优先归档帖子信息对象]
     /// </summary>
     private ConcurrentDictionary<ulong, PriorityThreadInfo> _priorityArchive = new();
 
@@ -115,6 +116,10 @@ public sealed class ArchiverService : IDisposable
         }
     }
 
+    #endregion
+
+    #region 公共方法 (用于外部调用)
+
     /// <summary>
     /// 更新定时器的执行间隔
     /// </summary>
@@ -137,7 +142,12 @@ public sealed class ArchiverService : IDisposable
                 period: TimeSpan.FromMinutes(_archiveConfig.Config.IntervalMin));
         }
     }
-
+    
+    /// <summary>
+    /// 添加优先归档帖子
+    /// </summary>
+    /// <param name="threadChannel">要从缓存中移除的线程频道对象</param>
+    /// <returns>一个元组，包含操作是否成功 (bool) 和描述原因 (string)</returns>
     public (bool result, string reason) AddPriorityArchive(PriorityThreadInfo priorityThreadInfo)
     {
         try
@@ -167,11 +177,20 @@ public sealed class ArchiverService : IDisposable
         }
     }
 
+    /// <summary>
+    /// 查看优先归档帖子列表
+    /// </summary>
+    /// <returns>返回ConcurrentDictionary的当前Dictionary快照</returns>
     public Dictionary<ulong, PriorityThreadInfo> GetPriorityArchive()
     {
         return new(_priorityArchive);
     }
-    
+
+    /// <summary>
+    /// 移除优先归档帖子
+    /// </summary>
+    /// <param name="priorityThreadInfo">要从优先归档列表中移除的帖子信息对象</param>
+    /// <returns>一个元组，包含操作是否成功 (bool) 和描述原因 (string)</returns>
     public (bool result, string reason) RemovePriorityArchive(PriorityThreadInfo priorityThreadInfo)
     {
         try
@@ -191,6 +210,77 @@ public sealed class ArchiverService : IDisposable
         {
             _logger.Error(ex);
             return (false, $"移除失败: {ex.ToString().Slice(150, "...")}");
+        }
+    }
+
+    /// <summary>
+    /// 尝试从置顶线程缓存中移除一个指定的线程。
+    /// 这通常在用户手动取消置顶帖子时调用，以确保缓存与实际状态同步。
+    /// </summary>
+    /// <param name="threadChannel">要从缓存中移除的线程频道对象</param>
+    /// <returns>一个元组，包含操作是否成功 (bool) 和描述原因 (string)</returns>
+    public (bool result, string reason) TryRemovePinnedThread(IThreadChannel threadChannel)
+    {
+        try
+        {
+            if (threadChannel == null)
+            {
+                return (false, "传入的线程频道对象为空。");
+            }
+    
+            ulong parentChannelId;
+    
+            var guildId = threadChannel.GuildId;
+            if (threadChannel is SocketThreadChannel socketThreadChannel)
+            {
+                parentChannelId = socketThreadChannel.ParentChannel.Id;
+            }
+            else if (threadChannel is RestThreadChannel restThreadChannel)
+            {
+                parentChannelId = restThreadChannel.ParentChannelId;
+            }
+            else
+            {
+                return (false, "传入的线程频道对象无法转为有效真实类型");
+            }
+    
+            // 检查服务器缓存是否存在
+            if (!_pinnedThreadsCache.TryGetValue(guildId, out var channelCache))
+            {
+                // 服务器的缓存不存在，说明服务从未在该服务器缓存过任何置顶帖，无需操作。
+                return (true, "服务器没有置顶帖缓存记录，无需移除。");
+            }
+    
+            // 检查特定频道的置顶帖缓存是否存在
+            if (!channelCache.TryGetValue(parentChannelId, out var cachedThread))
+            {
+                // 该频道的缓存不存在，说明这个帖子没有被缓存为置顶帖，无需操作。
+                return (true, "该频道没有置顶帖缓存记录，无需移除。");
+            }
+    
+            // 确认缓存中的帖子ID与当前要移除的帖子ID是否一致
+            if (cachedThread.Id != threadChannel.Id)
+            {
+                // 例如，手动置顶了另一个帖子，这种情况下无需移除缓存中的旧置顶帖，其已经被覆盖了，后续维护的置顶帖按缓存字典的内容为准
+                return (true, $"缓存中的置顶帖 (ID: {cachedThread.Id}) 与当前帖子不匹配，无需移除。");
+            }
+    
+            // 执行移除操作
+            if (channelCache.Remove(parentChannelId))
+            {
+                _logger.Info("手动取消置顶，已从缓存中移除线程 {ThreadId} (父频道: {ParentChannelId})", threadChannel.Id, parentChannelId);
+                return (true, "已成功从置顶缓存中移除。");
+            }
+            else
+            {
+                _logger.Warning("尝试从置顶缓存中移除线程 {ThreadId} 失败，即使在缓存中找到了它。", threadChannel.Id);
+                return (false, "从缓存中移除失败，发生未知错误。");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
+            return (false, $"从缓存中移除失败，发生错误: \n{ex.ToString().Slice(1500)}");
         }
     }
 

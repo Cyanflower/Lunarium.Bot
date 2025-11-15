@@ -1,10 +1,14 @@
 // NuGet 包依赖
 using Discord.Interactions;
+using Discord;
+
+using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;
 using LunariumBot.Net.Archive.Utils;
 using LunariumBot.Net.Archive.Archiver;
+using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.Archive.AppInteractionService;
 
@@ -13,18 +17,20 @@ public sealed class AdminCommands : InteractionModuleBase<SocketInteractionConte
 {
     private readonly ConfigLoader _configLoader;
     private readonly AuthUtils _authUtils;
-    private readonly ArchiverService _archiverService; // 注入ArchiverService来更新定时器
+    private readonly ArchiverService _archiverService;
+    private readonly ILogger _logger;
 
-    public AdminCommands(ConfigLoader configLoader, AuthUtils authUtils, ArchiverService archiverService)
+    public AdminCommands(ILogger logger, ConfigLoader configLoader, AuthUtils authUtils, ArchiverService archiverService)
     {
         _configLoader = configLoader;
         _authUtils = authUtils;
         _archiverService = archiverService;
+        _logger = logger;
     }
 
     public override async Task BeforeExecuteAsync(ICommandInfo command)
     {
-        // 使用 DeferAsync 让 Discord 等待我们处理，避免交互超时
+        // override 父类方法, 在响应前统一执行DeferAsync
         await DeferAsync(ephemeral: true);
     }
 
@@ -146,5 +152,37 @@ public sealed class AdminCommands : InteractionModuleBase<SocketInteractionConte
         _archiverService.UpdateTimerInterval();
 
         await FollowupAsync(embed: EmbedUtils.SuccessEmbed("已尝试从文件重新加载配置并更新定时器。如果文件内容有误，将保留旧配置。请检查控制台日志确认结果。"));
+    }
+
+    [SlashCommand("unpin-post", "取消本帖在论坛中的置顶")]
+    public async Task UnpinPost()
+    {
+        // 权限检查
+        if (!await _authUtils.IsAdmin("admin reload-config", Context)) return;
+
+        try
+        {
+            if (Context.Channel is not IThreadChannel threadChannel)
+            {
+                await FollowupAsync(embed: EmbedUtils.FailedEmbed("操作失败, 当前为非帖子频道"), ephemeral: true);
+                return;
+            }
+
+            // 移除 Pinned 标志位
+            await threadChannel.ModifyAsync(prop => { prop.Flags = threadChannel.Flags & ~ChannelFlags.Pinned; });
+
+            // 从 ArchiverService 的缓存中移除该帖子
+            var (cacheSuccess, cacheReason) = _archiverService.TryRemovePinnedThread(threadChannel);
+
+            var finalMessage = $"✅ 已向 Discord 发送取消置顶请求。\n" +
+                               $"🧠 缓存同步结果: **{cacheReason}**";
+
+            await FollowupAsync(embed: EmbedUtils.SuccessEmbed(finalMessage), ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "UnpinPost Exception");
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed($"操作失败, 原因: \n{ex.ToString().Slice(1500)}"), ephemeral: true);
+        }
     }
 }

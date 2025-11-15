@@ -4,12 +4,12 @@
     "AdminRoleIds": [
       1337441650137366705
     ],
-    "LogChannel": 1418790684315484191
+    "LogChannel": 1375138585732452453
   },
   // 服务器配置(兼容多服务器配置)
   // 服务器ID
   "DeployGuildConfig": {
     "1291925535324110879": 970
   },
-  "IntervalMin": 10
+  "IntervalMin": 6
 }

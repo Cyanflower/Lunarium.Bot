@@ -1,11 +1,11 @@
 #!/bin/bash
 
 SOURCE_DIR="./dist/LunariumBot.Net.DataCenter/"
-REMOTE_DEST_URL="LunariumBot.Net:/home/lunarium/LunariumBot.Net/LunariumBot.Net.DataCenter"
-REMOTE_DEST_PATH="/home/lunarium/LunariumBot.Net/LunariumBot.Net.DataCenter"
+REMOTE_DEST_URL="BotCenterVPS:/home/cyanflower/LunariumBot.Net/LunariumBot.Net.DataCenter"
+REMOTE_DEST_PATH="/home/cyanflower/LunariumBot.Net/LunariumBot.Net.DataCenter"
 
 echo "正在连接远程服务器并确保目标目录存在..."
-ssh LunariumBot.Net "mkdir -p $REMOTE_DEST_PATH"
+ssh BotCenterVPS "mkdir -p $REMOTE_DEST_PATH"
 
 # ==========================================================
 #  分步部署策略

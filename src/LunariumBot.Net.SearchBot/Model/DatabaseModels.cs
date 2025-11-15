@@ -317,7 +317,7 @@ internal class PostDisplayModelDb
     // ================== 核心识别信息 ==================
     public long ThreadId { get; set; }
     public long FirstMessageId { get; set; }
-    
+
     // ================== 核心内容与链接 ==================
     public string? Title { get; set; }
     public string? Content { get; set; }
@@ -343,12 +343,12 @@ internal class PostDisplayModelDb
 
     // ================== 关联数据 ==================
     public string? Tags { get; set; }
-    
+
     // ================== 用户界面与元数据 ==================
     public long AddedAt { get; set; }
     public string? FavoriteAS { get; set; }
     public bool IsFallbackData { get; set; } = false;
-    
+
 
     // ================== 转换方法 ==================
 
@@ -380,7 +380,7 @@ internal class PostDisplayModelDb
         Tags = domain.Tags,
         // 用户界面与元数据
         AddedAt = domain.AddedAt,
-        FavoriteAS = domain.FavoriteAS,
+        FavoriteAS = domain.FavoriteAs,
         IsFallbackData = domain.IsFallbackData
     };
 
@@ -412,7 +412,24 @@ internal class PostDisplayModelDb
         Tags = Tags,
         // 用户界面与元数据
         AddedAt = AddedAt,
-        FavoriteAS = FavoriteAS,
+        FavoriteAs = FavoriteAS,
         IsFallbackData = IsFallbackData
+    };
+}
+
+internal class BlackedInfoDb
+{
+    public long BlockedAuthorId { get; set; }
+    public DateTimeOffset AddedAt { get; set; }
+    public static BlackedInfoDb FromDomain(BlackedInfo domain) => new()
+    {
+        BlockedAuthorId = domain.BlockedAuthorId.ToDbId(),
+        AddedAt = domain.AddedAt
+    };
+
+    public BlackedInfo ToDomain() => new()
+    {
+        BlockedAuthorId = BlockedAuthorId.ToDiscordId(),
+        AddedAt = AddedAt
     };
 }

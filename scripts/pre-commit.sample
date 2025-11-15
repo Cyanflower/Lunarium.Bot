@@ -1,107 +1,150 @@
 #!/bin/bash
 
 # ============================================================================
-# Git Pre-commit Hook - Token 安全检查
+# Git Pre-commit Hook - Token 安全检查（通用版 - 修复版）
 # ============================================================================
 # 
-# 用途: 防止提交包含真实 Token 的 start.sh 文件（无论是否注释）
-# 检查策略: 只允许 Token 值为模板值 "TOKEN_AT_HERE"，其他任何值都会被拒绝
+# 用途: 防止提交包含真实 Discord Bot Token 的任何文件
+# 检查策略: 扫描所有待提交文件，检测 Discord Token 格式
+# Token 格式: [Base64].[Base64].[Base64]
 # 
 # 安装方法:
 #   1. 将此文件复制到 .git/hooks/pre-commit
 #   2. chmod +x .git/hooks/pre-commit
-# 
-# 或者使用一键安装命令:
-#   cp pre-commit.sample .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 # ============================================================================
 
-echo "🔍 正在检查 start.sh 文件的 Token 安全性..."
+echo "🔍 正在扫描所有文件以检测潜在的 Token 泄露..."
 
-# 查找所有待提交的 start.sh 文件
-files=$(git diff --cached --name-only | grep 'start.sh$')
+# Discord Token 正则表达式
+# 格式: [24-28个字符的Base64].[6个字符的Base64].[27-40个字符的Base64]
+TOKEN_PATTERN='[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,40}'
 
-# 如果没有 start.sh 文件被修改，直接通过
+# 获取所有待提交的文件
+files=$(git diff --cached --name-only --diff-filter=ACM)
+
+# 如果没有文件被修改，直接通过
 if [ -z "$files" ]; then
-    echo "✓ 未检测到 start.sh 文件变更"
+    echo "✓ 未检测到文件变更"
     exit 0
 fi
 
 # 检查标志
 has_error=0
+total_files=0
+scanned_files=0
 
-# 检查每个 start.sh 文件
-for file in $files; do
-    echo "  检查: $file"
+# 检查文件是否为二进制文件的函数（不依赖 file 命令）
+is_text_file() {
+    local file="$1"
     
-    # 查找所有包含 _BOT_TOKEN= 的行（不管是否注释）
-    # 检查 Token 值是否为安全的模板值
-    while IFS= read -r line; do
-        # 提取 Token 值（去除引号和空格）
-        # 支持格式: export XXX="value", export XXX='value', export XXX=value
-        # 注意：只有当等号后有实际内容时才提取
-        token_value=$(echo "$line" | sed -nE 's/.*_BOT_TOKEN=[[:space:]]*["\x27]([^"\x27]+)["\x27].*/\1/p')
+    # 方法1: 检查文件扩展名（常见文本文件）
+    case "$file" in
+        *.txt|*.md|*.json|*.xml|*.yaml|*.yml|*.js|*.ts|*.jsx|*.tsx|\
+        *.py|*.rb|*.sh|*.bash|*.zsh|*.c|*.cpp|*.h|*.hpp|*.java|\
+        *.go|*.rs|*.php|*.html|*.css|*.scss|*.sass|*.less|\
+        *.sql|*.env|*.config|*.conf|*.ini|*.toml|*.gitignore|\
+        *.dockerfile|Dockerfile|Makefile|*.cmake|*.gradle|*.properties|\
+        *.vue|*.svelte|*.astro|.eslintrc*|.prettierrc*|package.json|tsconfig.json)
+            return 0
+            ;;
+    esac
+    
+    # 方法2: 检查文件前100个字节是否包含 null 字节（二进制文件特征）
+    if head -c 100 "$file" 2>/dev/null | grep -qI .; then
+        return 0  # 是文本文件
+    else
+        return 1  # 可能是二进制文件
+    fi
+}
+
+# 检查每个文件
+while IFS= read -r file; do
+    total_files=$((total_files + 1))
+    
+    # 跳过不存在的文件（已删除）
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+    
+    # 检查是否为文本文件
+    if is_text_file "$file"; then
+        scanned_files=$((scanned_files + 1))
         
-        # 如果双引号/单引号格式没有提取到，尝试无引号格式
-        if [ -z "$token_value" ]; then
-            token_value=$(echo "$line" | sed -nE 's/.*_BOT_TOKEN=[[:space:]]*([^[:space:]#]+).*/\1/p')
-        fi
+        # 在文件中搜索 Token 模式
+        matches=$(grep -nE "$TOKEN_PATTERN" "$file" 2>/dev/null || true)
         
-        # 如果成功提取到值，且不是模板值，则报错
-        if [ -n "$token_value" ] && [ "$token_value" != "TOKEN_AT_HERE" ]; then
+        if [ -n "$matches" ]; then
             if [ $has_error -eq 0 ]; then
                 echo ""
-                echo "❌ 错误: $file 包含真实的 Token 值！"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "❌ 警告: 检测到疑似 Discord Bot Token！"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo ""
-                echo "   检测到的危险配置:"
             fi
             
-            # 获取行号
-            line_number=$(grep -n -F "$line" "$file" | head -1 | cut -d: -f1)
-            echo "   第 $line_number 行: $(echo "$line" | sed 's/^[[:space:]]*//')"
+            echo "📁 文件: $file"
+            echo ""
             
+            # 显示每个匹配项（遮蔽中间部分）
+            echo "$matches" | while IFS=: read -r line_num line_content; do
+                # 提取 Token（可能有多个）
+                tokens=$(echo "$line_content" | grep -oE "$TOKEN_PATTERN")
+                
+                echo "$tokens" | while IFS= read -r token; do
+                    # 遮蔽 Token 中间部分（只显示前后各10个字符）
+                    masked_token=$(echo "$token" | sed -E 's/^(.{10}).*(.{10})$/\1****\2/')
+                    echo "   第 $line_num 行: 检测到 Token 格式 -> $masked_token"
+                done
+            done
+            
+            echo ""
             has_error=1
         fi
-    done < <(grep -E '_BOT_TOKEN=' "$file" 2>/dev/null || true)
-    
-    # 如果该文件有错误，显示提示信息
-    if [ $has_error -eq 1 ]; then
-        echo ""
-        echo "   Token 值必须保持为模板值 \"TOKEN_AT_HERE\""
-        echo "   无论是否注释，都不应该包含真实的 Token 值"
-        echo ""
-        echo "   安全示例:"
-        echo "   export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\"    ✓ 安全（模板值）"
-        echo "   # export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\"  ✓ 安全（注释+模板）"
-        echo ""
-        echo "   危险示例:"
-        echo "   export ARCHIVE_BOT_TOKEN=\"real_token_123\"   ✗ 危险！"
-        echo "   # export ARCHIVE_BOT_TOKEN=\"real_token_123\" ✗ 危险！（即使注释）"
-        echo ""
     fi
-done
+done <<< "$files"
+
+# 显示扫描统计
+echo "📊 扫描统计: 共检查 $scanned_files 个文本文件（总文件数: $total_files）"
+echo ""
 
 # 如果有错误，阻止提交
 if [ $has_error -eq 1 ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "提交被阻止，原因：检测到真实的 Bot Token 值"
+    echo "⛔ 提交被阻止！检测到疑似 Discord Bot Token"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "解决方案："
-    echo "  1. 将 Token 值改回模板值（推荐）："
-    echo "     export ARCHIVE_BOT_TOKEN=\"TOKEN_AT_HERE\""
+    echo "🔒 Token 格式说明:"
+    echo "   Discord Bot Token 格式: [Base64].[Base64].[Base64]"
+    echo "   示例: MTM4NDM...g (已遮蔽)"
     echo ""
-    echo "  2. 或者完全删除该行，在服务器上再配置"
+    echo "✅ 解决方案："
     echo ""
-    echo "  3. 使用环境变量而不是写入文件（开发环境推荐）："
-    echo "     export ARCHIVE_BOT_TOKEN=\"your_dev_token\""
+    echo "  1. 移除真实 Token（推荐）:"
+    echo "     - 将 Token 替换为占位符（如 \"YOUR_TOKEN_HERE\"）"
+    echo "     - 或完全删除包含 Token 的行"
     echo ""
-    echo "  注意: 即使注释掉真实 Token 也不安全，必须改为模板值！"
+    echo "  2. 使用环境变量:"
+    echo "     - 在代码中使用: process.env.DISCORD_TOKEN"
+    echo "     - 在本地配置: export DISCORD_TOKEN=\"your_token\""
     echo ""
-    echo "  4. 如果确实需要提交（极不推荐），使用："
-    echo "     git commit --no-verify"
+    echo "  3. 使用配置文件（添加到 .gitignore）:"
+    echo "     - 创建 config.local.json 或 .env 文件"
+    echo "     - 将文件添加到 .gitignore"
+    echo ""
+    echo "  4. 检查 .gitignore:"
+    echo "     - 确保敏感文件已被忽略"
+    echo "     - 常见文件: .env, config.local.*, *.secret.*"
+    echo ""
+    echo "  ⚠️  如果这是误报（如测试数据），可以："
+    echo "     - 调整 Token 格式使其不匹配正则表达式"
+    echo "     - 或使用 git commit --no-verify（极不推荐）"
+    echo ""
+    echo "  🔐 如果 Token 已泄露:"
+    echo "     - 立即在 Discord Developer Portal 重置 Token"
+    echo "     - 检查 Git 历史记录并清理"
     echo ""
     exit 1
 fi
 
-echo "✓ Token 安全检查通过"
+echo "✅ Token 安全检查通过 - 未发现疑似 Token"
 exit 0

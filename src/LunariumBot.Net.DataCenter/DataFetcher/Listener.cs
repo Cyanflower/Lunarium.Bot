@@ -78,6 +78,7 @@ public class Listener
         {
             _handlersAttached = true;
             _client.MessageReceived += MessageReceivedHandler;
+            _client.MessageUpdated += MessageUpdatedHandler;
             _client.MessageDeleted += MessageDeleteHandler;
             _client.MessagesBulkDeleted += MessageBulkDeleteHandler;
             _client.ThreadCreated += ThreadCreatedHandler;
@@ -88,6 +89,8 @@ public class Listener
             _client.ChannelCreated += ChannelCreatedHandler;
             _client.ChannelUpdated += ChannelUpdatedHandler;
             _client.ChannelDestroyed += ChannelDestroyedHandler;
+            _client.ThreadMemberJoined += ThreadMemberJoinedHandler;
+            _client.ThreadMemberLeft += ThreadMemberLeftHandler;
             _logger.Info("✅ 监听器事件处理方法已添加");
         }
         catch (Exception ex)
@@ -108,6 +111,7 @@ public class Listener
         try
         {
             _client.MessageReceived -= MessageReceivedHandler;
+            _client.MessageUpdated -= MessageUpdatedHandler;
             _client.MessageDeleted -= MessageDeleteHandler;
             _client.MessagesBulkDeleted -= MessageBulkDeleteHandler;
             _client.ThreadCreated -= ThreadCreatedHandler;
@@ -118,6 +122,8 @@ public class Listener
             _client.ChannelCreated -= ChannelCreatedHandler;
             _client.ChannelUpdated -= ChannelUpdatedHandler;
             _client.ChannelDestroyed -= ChannelDestroyedHandler;
+            _client.ThreadMemberJoined -= ThreadMemberJoinedHandler;
+            _client.ThreadMemberLeft -= ThreadMemberLeftHandler;
             _logger.Info("✅ 监听器事件处理方法已移除");
         }
         catch (Exception ex)
@@ -136,6 +142,11 @@ public class Listener
     private Task MessageReceivedHandler(SocketMessage socketMessage)
     {
         _ = Task.Run(async () => { await MessageReceivedAsync(socketMessage); });
+        return Task.CompletedTask;
+    }
+    private Task MessageUpdatedHandler(Cacheable<IMessage, ulong> cacheableMessage, SocketMessage socketMessage, ISocketMessageChannel socketMessageChannel)
+    {
+        _ = Task.Run(async () => { await MessageUpdatedAsync(cacheableMessage, socketMessage, socketMessageChannel); });
         return Task.CompletedTask;
     }
     private Task MessageDeleteHandler(Cacheable<IMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableMessageChannel)
@@ -192,12 +203,24 @@ public class Listener
         _ = Task.Run(async () => { await ChannelDestroyedAsync(socketChannel); });
         return Task.CompletedTask;
     }
+    // ==================== 成员 ====================
+    private Task ThreadMemberJoinedHandler(SocketThreadUser socketThreadUser)
+    {
+        _ = Task.Run(async () => { await ThreadMemberJoinedAsync(socketThreadUser); });
+        return Task.CompletedTask;
+    }
+
+    private Task ThreadMemberLeftHandler(SocketThreadUser socketThreadUser)
+    {
+        _ = Task.Run(async () => { await ThreadMemberLeftAsync(socketThreadUser); });
+        return Task.CompletedTask;
+    }
     #endregion
 
 
     #region ToProcess
 
-    #region Message
+    #region 消息事件
     /// <summary>
     /// 处理接收到的消息事件
     /// 根据消息所在频道的类型 (线程, 文字频道等) 分发到相应的处理逻辑
@@ -214,35 +237,35 @@ public class Listener
                 _logger.Debug("⏭️ 消息已被过滤规则忽略: 消息ID {MessageId}", socketMessage.Id);
                 return;
             }
-            
+
             var channel = socketMessage.Channel;
-            _logger.Debug("📨 收到消息: 消息ID {MessageId}, 频道ID {ChannelId}, 频道类型 {ChannelType}", 
+            _logger.Debug("📨 收到消息: 消息ID {MessageId}, 频道ID {ChannelId}, 频道类型 {ChannelType}",
                 socketMessage.Id, channel.Id, channel.GetType().Name);
             switch (channel)
             {
                 // 如果消息所在频道是 SocketThreadChannel(线程/帖子)
                 case SocketThreadChannel threadChannel:
-                    _logger.Debug("🧵 处理线程消息: [{GuildName}.{ParentChannelName}.{ThreadName}]", 
+                    _logger.Debug("🧵 处理线程消息: [{GuildName}.{ParentChannelName}.{ThreadName}]",
                         threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知父频道", threadChannel.Name);
-                    
+
                     switch (threadChannel.ParentChannel) // 嵌套处理父频道, 分辨其来自论坛/文字频道
                     {
                         // 父频道是论坛频道
                         case SocketForumChannel parentForumChannel:
-                            _logger.Debug("📋 处理论坛帖子消息: 论坛 [{ForumName}], 帖子 [{ThreadName}]", 
+                            _logger.Debug("📋 处理论坛帖子消息: 论坛 [{ForumName}], 帖子 [{ThreadName}]",
                                 parentForumChannel.Name, threadChannel.Name);
                             await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentForumChannel);
                             break;
-                        
+
                         // 父频道是文字频道(确保精确类型匹配)
                         case SocketTextChannel parentTextChannel when parentTextChannel.GetType() == typeof(SocketTextChannel):
                             // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
                             // 而不是通过继承兼容 SocketTextChannel
-                            _logger.Debug("💬 处理文字频道线程消息: 文字频道 [{TextChannelName}], 线程 [{ThreadName}]", 
+                            _logger.Debug("💬 处理文字频道线程消息: 文字频道 [{TextChannelName}], 线程 [{ThreadName}]",
                                 parentTextChannel.Name, threadChannel.Name);
                             await _dataProcessService.ThreadMessageProcessAsync(socketMessage, threadChannel, parentTextChannel);
                             break;
-    
+
                         // 其他类型的父频道(语音、舞台、公告频道等)
                         case SocketStageChannel:
                         case SocketVoiceChannel:
@@ -250,7 +273,7 @@ public class Listener
                             _logger.Debug("⏭️ 收到非常规频道子区消息，视为无效: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}",
                                 threadChannel.Guild.Name, threadChannel.ParentChannel.Name, threadChannel.Name, socketMessage.Id);
                             break;
-    
+
                         // 最后的默认情况 - 未识别的父频道类型
                         default:
                             _logger.Warning("⚠️ 未能归类子区消息的父频道: [{GuildName}.{ParentChannelName}.{ThreadName}] 消息ID {MessageId}, 父频道类型 {ParentChannelType}",
@@ -258,17 +281,17 @@ public class Listener
                             break;
                     }
                     break;
-    
+
                 // 处理基类 SocketTextChannel(普通文字频道)
                 // 注意：这里的顺序不能和 case SocketThreadChannel 反过来, 因为基类继承关系
                 case SocketTextChannel textChannel when channel.GetType() == typeof(SocketTextChannel):
                     // 使用 typeof 确保其运行时的确切类型必须是 SocketTextChannel
                     // 而不是通过继承兼容 SocketTextChannel
-                    _logger.Debug("💬 处理文字频道消息: [{GuildName}.{ChannelName}]", 
+                    _logger.Debug("💬 处理文字频道消息: [{GuildName}.{ChannelName}]",
                         textChannel.Guild.Name, textChannel.Name);
                     await _dataProcessService.TextChannelMessageProcess(socketMessage, textChannel);
                     break;
-    
+
                 // 其他类型 - 非监控的频道类型(语音、舞台、公告频道)
                 case SocketStageChannel:
                 case SocketVoiceChannel:
@@ -276,13 +299,13 @@ public class Listener
                     _logger.Debug("⏭️ 收到非常规频道消息，视为无效: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
                         socketMessage.Id, channel.Id, (channel as IGuildChannel)?.Name ?? "未知", channel.GetType().Name);
                     break;
-                
+
                 // 私聊消息
                 case SocketDMChannel:
                     _logger.Debug("⏭️ 收到私聊消息，视为无效: 作者ID {AuthorId}, 作者 {AuthorName}",
                         socketMessage.Author.Id, socketMessage.Author.GlobalName ?? socketMessage.Author.Username);
                     break;
-    
+
                 // 最后的默认情况 - 未知频道类型
                 default:
                     _logger.Warning("⚠️ 未能归类消息所处的频道: 消息ID {MessageId}, 频道ID {ChannelId}, 频道名称 {ChannelName}, 频道类型 {ChannelType}",
@@ -292,13 +315,27 @@ public class Listener
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ <Task>: 处理接收到的消息事件时发生错误, 消息ID: {MessageId}, 频道ID: {ChannelId}, 消息链接: {MessageJumpUrl}", 
+            _logger.Error(ex, "❌ <Task>: 处理接收到的消息事件时发生错误, 消息ID: {MessageId}, 频道ID: {ChannelId}, 消息链接: {MessageJumpUrl}",
                 socketMessage.Id, socketMessage.Channel.Id, socketMessage.GetJumpUrl());
         }
     }
-    #endregion
 
-    #region 消息删除
+    private async Task MessageUpdatedAsync(Cacheable<IMessage, ulong> cacheableMessage, SocketMessage socketMessage, ISocketMessageChannel socketMessageChannel)
+    {
+        try
+        {
+            // 只在消息id和所在线程id相等时处理 (帖子首楼消息id=帖子id)
+            if (socketMessage.Id == socketMessageChannel.Id)
+            {
+                await _dataProcessService.ThreadFirstMessageUpdateProcess(socketMessage, socketMessageChannel.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ <Task>: 处理接收到的消息更新事件时发生错误, 消息ID: {MessageId}, 频道ID: {ChannelId}, 消息链接: {MessageJumpUrl}",
+                socketMessage.Id, socketMessage.Channel.Id, socketMessage.GetJumpUrl());
+        }
+    }
 
     /// <summary>
     /// 处理单条消息删除事件
@@ -330,7 +367,7 @@ public class Listener
         try
         {
             var messageIds = cacheableMessages.Select(msg => msg.Id).ToList();
-            _logger.Info("🗑️ 处理批量消息删除: 数量 {Count}, 频道ID {ChannelId}", 
+            _logger.Debug("🗑️ 处理批量消息删除: 数量 {Count}, 频道ID {ChannelId}", 
                 messageIds.Count, cacheableMessageChannel.Id);
             await _dataProcessService.MessagesDeleteProcess(messageIds);
         }
@@ -895,7 +932,7 @@ public class Listener
             return true; // 出错时默认忽略
         }
     }
-    
+
     /// <summary>
     /// 检查文字频道是否应该被完全忽略(根据排除规则)。
     /// 检查顺序：频道排除 -> 分类排除。
@@ -910,7 +947,7 @@ public class Listener
             var channelId = socketTextChannel.Id;
             if (_configLoader.Config.DeployConfig.ExcludeChannelIds.Contains(channelId))
             {
-                _logger.Debug("🔍 过滤检查: 文字频道 [{ChannelName}] (ID: {ChannelId}) 在排除列表中", 
+                _logger.Debug("🔍 过滤检查: 文字频道 [{ChannelName}] (ID: {ChannelId}) 在排除列表中",
                     socketTextChannel.Name, channelId);
                 return true;
             }
@@ -924,10 +961,10 @@ public class Listener
                 _logger.Debug("🔍 过滤检查: 文字频道 [{ChannelName}] 无分类ID，忽略处理", socketTextChannel.Name);
                 return true;
             }
-            
+
             if (_configLoader.Config.DeployConfig.ExcludeCategoryIds.Contains(categoryId.Value))
             {
-                _logger.Debug("🔍 过滤检查: 文字频道 [{ChannelName}] 的分类 (ID: {CategoryId}) 在排除列表中", 
+                _logger.Debug("🔍 过滤检查: 文字频道 [{ChannelName}] 的分类 (ID: {CategoryId}) 在排除列表中",
                     socketTextChannel.Name, categoryId.Value);
                 return true;
             }
@@ -941,5 +978,36 @@ public class Listener
             return true; // 出错时默认忽略
         }
     }
+    #endregion
+    
+
+    #region 帖子成员事件
+
+    public async Task ThreadMemberJoinedAsync(SocketThreadUser socketThreadUser)
+    {
+        try
+        {
+            await _dataProcessService.ThreadMemberJoinedProcessAsync(socketThreadUser);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ <Task>: 处理帖子成员加入时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+    }
+    public async Task ThreadMemberLeftAsync(SocketThreadUser socketThreadUser)
+    {
+        try
+        {
+            await _dataProcessService.ThreadMemberLeftProcessAsync(socketThreadUser);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ <Task>: 处理帖子成员离开时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 曾加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+
+    }
+    
     #endregion
 }

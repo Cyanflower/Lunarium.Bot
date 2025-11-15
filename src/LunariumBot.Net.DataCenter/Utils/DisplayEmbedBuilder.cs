@@ -66,7 +66,6 @@ public static class DisplayEmbedBuilder
     }
 
     /// <summary>
-    /// (从 DataAnalysis.cs 挪来的辅助方法)
     /// 格式化焦点帖子列表
     /// </summary>
     private static string FormatTopPostsSection(string title, List<PostDisplayModel> posts)
@@ -92,7 +91,6 @@ public static class DisplayEmbedBuilder
     }
 
     /// <summary>
-    /// (从 DataAnalysis.cs 挪来的辅助方法)
     /// 格式化热门标签列表。
     /// </summary>
     private static string FormatTopTagsSection(string title, Dictionary<TagInfo, int> tags)

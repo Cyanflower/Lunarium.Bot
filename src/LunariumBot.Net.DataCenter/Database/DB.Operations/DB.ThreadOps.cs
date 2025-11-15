@@ -111,7 +111,7 @@ public partial class DatabaseService
             throw;
         }
     }
-    
+
     public async Task UpdateThreadAsync(NpgsqlTransaction transaction, ThreadData threadData)
     {
         const string SQLCommand = """
@@ -147,6 +147,38 @@ public partial class DatabaseService
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ UpsertThreadAsync: 更新帖子 {ThreadName}({ThreadId})  时数据库操作失败！", threadData.Title, threadData.ThreadId);
+            throw;
+        }
+    }
+    
+    public async Task UpdateThreadContentAsync(NpgsqlTransaction transaction, ThreadData threadData)
+    {
+        const string SQLCommand = """
+            -- 更新帖子主数据
+            -- 只更新特定字段：first_message_content
+            UPDATE posts_main 
+            SET 
+                first_message_content = @FirstMessageContent,
+                content_tokenized = @ContentTokenized,
+            WHERE 
+                thread_id = @ThreadId;
+            """;
+        var threadDataDb = ThreadDataDb.FromDomain(threadData);
+
+        var parameters = new
+        {
+            threadDataDb.FirstMessageContent,
+            threadDataDb.ContentTokenized
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpsertThreadAsync: 更新帖子 {ThreadName}({ThreadId})  的首楼消息内容时数据库操作失败！", threadData.Title, threadData.ThreadId);
             throw;
         }
     }
@@ -280,10 +312,21 @@ public partial class DatabaseService
             SET
                 -- 无论如何都更新这些字段
                 message_count = post_members.message_count +1,
-                last_message_id = EXCLUDED.last_message_id, -- 更新为最新的消息
-                last_message_at = EXCLUDED.last_message_at, -- 更新为最新的消息时间
 
                 -- 使用 CASE 语句来处理不同情况
+
+                -- 更新为最新的消息
+                last_message_id = CASE
+                                    WHEN EXCLUDED.last_message_id IS NOT NULL
+                                    THEN EXCLUDED.last_message_id
+                                    ELSE post_members.last_message_id
+                                END,
+                -- 更新为最新的消息时间
+                last_message_at = CASE
+                                    WHEN EXCLUDED.last_message_at IS NOT NULL
+                                    THEN EXCLUDED.last_message_at
+                                    ELSE post_members.last_message_at
+                                END,
                 
                 -- 如果旧记录是“已离开”状态，那么这次就是“重新加入”
                 -- 需要将 is_leave 设回 false，并更新 last_join_at

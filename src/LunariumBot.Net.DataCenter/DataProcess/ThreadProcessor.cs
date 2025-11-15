@@ -69,12 +69,12 @@ public partial class DataProcessService
             var imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
             attachmentUrl = imageAttachment?.Url;
         }
-        else
-        {
-            isValid = false;
-            if (firstMessage is null) _logger.Debug("firstMessage Is null");
-            else if (string.IsNullOrWhiteSpace(firstMessage.Content)) _logger.Debug("firstMessage Is Null Or WhiteSpace, Content: [{firstMessage.Content}]", firstMessage.Content);
-        }
+        // else
+        // {
+        //     isValid = false;
+        //     if (firstMessage is null) _logger.Debug("firstMessage Is null");
+        //     else if (string.IsNullOrWhiteSpace(firstMessage.Content)) _logger.Debug("firstMessage Is Null Or WhiteSpace, Content: [{firstMessage.Content}]", firstMessage.Content);
+        // }
 
         var threadInterface = (IThreadChannel)socketThreadChannel;
 
@@ -534,6 +534,92 @@ public partial class DataProcessService
             _logger.Error(ex, "❌ 软删除帖子失败 (ID: {ThreadId})", threadId);
         }
     }
+    #endregion
+
+    #region 帖子成员处理
+
+    public async Task ThreadMemberJoinedProcessAsync(SocketThreadUser socketThreadUser)
+    {
+        var postMemberData = new PostMemberData()
+        {
+            UserId = socketThreadUser.Id,
+            ThreadId = socketThreadUser.Thread.Id,
+            IsThreadOwner = socketThreadUser.Id == socketThreadUser.Thread.Owner.Id,
+            FirstJoinAt = socketThreadUser.ThreadJoinedAt,
+            LastJoinAt = socketThreadUser.ThreadJoinedAt,
+            LastMessageId = null,
+            LastMessageAt = null
+        };
+
+        // ==========================
+        // 写入数据库
+        // ========================== 
+        try
+        {
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            _logger.Info("✅ 成功处理成员加入帖子: 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 处理成员加入帖子失败: 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+    }
+    public async Task ThreadMemberLeftProcessAsync(SocketThreadUser socketThreadUser)
+    {
+        // ==========================
+        // 写入数据库
+        // ========================== 
+        try
+        {
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                try
+                {
+                    await _databaseService.RemovePostMemberAsync(transaction, socketThreadUser.Id, socketThreadUser.Thread.Id);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            _logger.Info("✅ 成功处理成员离开帖子: 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 处理成员离开帖子失败: 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+    }
+    
     #endregion
 
     #region 辅助方法
