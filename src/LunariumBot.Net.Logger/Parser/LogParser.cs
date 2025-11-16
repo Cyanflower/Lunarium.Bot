@@ -16,7 +16,7 @@ namespace LunariumBot.Net.Logger.Parser;
 internal enum ParserState
 {
     Start,
-    Text,           // 状态1：解析普通文本
+    Text,     // 状态1：解析普通文本
     Property, // 状态2：在{}内部
     Complete
 }
@@ -40,13 +40,14 @@ internal static class LogParser
     {
         try
         {
+            // 返回空模板
             if (message is null || message.Length == 0) return EmptyMessageTemplate;
-
+            // 如果命中缓存, 不解析, 直接返回
             if (_templateCache.TryGetValue(message, out var cachedResult))
                 return cachedResult;
-    
+            // 解析
             var result = Parser(message);
-    
+            // 写入缓存, 如果到达上限, 直接清空再写入
             if (_templateCache.Count == CacheMaxCountLimit) _templateCache.Clear();
             _templateCache[message] = result;
             return result;

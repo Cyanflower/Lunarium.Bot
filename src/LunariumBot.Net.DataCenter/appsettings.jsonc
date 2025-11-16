@@ -1,5 +1,5 @@
 {
-  "DatabaseConnection": "Host=localhost;Port=52001;Username=LunariumBot.NET;Password=kH7!p@wRz*bUvN9mG2c;Database=LunariumBot.NET.DB;Include Error Detail=true",
+  "DatabaseConnection": "Host=localhost;Port=52001;Username=LunariumBot.NET;Password=kH7!p@wRz*bUvN9mG2c;Database=LunariumBot.NET.DB;Include Error Detail=true;Client Encoding=UTF8;",
   // 管理员鉴权配置
   "AuthConfig": {
     "AdminRoleIds": [

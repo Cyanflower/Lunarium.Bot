@@ -9,6 +9,7 @@ using SixLabors.ImageSharp;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Utils;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
@@ -66,7 +67,7 @@ public partial class DataProcessService
                     await _semaphore.WaitAsync();
 
                     await _httpRetryPolicy.ExecuteAsync(async () =>
-                    { 
+                    {
                         refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
                     });
 
@@ -159,7 +160,7 @@ public partial class DataProcessService
                     {
                         await _databaseService.UpdatePostWorkAsync(transaction, socketThreadChannel.Id, message.GetJumpUrl(), message.CreatedAt);
                     }
-                    
+
                     // 基于回复记数的更新原理:
                     // - 直接将 API 附带的数据中的准确的总数覆盖写入
                     // - 而非在数据库内的原值上做加减
@@ -176,13 +177,13 @@ public partial class DataProcessService
                         // 回滚到保存点
                         await transaction.RollbackAsync("before_update_count");
                     }
-    
+
                     // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
                     if (message.Id != socketThreadChannel.Id)
                     {
                         await _databaseService.UpsertUserDataAsync(transaction, userData);
                     }
-    
+
                     await transaction.CommitAsync();
                 }
                 catch
@@ -285,7 +286,7 @@ public partial class DataProcessService
                         await _databaseService.InsertMessageAsync(transaction, messageData);
 
                         await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
-                        
+
                         // 基于回复记数的更新原理:
                         // - 直接将 API 附带的数据中的准确的总数覆盖写入
                         // - 而非在数据库内的原值上做加减
@@ -302,13 +303,13 @@ public partial class DataProcessService
                             // 回滚到保存点
                             await transaction.RollbackAsync("before_update_count");
                         }
-        
+
                         // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
                         if (message.Id != socketThreadChannel.Id)
                         {
                             await _databaseService.UpsertUserDataAsync(transaction, userData);
                         }
-        
+
                         await transaction.CommitAsync();
                     }
                     catch
@@ -411,8 +412,9 @@ public partial class DataProcessService
             // 准备消息数据
             var threadData = new ThreadData()
             {
+                ThreadId = channelId,
                 FirstMessageContent = message.Content,
-                ContentTokenized = message.Content is not null ? _tokenizerService.CutForSearch(message.Content) : null,
+                ContentTokenized = message.Content is not null ? JiebaTokenizerService.CutForSearch(message.Content) : null
             };
 
             await _dbRetryPolicy.ExecuteAsync(async () =>

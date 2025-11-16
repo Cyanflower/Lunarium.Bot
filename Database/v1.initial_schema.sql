@@ -267,6 +267,8 @@ CREATE TABLE IF NOT EXISTS user_blocked_authors (
     PRIMARY KEY (user_id, blocked_author_id)
 );
 
+-- 表: user_roles
+-- 描述: 用户身份组关系
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id BIGINT NOT NULL,
     role_id BIGINT NOT NULL,

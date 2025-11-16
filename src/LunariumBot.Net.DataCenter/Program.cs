@@ -63,6 +63,16 @@ public class Program
                         ContextFilterIncludes = ["DataCenterBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel
                     })
+
+                .AddSizedRotatingFileSink(
+                    logFilePath: "Logs/Scan/Scan.log",
+                    maxFileSizeMB: 10,
+                    maxFile: 10,
+                    sinkConfiguration: new SinkConfiguration
+                    {
+                        ContextFilterIncludes = ["DataCenterBotService.Scan"],
+                        LogMinLevel = fileLogLevel
+                    })
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/EW/Error.log",
                     maxFileSizeMB: 10,

@@ -14,6 +14,7 @@ using LunariumBot.Net.DataCenter.DataFetcher;
 using LunariumBot.Net.DataCenter.Scheduler;
 using LunariumBot.Net.DataCenter.Utils;
 using System.Text;
+using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.DataCenter.AppInteractionService;
 
@@ -132,21 +133,24 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             var reporter = new ScanProgressReporter(Context, _logger);
         try
         {
+            
             await reporter.ReportStartAsync("🚀 开始执行同步扫描任务...", Color.Blue);
 
             _listener.RemoveEventHandlers();
 
             await reporter.ReportProgressAsync("✅ 暂停事件处理: 监听器事件处理方法已移除。");
 
+            await FollowupAsync("✅ 任务已调度");
+
             // 执行扫描
             var result = await _scanner.SyncScan(reporter);
 
-            await FollowupAsync(embed: EmbedUtils.SuccessEmbed(result, "扫描成功"));
             success = true;
         }
         catch (Exception ex)
         {
-            await FollowupAsync(embed: EmbedUtils.FailedEmbed("扫描失败", ex.ToString()));
+            
+            reporter.AppendLine($"同步扫描捕获异常: {ex.Message.Slice(1500)}");
             _logger.Error("扫描失败, 原因:", ex);
             success = false;
         }

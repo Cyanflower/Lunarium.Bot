@@ -104,6 +104,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                 return ( defaultComponent, result );
         }
     }
+    
     private async Task<(MessageComponent component, ServiceResult result)> UnBlockAuthorAsync(ulong userId, ulong authorId)
     {
         await DeferAsync(ephemeral: true);
@@ -186,7 +187,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
     #endregion
 
     // =============================================
-    #region  按钮响应
+    #region  按钮回调
     // =============================================
     [ComponentInteraction("Block:*>>*")]
     public async Task ConfirmBlockButtonCallbackAsync(ulong userId, ulong authorId)

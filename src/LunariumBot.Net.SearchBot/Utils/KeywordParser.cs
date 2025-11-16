@@ -20,7 +20,9 @@ public static class KeywordParser
     {
         try
         {
-            return NormalizedSplit(keywords);
+            var normalized = NormalizedSplit(keywords);
+            var tokenized = normalized.Select(s => JiebaTokenizerService.CutForSearch(s, true)).ToList();
+            return tokenized;
         }
         catch
         {

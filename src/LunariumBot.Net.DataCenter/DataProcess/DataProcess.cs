@@ -55,9 +55,6 @@ public partial class DataProcessService
     /// <summary>信号量，用于控制 Discord API 请求的并发数量，避免超过速率限制</summary>
     private readonly SemaphoreSlim _semaphore;
 
-    /// <summary>中文分词服务，用于处理搜索功能</summary>
-    private readonly ITokenizerService _tokenizerService;
-
     #endregion
 
     #region 构造函数
@@ -69,13 +66,12 @@ public partial class DataProcessService
     /// <param name="proxyConfig">代理配置</param>
     /// <param name="tokenizerService">分词服务</param>
     /// <param name="semaphore">信号量</param>
-    public DataProcessService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, DiscordSocketClient discordSocketClient, ProxyConfig proxyConfig, ITokenizerService tokenizerService, SemaphoreSlim semaphore)
+    public DataProcessService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, DiscordSocketClient discordSocketClient, ProxyConfig proxyConfig, SemaphoreSlim semaphore)
     {
         _logger = logger.ForContext("DataProcessService");
         _configLoader = configLoader;
         _databaseService = databaseService;
         _discordSocketClient = discordSocketClient;
-        _tokenizerService = tokenizerService;
         _requestOptions = RequestOptionsConfig();
         _httpClient = HttpClientConfig(proxyConfig);
         _httpRetryPolicy = HttpRetryPolicyConfig();

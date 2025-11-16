@@ -10,6 +10,7 @@ using LunariumBot.Net.Logger;
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Utils;
 using LunariumBot.Net.SearchBot.Model;
+using Polly;
 
 namespace LunariumBot.Net.SearchBot.AppInteractionService;
 
@@ -36,6 +37,8 @@ public class AuthUtils
         if (InGuild(context.Guild.Id))
         {
             actualConditions |= AuthorizationConditions.IsInAuthorizedGuild;
+            _logger.Info("用户 {Username}(UserId) 的交互 {Context} 鉴权未通过: 不在授权的服务器内{}",
+                context.User.Username, context.User.Id, context.Interaction)
         }
         // --- 是否具有任一管理员身份 ---
         var guildUser = context.User as IGuildUser;

@@ -128,8 +128,6 @@ public class DataCenterBotService : IHostedService
 
             // ==================== 业务逻辑 ====================
             // ==== [基础设施] ====
-            // 注册分词器
-            .AddSingleton<ITokenizerService, JiebaTokenizerService>()
             // 注册全局并发控制器
             .AddSingleton(_semaphore)
             // 注册数据库服务

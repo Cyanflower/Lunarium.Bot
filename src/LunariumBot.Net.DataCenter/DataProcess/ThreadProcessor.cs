@@ -9,6 +9,7 @@ using SixLabors.ImageSharp;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Utils;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
@@ -115,8 +116,8 @@ public partial class DataProcessService
             Title = socketThreadChannel.Name,
             FirstMessageContent = firstMessage?.Content,
 
-            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
-            ContentTokenized = firstMessage is not null ? _tokenizerService.CutForSearch(firstMessage.Content) : null,
+            TitleTokenized = JiebaTokenizerService.CutForSearch(socketThreadChannel.Name),
+            ContentTokenized = firstMessage is not null ? JiebaTokenizerService.CutForSearch(firstMessage.Content) : null,
 
             // 更新相关
             UpdatedAt = null,
@@ -231,8 +232,8 @@ public partial class DataProcessService
             Title = socketThreadChannel.Name,
             FirstMessageContent = socketThreadChannel.Name,
 
-            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
-            ContentTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            TitleTokenized = JiebaTokenizerService.CutForSearch(socketThreadChannel.Name),
+            ContentTokenized = JiebaTokenizerService.CutForSearch(socketThreadChannel.Name),
 
             // 更新相关
             UpdatedAt = null,
@@ -351,7 +352,7 @@ public partial class DataProcessService
             ThreadId = socketThreadChannel.Id,
             // 标题更新
             Title = socketThreadChannel.Name,
-            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            TitleTokenized = JiebaTokenizerService.CutForSearch(socketThreadChannel.Name),
             // Tag
             Tags = tags,
             TagsId = appliedTagIds,
@@ -410,7 +411,7 @@ public partial class DataProcessService
             ThreadId = socketThreadChannel.Id,
             // 标题更新
             Title = socketThreadChannel.Name,
-            TitleTokenized = _tokenizerService.CutForSearch(socketThreadChannel.Name),
+            TitleTokenized = JiebaTokenizerService.CutForSearch(socketThreadChannel.Name),
             // Tag
             Tags = null,
             TagsId = [],

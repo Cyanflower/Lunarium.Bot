@@ -159,7 +159,7 @@ public partial class DatabaseService
             UPDATE posts_main 
             SET 
                 first_message_content = @FirstMessageContent,
-                content_tokenized = @ContentTokenized,
+                content_tokenized = @ContentTokenized
             WHERE 
                 thread_id = @ThreadId;
             """;
@@ -167,6 +167,7 @@ public partial class DatabaseService
 
         var parameters = new
         {
+            threadDataDb.ThreadId,
             threadDataDb.FirstMessageContent,
             threadDataDb.ContentTokenized
         };

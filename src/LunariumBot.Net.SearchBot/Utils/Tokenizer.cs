@@ -40,7 +40,7 @@ public static class JiebaTokenizerService
     /// </summary>
     /// <param name="text">要分词的文本</param>
     /// <returns>分词后的词语集合 或 空字符串</returns>
-    public static string Cut(string text)
+    public static string Cut(string text, bool forQuery = false)
     {
         // 返回一个空的集合，而不是null
         if (string.IsNullOrEmpty(text))
@@ -50,7 +50,7 @@ public static class JiebaTokenizerService
         // 使用精确模式分词
         var tokenizer = _segmenter.Cut(text);
         // 清洗和拼接分词结果
-        var cleanedText = CleanAndJoinTokens(tokenizer);
+        var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
     }
 
@@ -59,7 +59,7 @@ public static class JiebaTokenizerService
     /// </summary>
     /// <param name="text">要分词的文本</param>
     /// <returns>分词后的词语集合 或 空字符串</returns>
-    public static string CutForSearch(string text)
+    public static string CutForSearch(string text, bool forQuery = false)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -68,7 +68,7 @@ public static class JiebaTokenizerService
         // 使用搜索引擎模式分词
         var tokenizer = _segmenter.CutForSearch(text);
         // 清洗和拼接分词结果
-        var cleanedText = CleanAndJoinTokens(tokenizer);
+        var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
     }
 
@@ -80,16 +80,17 @@ public static class JiebaTokenizerService
     /// </summary>
     /// <param name="tokens">Jieba分词后产生的词语序列</param>
     /// <returns>一个干净的、用空格连接的字符串</returns>
-    private static string CleanAndJoinTokens(IEnumerable<string> tokens)
+    private static string CleanAndJoinTokens(IEnumerable<string> tokens, bool forQuery)
     {
         // 过滤掉停用词、空字符串、单个字符
-        var cleanedTokens = tokens.Where(token => 
+        var cleanedTokens = tokens.Where(token =>
             !string.IsNullOrWhiteSpace(token) &&
-            token.Length > 1 &&
+            token.Length >= 1 &&
             !_stopWords.Contains(token)
         );
-
+        // 用 <-> 拼接来实现短语搜索
+        if (forQuery) return $"({string.Join(" <-> ", cleanedTokens)})";
         // 用空格拼接剩余的词语
-        return string.Join(" ", cleanedTokens);
+        else return string.Join(" ", cleanedTokens);
     }
 }

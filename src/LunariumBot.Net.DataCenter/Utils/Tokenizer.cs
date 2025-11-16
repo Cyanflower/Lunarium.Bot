@@ -1,34 +1,15 @@
+using System.Text;
 // NuGet 包依赖
 using JiebaNet.Segmenter;
 
-
 namespace LunariumBot.Net.DataCenter.Utils;
 
-// 定义分词器接口
-// 未来如果更换分词器，只需要实现这个接口，不改动业务代码
-public interface ITokenizerService
+public static class JiebaTokenizerService
 {
-    /// <summary>
-    /// 对文本进行精确分词
-    /// </summary>
-    /// <param name="text">要分词的文本</param>
-    /// <returns>分词后的词语集合</returns>
-    string Cut(string text);
-
-    /// <summary>
-    /// 对文本进行搜索引擎模式分词，非常适合用于索引和搜索查询
-    /// </summary>
-    /// <param name="text">要分词的文本</param>
-    /// <returns>分词后的词语集合</returns>
-    string CutForSearch(string text);
-}
-
-// 这是接口的具体实现类
-public class JiebaTokenizerService : ITokenizerService
-{
+    const string JiebaTokenizerName = "";
     // 将 segmenter 定义为私有只读字段，在构造函数中初始化一次
     // 在整个服务生命周期内，Jieba的词典只加载一次
-    private readonly JiebaSegmenter _segmenter;
+    private static readonly JiebaSegmenter _segmenter;
 
     private static readonly HashSet<string> _stopWords = new HashSet<string>
     {
@@ -49,7 +30,7 @@ public class JiebaTokenizerService : ITokenizerService
         "<", ">", "&", "%", "$", "#", "@", "^", "~", "`"
     };
 
-    public JiebaTokenizerService()
+    static JiebaTokenizerService()
     {
         _segmenter = new JiebaSegmenter();
     }
@@ -59,7 +40,7 @@ public class JiebaTokenizerService : ITokenizerService
     /// </summary>
     /// <param name="text">要分词的文本</param>
     /// <returns>分词后的词语集合 或 空字符串</returns>
-    public string Cut(string text)
+    public static string Cut(string text, bool forQuery = false)
     {
         // 返回一个空的集合，而不是null
         if (string.IsNullOrEmpty(text))
@@ -67,9 +48,9 @@ public class JiebaTokenizerService : ITokenizerService
             return "";
         }
         // 使用精确模式分词
-        var tokenizer = _segmenter.Cut(text);
+        var tokenizer = _segmenter.Cut(RemoveAndFixSurrogates(text));
         // 清洗和拼接分词结果
-        var cleanedText = CleanAndJoinTokens(tokenizer);
+        var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
     }
 
@@ -78,16 +59,16 @@ public class JiebaTokenizerService : ITokenizerService
     /// </summary>
     /// <param name="text">要分词的文本</param>
     /// <returns>分词后的词语集合 或 空字符串</returns>
-    public string CutForSearch(string? text)
+    public static string CutForSearch(string text, bool forQuery = false)
     {
         if (string.IsNullOrEmpty(text))
         {
             return "";
         }
         // 使用搜索引擎模式分词
-        var tokenizer = _segmenter.CutForSearch(text);
+        var tokenizer = _segmenter.CutForSearch(RemoveAndFixSurrogates(text));
         // 清洗和拼接分词结果
-        var cleanedText = CleanAndJoinTokens(tokenizer);
+        var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
     }
 
@@ -99,16 +80,43 @@ public class JiebaTokenizerService : ITokenizerService
     /// </summary>
     /// <param name="tokens">Jieba分词后产生的词语序列</param>
     /// <returns>一个干净的、用空格连接的字符串</returns>
-    private string CleanAndJoinTokens(IEnumerable<string> tokens)
+    private static string CleanAndJoinTokens(IEnumerable<string> tokens, bool forQuery)
     {
         // 过滤掉停用词、空字符串、单个字符
-        var cleanedTokens = tokens.Where(token => 
+        var cleanedTokens = tokens.Where(token =>
             !string.IsNullOrWhiteSpace(token) &&
-            token.Length > 1 &&
+            token.Length >= 1 &&
             !_stopWords.Contains(token)
         );
-
+        // 用 <-> 拼接来实现短语搜索
+        if (forQuery) return $"({string.Join(" <-> ", cleanedTokens)})";
         // 用空格拼接剩余的词语
-        return string.Join(" ", cleanedTokens);
+        else return string.Join(" ", cleanedTokens);
+    }
+
+    /// <summary>
+    /// 移除所有代理对字符(包括emoji)和修复破损的代理对
+    /// </summary>
+    /// <param name="text">原始文本</param>
+    /// <returns>清理后的文本,所有代理对被移除,破损的代理对被替换为空</returns>
+    private static string RemoveAndFixSurrogates(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.Length);
+
+        // EnumerateRunes 会自动正确地迭代出每个Unicode字符（Rune）
+        foreach (var rune in text.EnumerateRunes())
+        {
+            // 只保留基本多文种平面（BMP）中的字符
+            if (rune.IsBmp)
+            {
+                sb.Append(rune);
+            }
+        }
+
+        return sb.ToString();
     }
 }
