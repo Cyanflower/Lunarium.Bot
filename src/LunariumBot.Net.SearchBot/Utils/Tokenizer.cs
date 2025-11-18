@@ -1,12 +1,12 @@
+using System.Text;
 // NuGet 包依赖
 using JiebaNet.Segmenter;
 
+namespace LunariumBot.Net.DataCenter.Utils;
 
-namespace LunariumBot.Net.SearchBot.Utils;
-
-// 这是接口的具体实现类
 public static class JiebaTokenizerService
 {
+    const string JiebaTokenizerName = "";
     // 将 segmenter 定义为私有只读字段，在构造函数中初始化一次
     // 在整个服务生命周期内，Jieba的词典只加载一次
     private static readonly JiebaSegmenter _segmenter;
@@ -48,7 +48,7 @@ public static class JiebaTokenizerService
             return "";
         }
         // 使用精确模式分词
-        var tokenizer = _segmenter.Cut(text);
+        var tokenizer = _segmenter.Cut(RemoveAndFixSurrogates(text));
         // 清洗和拼接分词结果
         var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
@@ -66,7 +66,7 @@ public static class JiebaTokenizerService
             return "";
         }
         // 使用搜索引擎模式分词
-        var tokenizer = _segmenter.CutForSearch(text);
+        var tokenizer = _segmenter.CutForSearch(RemoveAndFixSurrogates(text));
         // 清洗和拼接分词结果
         var cleanedText = CleanAndJoinTokens(tokenizer, forQuery);
         return cleanedText;
@@ -92,5 +92,31 @@ public static class JiebaTokenizerService
         if (forQuery) return $"({string.Join(" <-> ", cleanedTokens)})";
         // 用空格拼接剩余的词语
         else return string.Join(" ", cleanedTokens);
+    }
+
+    /// <summary>
+    /// 移除所有代理对字符(包括emoji)和修复破损的代理对
+    /// </summary>
+    /// <param name="text">原始文本</param>
+    /// <returns>清理后的文本,所有代理对被移除,破损的代理对被替换为空</returns>
+    private static string RemoveAndFixSurrogates(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.Length);
+
+        // EnumerateRunes 会自动正确地迭代出每个Unicode字符（Rune）
+        foreach (var rune in text.EnumerateRunes())
+        {
+            // 只保留基本多文种平面（BMP）中的字符
+            if (rune.IsBmp)
+            {
+                sb.Append(rune);
+            }
+        }
+
+        return sb.ToString();
     }
 }

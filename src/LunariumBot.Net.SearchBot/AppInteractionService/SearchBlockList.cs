@@ -20,7 +20,6 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
     private readonly AuthUtils _authUtils;
     private readonly ILogger _logger;
     private readonly DatabaseService _databaseService;
-
     private readonly ApplicationService _applicationService;
 
     public SearchBlockList(ILogger logger, AuthUtils authUtils, DatabaseService databaseService, ApplicationService applicationService)
@@ -41,7 +40,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                 .WithTextDisplay($"## 搜索屏蔽名单\n 你确定要将 <@{author.Id}> 添加到搜索时的结果排除名单吗? 之后的搜索结果中将不会包含该用户的帖子", 1001)
                 .WithSeparator()
                 .WithActionRow(row => row
-                    .WithButton("确认", $"Block:{user.Id}>>{author.Id}", ButtonStyle.Danger)
+                    .WithButton("确认", $"Block:{user.Id}:{author.Id}", ButtonStyle.Danger)
                     .WithButton("取消", $"ComponentV2GeneralCancel", ButtonStyle.Danger)
                 )
             )
@@ -62,7 +61,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay(result.Message, 1001)
                     )
                     .Build();
-                return ( successComponent, result );
+                return (successComponent, result );
             case ServiceStatus.InternalError:
                 var internalErrorComponent = new ComponentBuilderV2()
                     .WithContainer(c => c
@@ -71,7 +70,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay(result.Message, 1001)
                     )
                     .Build();
-                return ( internalErrorComponent, result );
+                return (internalErrorComponent, result);
             case ServiceStatus.InvalidInput:
                 var invalidInputComponent = new ComponentBuilderV2()
                     .WithContainer(c=> c
@@ -80,7 +79,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay(result.Message, 1001)
                     )
                     .Build();
-                return ( invalidInputComponent, result );
+                return (invalidInputComponent, result);
             case ServiceStatus.Conflict:
                 var conflictComponent = new ComponentBuilderV2()
                     .WithContainer(c=> c
@@ -89,7 +88,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay(result.Message, 1001)
                     )
                     .Build();
-                return ( conflictComponent, result );
+                return (conflictComponent, result);
             default:
                 string errorId = CorrelationIdGenerator.Generate();
                 _logger.Error("{errorId}: 搜索屏蔽名单添加失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}, 目标ID: {AuthorId}",
@@ -101,7 +100,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
                     )
                     .Build();
-                return ( defaultComponent, result );
+                return (defaultComponent, result);
         }
     }
     
@@ -189,7 +188,7 @@ public class SearchBlockList : InteractionModuleBase<SocketInteractionContext>
     // =============================================
     #region  按钮回调
     // =============================================
-    [ComponentInteraction("Block:*>>*")]
+    [ComponentInteraction("Block:*:*")]
     public async Task ConfirmBlockButtonCallbackAsync(ulong userId, ulong authorId)
     {
         // 检查 Context.Interaction 是否是 SocketMessageComponent 类型

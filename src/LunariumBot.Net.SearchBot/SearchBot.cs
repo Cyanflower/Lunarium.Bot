@@ -26,7 +26,7 @@ using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.SearchBot;
 
-public class SearchBotService : IHostedService
+public class SearchBotService : IHostedService, IDisposable
 {
     // --- token ---
     private readonly string _token;

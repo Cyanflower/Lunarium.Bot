@@ -24,6 +24,10 @@ services:
       - /opt/backups/postgres-LunariumBot.NET.DB:/backups
       # 使用相对路径（相对于 docker-compose.yml 文件）
       - ./postgresql-custom.conf:/etc/postgresql/postgresql-custom.conf
+      # 将宿主机的 server.crt 挂载到容器内
+      - ./pg-ssl-certs/server.crt:/var/lib/postgresql/data/server.crt
+      # 将宿主机的 server.key 挂载到容器内
+      - ./pg-ssl-certs/server.key:/var/lib/postgresql/data/server.key
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U LunariumBot.NET -d LunariumBot.NET.DB"] # 健康检查
