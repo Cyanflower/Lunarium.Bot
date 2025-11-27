@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 
 using LunariumBot.Net.Logger;
 
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 
 namespace LunariumBot.Net.SearchBot.Utils;
 

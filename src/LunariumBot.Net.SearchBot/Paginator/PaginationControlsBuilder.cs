@@ -12,8 +12,7 @@ public static class PaginationControlsBuilder
     public const string ActionNext = "next";
     public const string ActionLast = "last";
 
-    // 你甚至可以为 Modal 定义一个 CustomId 模板
-    public const string ModalIdTemplate = "pg_modal:{0}"; // {0} 会被替换为 PaginatorId
+    public const string ModalIdTemplate = "pg_modal";
 
     public static ActionRowBuilder Build(IPaginatedView view)
     {
@@ -22,31 +21,31 @@ public static class PaginationControlsBuilder
         var totalPages = view.TotalPages;
 
         var firstButton = new ButtonBuilder()
-            .WithCustomId($"pg:{paginatorId}:{ActionFirst}")
+            .WithCustomId($"pg:{ActionFirst}:{paginatorId}")
             .WithEmote(new Emoji("⏮️"))
             .WithStyle(ButtonStyle.Secondary)
             .WithDisabled(currentPage == 1);
 
         var prevButton = new ButtonBuilder()
-            .WithCustomId($"pg:{paginatorId}:{ActionPrev}")
+            .WithCustomId($"pg:{ActionPrev}:{paginatorId}")
             .WithEmote(new Emoji("◀️"))
             .WithStyle(ButtonStyle.Secondary)
             .WithDisabled(currentPage == 1);
 
         var pageButton = new ButtonBuilder()
-            .WithCustomId($"pg:{paginatorId}:{ActionShowPageModal}")
+            .WithCustomId($"pg:{ActionShowPageModal}:{paginatorId}")
             .WithLabel($"{currentPage} / {totalPages}")
             .WithStyle(ButtonStyle.Primary)
             .WithDisabled(totalPages <= 1);
 
         var nextButton = new ButtonBuilder()
-            .WithCustomId($"pg:{paginatorId}:{ActionNext}")
+            .WithCustomId($"pg:{ActionNext}:{paginatorId}")
             .WithEmote(new Emoji("▶️"))
             .WithStyle(ButtonStyle.Secondary)
             .WithDisabled(currentPage == totalPages);
 
         var lastButton = new ButtonBuilder()
-            .WithCustomId($"pg:{paginatorId}:{ActionLast}")
+            .WithCustomId($"pg:{ActionLast}:{paginatorId}")
             .WithEmote(new Emoji("⏭️"))
             .WithStyle(ButtonStyle.Secondary)
             .WithDisabled(currentPage == totalPages);

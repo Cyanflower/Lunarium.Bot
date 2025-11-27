@@ -73,22 +73,20 @@ public static class JiebaTokenizerService
     }
 
     /// <summary>
-    /// 清洗和拼接分词结果。
-    /// 1. 过滤掉停用词（包括标点符号）。
-    /// 2. 过滤掉长度小于等于1的词语。
-    /// 3. 用单个空格拼接剩余的词语，为FTS做准备。
+    /// 清洗和拼接分词结果
+    /// 1. 过滤掉停用词(包括标点符号)
+    /// 2. 用单个空格拼接剩余的词语, 为FTS做准备
     /// </summary>
     /// <param name="tokens">Jieba分词后产生的词语序列</param>
-    /// <returns>一个干净的、用空格连接的字符串</returns>
+    /// <returns>一个清理完, 且用 空格 或 距离运算符 拼接的字符串</returns>
     private static string CleanAndJoinTokens(IEnumerable<string> tokens, bool forQuery)
     {
-        // 过滤掉停用词、空字符串、单个字符
+        // 过滤掉停用词, 空字符串
         var cleanedTokens = tokens.Where(token =>
             !string.IsNullOrWhiteSpace(token) &&
-            token.Length >= 1 &&
             !_stopWords.Contains(token)
         );
-        // 用 <-> 拼接来实现短语搜索
+        // 用 <-> 拼接来实现邻近短语搜索
         if (forQuery) return $"({string.Join(" <-> ", cleanedTokens)})";
         // 用空格拼接剩余的词语
         else return string.Join(" ", cleanedTokens);

@@ -3,9 +3,9 @@ using Npgsql;
 using Dapper;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.Extensions;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 

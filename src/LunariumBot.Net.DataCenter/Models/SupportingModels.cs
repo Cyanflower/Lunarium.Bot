@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using Discord.Rest;
 
-namespace LunariumBot.Net.DataCenter.Model;
+namespace LunariumBot.Net.DataCenter.Models;
 
 // ============================================
 // 枚举类型
@@ -43,7 +43,7 @@ public class ProcessingResult
 /// <summary>
 /// 论坛统计信息视图模型
 /// </summary>
-public class ForumInfo
+public class ForumData
 {
     public string? ChannelName { get; set; } = "";
     
@@ -56,8 +56,8 @@ public class ForumInfo
     public int ReplyAdd7d { get; set; }
 
     // 标签概览
-    public Dictionary<TagInfo, int> TagData { get; set; } = new();
-    public Dictionary<TagInfo, int> TagDataHistory { get; set; } = new();
+    public Dictionary<TagData, int> TagData { get; set; } = new();
+    public Dictionary<TagData, int> TagDataHistory { get; set; } = new();
 
     // 焦点帖子
     public List<PostDisplayModel> ReactionTop7d { get; set; } = new();

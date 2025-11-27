@@ -4,8 +4,8 @@ using Dapper;
 
 using LunariumBot.Net.Extensions;
 
-using LunariumBot.Net.SearchBot.Model;
-using LunariumBot.Net.SearchBot.Model.Database;
+using LunariumBot.Net.SearchBot.Models;
+using LunariumBot.Net.SearchBot.Models.Database;
 
 namespace LunariumBot.Net.SearchBot.Database;
 
@@ -49,7 +49,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("AddBlockedAuthorAsync Ex:", ex);
+            _logger.Error("AddBlockedAuthorAsync Exception", ex);
             throw;
         }
     }
@@ -82,7 +82,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("AddBlockedAuthorAsync Ex:", ex);
+            _logger.Error("AddBlockedAuthorAsync Exception", ex);
             throw;
         }
     }
@@ -114,7 +114,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("AddBlockedAuthorAsync Ex:", ex);
+            _logger.Error("AddBlockedAuthorAsync Exception", ex);
             throw;
         }
     }
@@ -122,24 +122,24 @@ public partial class DatabaseService
     /// <summary>
     /// 获取一个用户的所有屏蔽作者ID。
     /// </summary>
-    public async Task<List<BlackedInfo>> QueryUserAllBlockedAsync(ulong userId)
+    public async Task<List<BlockedInfo>> QueryUserAllBlockedAsync(ulong userId)
     {
         const string SqlCommand = $"""
             SELECT
                 blocked_author_id AS BlockedAuthorId,
                 added_at AS AddedAt
             FROM user_blocked_authors
-            WHERE user_id = @UserId
+            WHERE user_id = @UserId;
             """;
         try
         {
-            var connection = GetConnection();
-            var result = await connection.QueryAsync<BlackedInfoDb>(SqlCommand, new { UserId = userId.ToDbId() });
+            await using var connection = GetConnection();
+            var result = await connection.QueryAsync<BlockedInfoDb>(SqlCommand, new { UserId = userId.ToDbId() });
             return result.Select(info => info.ToDomain()).ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error("GetBlockedAuthorsAsync Ex:", ex);
+            _logger.Error("GetBlockedAuthorsAsync Exception", ex);
             throw;
         }
     }

@@ -8,14 +8,14 @@ using Discord;
 using LunariumBot.Net.Extensions;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 
 namespace LunariumBot.Net.DataCenter.Utils;
 
 public static class DisplayEmbedBuilder
 {
-    public static Dictionary<string, Embed> ForumInfoToEmbed(List<ForumInfo> forumInfos)
+    public static Dictionary<string, Embed> ForumInfoToEmbed(List<ForumData> forumInfos)
     {
         var reportTime = $"报告生成时间: {DateTimeOffset.Now:yyyy-MM-dd HH:mm}";
         var embeds = new Dictionary<string, Embed>();
@@ -92,7 +92,7 @@ public static class DisplayEmbedBuilder
     /// <summary>
     /// 格式化热门标签列表。
     /// </summary>
-    private static string FormatTopTagsSection(string title, Dictionary<TagInfo, int> tags)
+    private static string FormatTopTagsSection(string title, Dictionary<TagData, int> tags)
     {
         var sb = new StringBuilder();
         sb.AppendLine(title);

@@ -6,7 +6,7 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Database;
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter.Utils;
 
@@ -33,10 +33,10 @@ public class DataAnalysis
     /// Key: 服务器ID (GuildId)
     /// Value: 该服务器的分析报告列表（包含总概览和各分类）
     /// </returns>
-    public async Task<Dictionary<ulong, List<ForumInfo>>> GenerateAllGuildReportsAsync()
+    public async Task<Dictionary<ulong, List<ForumData>>> GenerateAllGuildReportsAsync()
     {
         _logger.Info("🚀 开始为所有服务器生成数据分析报告...");
-        var allReports = new Dictionary<ulong, List<ForumInfo>>();
+        var allReports = new Dictionary<ulong, List<ForumData>>();
 
         try
         {
@@ -76,11 +76,11 @@ public class DataAnalysis
     /// <param name="guildId">服务器ID</param>
     /// <param name="guildConfig">该服务器的分析配置</param>
     /// <returns>该服务器的分析报告列表</returns>
-    private async Task<List<ForumInfo>> GenerateGuildReportAsync(
+    private async Task<List<ForumData>> GenerateGuildReportAsync(
         ulong guildId,
         GuildAnalysisConfig guildConfig)
     {
-        var reports = new List<ForumInfo>();
+        var reports = new List<ForumData>();
 
         try
         {
@@ -113,12 +113,12 @@ public class DataAnalysis
     /// <param name="categoryName">分类名称（例如："总概览"、"男性向"）</param>
     /// <param name="channelIds">可选：该分类包含的频道ID列表。为 null 时统计整个服务器</param>
     /// <returns>该分类的分析数据</returns>
-    private async Task<ForumInfo> AnalyzeCategoryAsync(
+    private async Task<ForumData> AnalyzeCategoryAsync(
         ulong guildId,
         string categoryName,
-        List<ulong>? channelIds)
+        ulong? channelIds)
     {
-        var info = new ForumInfo { ChannelName = categoryName };
+        var info = new ForumData { ChannelName = categoryName };
 
         try
         {
@@ -296,7 +296,7 @@ public class DataAnalysis
     /// <summary>
     /// 格式化热门标签列表
     /// </summary>
-    private string FormatTopTagsSection(string title, Dictionary<TagInfo, int> tags)
+    private string FormatTopTagsSection(string title, Dictionary<TagData, int> tags)
     {
         var sb = new StringBuilder();
         sb.AppendLine(title);

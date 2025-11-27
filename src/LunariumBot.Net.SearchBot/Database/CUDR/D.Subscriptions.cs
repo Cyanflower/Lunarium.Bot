@@ -1,83 +1,83 @@
-// NuGet 包依赖
-using Dapper;
-using Microsoft.Data.Sqlite;
+// // NuGet 包依赖
+// using Dapper;
+// using Microsoft.Data.Sqlite;
 
-// 解决方案内引用项目
-using LunariumBot.Net.Logger;
+// // 解决方案内引用项目
+// using LunariumBot.Net.Logger;
 
-namespace LunariumBot.Net.SearchBot.Database;
+// namespace LunariumBot.Net.SearchBot.Database;
 
-public partial class DatabaseService
-{
-    // === SQL 模板定义 ===
-    // SQL模板: 删除单条用户订阅记录
-    const string subscriptionDeleteOneSqlCommand = "DELETE FROM user_subscriptions_post WHERE user_id = @UserId AND thread_id = @ThreadId;";
-    // SQL模板: 删除用户所有订阅记录
-    const string subscriptionDeleteAllByUserSqlCommand = "DELETE FROM user_subscriptions_post WHERE user_id = @UserId;";
-    // ✨ 新增SQL模板
-    // SQL模板: 清空用户的所有推送记录
-    const string pushListDeleteAllByUserSqlCommand = "DELETE FROM user_push_list WHERE user_id = @UserId;";
+// public partial class DatabaseService
+// {
+//     // === SQL 模板定义 ===
+//     // SQL模板: 删除单条用户订阅记录
+//     const string subscriptionDeleteOneSqlCommand = "DELETE FROM user_subscriptions_post WHERE user_id = @UserId AND thread_id = @ThreadId;";
+//     // SQL模板: 删除用户所有订阅记录
+//     const string subscriptionDeleteAllByUserSqlCommand = "DELETE FROM user_subscriptions_post WHERE user_id = @UserId;";
+//     // ✨ 新增SQL模板
+//     // SQL模板: 清空用户的所有推送记录
+//     const string pushListDeleteAllByUserSqlCommand = "DELETE FROM user_push_list WHERE user_id = @UserId;";
 
-    /// <summary>
-    /// 移除指定用户的某一个帖子订阅。
-    /// </summary>
-    /// <param name="userId">用户ID</param>
-    /// <param name="threadId">帖子ID</param>
-    public async Task RemoveSubscriptionAsync(ulong userId, ulong threadId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            int affectedRows = await connection.ExecuteAsync(subscriptionDeleteOneSqlCommand, new { UserId = userId, ThreadId = threadId });
+//     /// <summary>
+//     /// 移除指定用户的某一个帖子订阅。
+//     /// </summary>
+//     /// <param name="userId">用户ID</param>
+//     /// <param name="threadId">帖子ID</param>
+//     public async Task RemoveSubscriptionAsync(ulong userId, ulong threadId)
+//     {
+//         try
+//         {
+//             using var connection = new SqliteConnection(_connectionString);
+//             int affectedRows = await connection.ExecuteAsync(subscriptionDeleteOneSqlCommand, new { UserId = userId, ThreadId = threadId });
             
-            _logger.Debug("用户 {userId} 的帖子 {threadId} 订阅已移除, 影响行数: {affectedRows}。", userId, threadId, affectedRows);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("RemoveSubscriptionAsync Ex", ex);
-        }
+//             _logger.Debug("用户 {userId} 的帖子 {threadId} 订阅已移除, 影响行数: {affectedRows}。", userId, threadId, affectedRows);
+//         }
+//         catch (Exception ex)
+//         {
+//             _logger.Error("RemoveSubscriptionAsync Ex", ex);
+//         }
 
-    }
+//     }
 
-    /// <summary>
-    /// 清空指定用户的所有帖子订阅。
-    /// </summary>
-    /// <param name="userId">用户ID</param>
-    public async Task ClearSubscriptionsAsync(ulong userId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            int affectedRows = await connection.ExecuteAsync(subscriptionDeleteAllByUserSqlCommand, new { UserId = userId });
+//     /// <summary>
+//     /// 清空指定用户的所有帖子订阅。
+//     /// </summary>
+//     /// <param name="userId">用户ID</param>
+//     public async Task ClearSubscriptionsAsync(ulong userId)
+//     {
+//         try
+//         {
+//             using var connection = new SqliteConnection(_connectionString);
+//             int affectedRows = await connection.ExecuteAsync(subscriptionDeleteAllByUserSqlCommand, new { UserId = userId });
             
-            _logger.Info("已清空用户 {userId} 的所有帖子订阅, 共移除 {affectedRows} 条记录。", userId, affectedRows);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("ClearSubscriptionsAsync Ex", ex);
-        }
+//             _logger.Info("已清空用户 {userId} 的所有帖子订阅, 共移除 {affectedRows} 条记录。", userId, affectedRows);
+//         }
+//         catch (Exception ex)
+//         {
+//             _logger.Error("ClearSubscriptionsAsync Ex", ex);
+//         }
 
-    }
+//     }
 
-    /// <summary>
-    /// 清空指定用户的所有更新推送记录。
-    /// </summary>
-    /// <param name="userId">用户ID</param>
-    /// <returns>受影响的行数</returns>
-    public async Task<int> ClearPushListAsync(ulong userId)
-    {
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            int affectedRows = await connection.ExecuteAsync(pushListDeleteAllByUserSqlCommand, new { UserId = userId });
+//     /// <summary>
+//     /// 清空指定用户的所有更新推送记录。
+//     /// </summary>
+//     /// <param name="userId">用户ID</param>
+//     /// <returns>受影响的行数</returns>
+//     public async Task<int> ClearPushListAsync(ulong userId)
+//     {
+//         try
+//         {
+//             using var connection = new SqliteConnection(_connectionString);
+//             int affectedRows = await connection.ExecuteAsync(pushListDeleteAllByUserSqlCommand, new { UserId = userId });
 
-            _logger.Info("已清空用户 {userId} 的所有更新推送, 共移除 {affectedRows} 条记录。", userId, affectedRows);
-            return affectedRows;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("ClearPushListAsync Ex", ex);
-            return 0;
-        }
-    }
-}
+//             _logger.Info("已清空用户 {userId} 的所有更新推送, 共移除 {affectedRows} 条记录。", userId, affectedRows);
+//             return affectedRows;
+//         }
+//         catch (Exception ex)
+//         {
+//             _logger.Error("ClearPushListAsync Ex", ex);
+//             return 0;
+//         }
+//     }
+// }

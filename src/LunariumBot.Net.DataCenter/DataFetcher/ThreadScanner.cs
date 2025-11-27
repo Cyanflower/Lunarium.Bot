@@ -1,6 +1,8 @@
 // .NET 核心库
 using System.Collections.Concurrent;
 using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
 
 // NuGet 包依赖
 using Discord;
@@ -13,10 +15,11 @@ using Polly.Retry;
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
 using LunariumBot.Net.Extensions;
+using LunariumBot.Net.Extensions.DiscordNetExtension;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.DataProcess;
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Utils;
 using LunariumBot.Net.DataCenter.AppInteractionService;
 using LunariumBot.Net.Scheduler;
@@ -24,20 +27,23 @@ using LunariumBot.Net.Scheduler;
 namespace LunariumBot.Net.DataCenter.DataFetcher;
 
 /// <summary>
-/// Discord 论坛频道扫描器，负责扫描和收集论坛频道中的帖子数据
+/// Discord 论坛频道扫描器, 负责扫描和收集论坛频道中的帖子数据
+/// 该类完全不会依赖 DataProcess 处理层
+/// 而是直接接入 Database 服务
+/// 保持独立的实现
 /// </summary>
-public class Scanner
+public class ThreadScanner
 {
     private readonly ILogger _logger;
     private readonly ILogger _loggerForScan;
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _discordSocketClient;
     private readonly LunariumScheduler _scheduler;
-    private readonly SemaphoreSlim _semaphore;
+    private readonly RateLimiter _apiRequestRateLimiter;
     private readonly DataProcessService _dataProcessService;
 
     /// <summary>
-    /// HTTP 请求重试策略，用于处理网络异常和临时性错误
+    /// HTTP 请求重试策略, 用于处理网络异常和临时性错误
     /// </summary>
     private readonly AsyncRetryPolicy _httpRetryPolicy;
 
@@ -47,19 +53,19 @@ public class Scanner
     private readonly RequestOptions _requestOptions;
 
     /// <summary>
-    /// 缓存的论坛频道字典，键为频道ID，值为对应的 SocketForumChannel 对象
+    /// 缓存的论坛频道字典, 键为频道ID, 值为对应的 SocketForumChannel 对象
     /// </summary>
     private Dictionary<ulong, SocketForumChannel> _socketForumChannelsCacheForTags = new();
 
     /// <summary>
-    /// 缓存的文字频道字典，键为频道ID，值为对应的 SocketTextChannel 对象
+    /// 缓存的文字频道字典, 键为频道ID, 值为对应的 SocketTextChannel 对象
     /// </summary>
     private Dictionary<ulong, SocketTextChannel> _socketTextChannelsCache = new();
 
     /// <summary>
-    /// 需要部署的服务器ID集合，从配置文件中读取
+    /// 需要部署的服务器ID集合, 从配置文件中读取
     /// </summary>
-    private HashSet<ulong> DeployGuildIds => _configLoader.Config.DeployConfig.DeployGuildIds.ToHashSet();
+    private HashSet<ulong> DeployGuildIds => _configLoader.Config.DeployConfig.ScanConfigs.Keys.ToHashSet();
 
     /// <summary>
     /// 初始化 Scanner 实例
@@ -67,33 +73,37 @@ public class Scanner
     /// <param name="logger">日志记录器</param>
     /// <param name="configLoader">配置加载器</param>
     /// <param name="discordSocketClient">Discord WebSocket 客户端</param>
-    /// <param name="semaphore">信号量，用于控制并发请求数量</param>
+    /// <param name="rateLimiter">速率桶, 用于控制并发请求数量</param>
     /// <param name="initializationService">初始化服务</param>
-    /// <param name="tokenizerService">分词服务，用于处理文本搜索</param>
-    public Scanner(
+    /// <param name="tokenizerService">分词服务, 用于处理文本搜索</param>
+    public ThreadScanner(
         ILogger logger,
         ConfigLoader configLoader,
         DiscordSocketClient discordSocketClient,
         LunariumScheduler scheduler,
-        SemaphoreSlim semaphore,
-        DataProcessService dataProcessService)
+        DataProcessService dataProcessService,
+        RateLimiter rateLimiter,
+        RequestOptions requestOptions,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
+    )
     {
         _logger = logger.ForContext("Scanner"); 
         _loggerForScan = logger.ForContext("Scan");
         _configLoader = configLoader;
         _discordSocketClient = discordSocketClient;
         _scheduler = scheduler;
-        _semaphore = semaphore;
+        _apiRequestRateLimiter = rateLimiter;
         _dataProcessService = dataProcessService;
-        _httpRetryPolicy = HttpRetryPolicyConfig();
-        _requestOptions = RequestOptionsConfig();
+        _apiRequestRateLimiter = rateLimiter;
+        _requestOptions = requestOptions;
+        _httpRetryPolicy = httpRetryPolicy;
     }
 
     /// <summary>
-    /// 执行同步扫描，收集所有论坛频道、标签和帖子数据
+    /// 执行同步扫描, 收集所有论坛频道、标签和帖子数据
     /// </summary>
     /// <returns>异步任务</returns>
-    public async Task<string> SyncScan(ScanProgressReporter? reporter = null)
+    public async Task<string> SyncScanAsync(ScanProgressReporter? reporter = null)
     {
         _logger.Info("🚀 开始执行同步扫描任务...");
 
@@ -117,11 +127,11 @@ public class Scanner
             // === GetAllForumChannels
             var (allForumChannels, allTextChannels) = GetAllForumChannels();
 
-                _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道，{TextCount} 个文字频道",
+                _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道, {TextCount} 个文字频道",
                     GetElapsedTime(),
                     allForumChannels.Values.Sum(list => list.Count),
                     allTextChannels.Values.Sum(list => list.Count));
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allForumChannels.Values.Sum(l => l.Count)} 个论坛频道，{allTextChannels.Values.Sum(l => l.Count)} 个文字频道");
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allForumChannels.Values.Sum(l => l.Count)} 个论坛频道, {allTextChannels.Values.Sum(l => l.Count)} 个文字频道");
 
             // === GetAllRestForumThreads
             var allRestForumThreads = await GetAllRestForumThreads(allForumChannels);
@@ -142,9 +152,9 @@ public class Scanner
                 _loggerForScan.Info("API GET: 全部频道帖子: {@allSocketTextThreads}", allSocketTextThreads);
                 
                 var phase1Duration = DateTimeOffset.UtcNow - phase1Start;
-                _logger.Info("{Time} ⏱️ 第 1 阶段完成，耗时: {Duration:F2} 秒",
+                _logger.Info("{Time} ⏱️ 第 1 阶段完成, 耗时: {Duration:F2} 秒",
                     GetElapsedTime(), phase1Duration.TotalSeconds);
-                if (reporter is not null) await  reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 ⏱️ 第 1 阶段完成，耗时: {phase1Duration.TotalSeconds:F2} 秒");
+                if (reporter is not null) await  reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 ⏱️ 第 1 阶段完成, 耗时: {phase1Duration.TotalSeconds:F2} 秒");
 
             // ==================== 数据处理阶段 ====================
                 _logger.Info("{Time} 🔄 第 2 阶段：处理数据...", GetElapsedTime());
@@ -154,10 +164,10 @@ public class Scanner
             // === GetForumAndTagData
             var (allForumsData, allTagsData) = GetForumAndTagData(allForumChannels);
 
-                _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道，{TagCount} 个标签",
+                _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道, {TagCount} 个标签",
                     GetElapsedTime(),
                     allForumsData.Count, allTagsData.Count);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道，{allTagsData.Count} 个标签");
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道, {allTagsData.Count} 个标签");
                     
             // === GetAllRestForumThreadsData & GetAllSocketTextThreadsData
             var allForumThreadsData = await GetAllRestForumThreadsData(allRestForumThreads);
@@ -179,7 +189,7 @@ public class Scanner
                     GetElapsedTime(), textSuccess, textSkipped, textFailed);
                 if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📊 文字子区处理结果: 成功 {textSuccess}, 无效 {textSkipped}, 失败 {textFailed}");
 
-            // 合并所有帖子数据（排除失败的，保留无效的）
+            // 合并所有帖子数据（排除失败的, 保留无效的）
             List<ThreadData> allThreadsData =
             [
                 .. allForumThreadsData
@@ -189,7 +199,7 @@ public class Scanner
                     .Where(r => r.Status != ProcessingStatus.Failed && r.Data is not null)
                     .Select(r => r.Data!),
             ];
-            _loggerForScan.Info("合并所有帖子数据（排除失败的，保留无效的）");
+            _loggerForScan.Info("合并所有帖子数据（排除失败的, 保留无效的）");
             _loggerForScan.Info("所有帖子数据: 成功结果列表: allThreadsData: {@allThreadsData}", allThreadsData);
             _loggerForScan.Info("所有帖子数据: 失败结果列表: allThreadsData: {@allThreadsDataFailed}", allForumThreadsData.Where(r => r.Status == ProcessingStatus.Failed || r.Data is null));
             _loggerForScan.Info("所有帖子数据: 无效结果列表: allThreadsData: {@allThreadsDataInvalid}", allForumThreadsData.Where(r => r.Status == ProcessingStatus.Invalid && r.Data is not null));
@@ -198,9 +208,9 @@ public class Scanner
                     GetElapsedTime(), allThreadsData.Count);
                 if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📦 合并后待同步数据: {allThreadsData.Count} 个帖子（包含无效的）");
                 var phase2Duration = DateTimeOffset.UtcNow - phase2Start;
-                _logger.Info("{Time} ⏱️ 第 2 阶段完成，耗时: {Duration:F2} 秒",
+                _logger.Info("{Time} ⏱️ 第 2 阶段完成, 耗时: {Duration:F2} 秒",
                     GetElapsedTime(), phase2Duration.TotalSeconds);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ⏱️ 第 2 阶段完成，耗时: {phase2Duration.TotalSeconds:F2} 秒");
+                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ⏱️ 第 2 阶段完成, 耗时: {phase2Duration.TotalSeconds:F2} 秒");
                 
             // ==================== 数据库写入阶段 ====================
                 _logger.Info("{Time} 💾 第 3 阶段：写入数据库...", GetElapsedTime());
@@ -208,12 +218,12 @@ public class Scanner
                 var phase3Start = DateTimeOffset.UtcNow;
 
             // === SyncProcessorAsync
-            await _dataProcessService.SyncProcessorAsync(allForumsData, allTagsData, allThreadsData);
+            await _dataProcessService.SyncAllThreadAsync(allForumsData, allTagsData, allThreadsData);
 
                 var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
-                _logger.Info("{Time} ⏱️ 第 3 阶段完成，耗时: {Duration:F2} 秒",
+                _logger.Info("{Time} ⏱️ 第 3 阶段完成, 耗时: {Duration:F2} 秒",
                     GetElapsedTime(), phase3Duration.TotalSeconds);
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ⏱️ 第 3 阶段完成，耗时: {phase3Duration.TotalSeconds:F2} ");
+                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ⏱️ 第 3 阶段完成, 耗时: {phase3Duration.TotalSeconds:F2} ");
 
                 // ==================== 总结 ====================
                 var totalDuration = DateTimeOffset.UtcNow - startTime;
@@ -306,7 +316,7 @@ public class Scanner
     /// <summary>
     /// 获取所有配置的论坛频道
     /// </summary>
-    /// <returns>字典，键为服务器（Guild），值为该服务器中的论坛频道列表</returns>
+    /// <returns>字典, 键为服务器（Guild）, 值为该服务器中的论坛频道列表</returns>
     private (Dictionary<SocketGuild, List<SocketForumChannel>>, Dictionary<SocketGuild, List<SocketTextChannel>>) GetAllForumChannels()
     {
         try
@@ -378,7 +388,7 @@ public class Scanner
 
                             if (!forumChannel.CategoryId.HasValue)
                             {
-                                _loggerForScan.Info("    ⚠️  论坛频道无分类，无效");
+                                _loggerForScan.Info("    ⚠️  论坛频道无分类, 无效");
                                 continue;
                             }
 
@@ -406,7 +416,7 @@ public class Scanner
 
                             if (!textChannel.CategoryId.HasValue)
                             {
-                                _loggerForScan.Info("    ⚠️  文字频道无分类，无效");
+                                _loggerForScan.Info("    ⚠️  文字频道无分类, 无效");
                                 continue;
                             }
 
@@ -426,7 +436,7 @@ public class Scanner
                         }
                         else
                         {
-                            _loggerForScan.Info("    ℹ️  其他类型频道(channelType)，无效", channel.GetType().Name);
+                            _loggerForScan.Info("    ℹ️  其他类型频道(channelType), 无效", channel.GetType().Name);
                             guildOtherCount++;
                         }
                     }
@@ -469,7 +479,7 @@ public class Scanner
     /// 获取所有论坛频道中的帖子（包括活跃帖子和归档帖子）
     /// </summary>
     /// <param name="allForumChannels">所有论坛频道的字典</param>
-    /// <returns>字典，键为服务器（Guild），值为该服务器中所有论坛的帖子列表</returns>
+    /// <returns>字典, 键为服务器（Guild）, 值为该服务器中所有论坛的帖子列表</returns>
     private async Task<Dictionary<SocketGuild, List<RestThreadChannel>>> GetAllRestForumThreads(Dictionary<SocketGuild, List<SocketForumChannel>> allForumChannels)
     {
         try
@@ -502,8 +512,14 @@ public class Scanner
                             _loggerForScan.Info("📋 [{Index}/{Total}] 论坛: {ChannelName} (ID: {ChannelId})",
                                 channelIndex, forumChannels.Count, channel.Name, channel.Id);
 
-                            // 使用信号量控制并发数量，避免超过 Discord API 速率限制
-                            await _semaphore.WaitAsync();
+                            // 使用信号量控制并发数量, 避免超过 Discord API 速率限制
+                            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                            if (!apiRateLimitToken.IsAcquired) 
+                            {
+                                _logger.Error("_apiRequestRateLimiter 队列已满");
+                                // 只记录日志
+                                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                            }
                             List<RestThreadChannel> restThreads = new();
 
                             // 1. 获取活跃的帖子
@@ -542,7 +558,7 @@ public class Scanner
                                 }
                                 else
                                 {
-                                    _loggerForScan.Info("    ✅ 公开归档帖子获取完毕，共 {TotalPages} 批", publicPage - 1);
+                                    _loggerForScan.Info("    ✅ 公开归档帖子获取完毕, 共 {TotalPages} 批", publicPage - 1);
                                     break;
                                 }
                             }
@@ -575,7 +591,7 @@ public class Scanner
                                 }
                                 else
                                 {
-                                    _loggerForScan.Info("    ✅ 私密归档帖子获取完毕，共 {TotalPages} 批", privatePage - 1);
+                                    _loggerForScan.Info("    ✅ 私密归档帖子获取完毕, 共 {TotalPages} 批", privatePage - 1);
                                     break;
                                 }
                             }
@@ -616,11 +632,6 @@ public class Scanner
                                 guild.Name, channel.Name, channel.Id);
                             return new();
                         }
-                        finally
-                        {
-                            // 释放信号量，允许其他任务继续
-                            _semaphore.Release();
-                        }
                     });
                     tasks.Add(task);
                 }
@@ -655,7 +666,7 @@ public class Scanner
     /// 获取所有文字频道中的子区（包括活跃子区和归档子区）
     /// </summary>
     /// <param name="allTextChannels">所有文字频道的字典</param>
-    /// <returns>字典，键为服务器（Guild），值为该服务器中所有文字频道的子区列表</returns>
+    /// <returns>字典, 键为服务器（Guild）, 值为该服务器中所有文字频道的子区列表</returns>
     private async Task<Dictionary<SocketGuild, List<RestThreadChannel>>> GetAllRestSocketTextThreads(Dictionary<SocketGuild, List<SocketTextChannel>> allTextChannels)
     {
         try
@@ -689,7 +700,14 @@ public class Scanner
                                 channelIndex, textChannels.Count, channel.Name, channel.Id);
 
                             // 使用信号量控制并发数量
-                            await _semaphore.WaitAsync();
+                            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                            if (!apiRateLimitToken.IsAcquired)
+                            {
+                                _logger.Error("_apiRequestRateLimiter 队列已满");
+                                // 只记录日志
+                                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                            }
+                            
                             List<RestThreadChannel> restThreads = new();
 
                             // 1. 获取活跃的子区
@@ -728,7 +746,7 @@ public class Scanner
                                 }
                                 else
                                 {
-                                    _loggerForScan.Info("    ✅ 公开归档子区获取完毕，共 {TotalPages} 批", publicPage - 1);
+                                    _loggerForScan.Info("    ✅ 公开归档子区获取完毕, 共 {TotalPages} 批", publicPage - 1);
                                     break;
                                 }
                             }
@@ -761,7 +779,7 @@ public class Scanner
                                 }
                                 else
                                 {
-                                    _loggerForScan.Info("    ✅ 私密归档子区获取完毕，共 {TotalPages} 批", privatePage - 1);
+                                    _loggerForScan.Info("    ✅ 私密归档子区获取完毕, 共 {TotalPages} 批", privatePage - 1);
                                     break;
                                 }
                             }
@@ -794,7 +812,7 @@ public class Scanner
                                 }
                                 else
                                 {
-                                    _loggerForScan.Info("    ✅ 已加入的私密归档子区获取完毕，共 {TotalPages} 批", joinedPage - 1);
+                                    _loggerForScan.Info("    ✅ 已加入的私密归档子区获取完毕, 共 {TotalPages} 批", joinedPage - 1);
                                     break;
                                 }
                             }
@@ -835,10 +853,6 @@ public class Scanner
                             _loggerForScan.Error(ex, "❌ 获取文字频道子区时发生错误: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
                                 guild.Name, channel.Name, channel.Id);
                             return new();
-                        }
-                        finally
-                        {
-                            _semaphore.Release();
                         }
                     });
                     tasks.Add(task);
@@ -886,7 +900,13 @@ public class Scanner
                 try
                 {
                     // 使用信号量控制并发数量
-                    await _semaphore.WaitAsync();
+                    using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                    if (!apiRateLimitToken.IsAcquired) 
+                    {
+                        _logger.Error("_apiRequestRateLimiter 队列已满");
+                        // 只记录日志
+                        // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                    }
                     var result = await GetForumThreadData(thread);
                     return result;
                 }
@@ -898,16 +918,12 @@ public class Scanner
                         Status = ProcessingStatus.Failed
                     };
                 }
-                finally
-                {
-                    _semaphore.Release();
-                }
 
             });
 
             // 等待所有任务完成
             var allForumThreadsData = await Task.WhenAll(tasks);
-            _logger.Info("✅ 成功获取所有帖子数据，总计 {Count} 个", allForumThreadsData.Length);
+            _logger.Info("✅ 成功获取所有帖子数据, 总计 {Count} 个", allForumThreadsData.Length);
             return allForumThreadsData.ToList();
         }
         catch (Exception ex)
@@ -939,7 +955,7 @@ public class Scanner
             });
 
             var allForumThreadsData = result.ToList();
-            _logger.Info("✅ 成功获取所有子区数据，总计 {Count} 个", allForumThreadsData.Count);
+            _logger.Info("✅ 成功获取所有子区数据, 总计 {Count} 个", allForumThreadsData.Count);
             return allForumThreadsData.ToList();
         }
         catch (Exception ex)
@@ -953,8 +969,8 @@ public class Scanner
     /// 获取论坛频道和标签的数据
     /// </summary>
     /// <param name="allForumChannels">所有论坛频道的字典</param>
-    /// <returns>元组，包含论坛频道数据列表和标签信息列表</returns>
-    private (List<ChannelData> ForumsData, List<TagInfo> TagsData) GetForumAndTagData(Dictionary<SocketGuild, List<SocketForumChannel>> allForumChannels)
+    /// <returns>元组, 包含论坛频道数据列表和标签信息列表</returns>
+    private (List<ChannelData> ForumsData, List<TagData> TagsData) GetForumAndTagData(Dictionary<SocketGuild, List<SocketForumChannel>> allForumChannels)
     {
         try
         {
@@ -972,14 +988,14 @@ public class Scanner
 
             // 提取所有论坛频道的标签信息
             // 使用嵌套的 SelectMany 将论坛频道展平为标签
-            List<TagInfo> tagsData = allForumChannels
+            List<TagData> tagsData = allForumChannels
                 .SelectMany(
                     kvpair => kvpair.Value,
                     (kvpair, forum) => new { Guild = kvpair.Key, Forum = forum }
                 )
                 .SelectMany(
                     ctx => ctx.Forum.Tags,
-                    (ctx, tag) => new TagInfo()
+                    (ctx, tag) => new TagData()
                     {
                         TagId = tag.Id,
                         TagName = tag.Name,
@@ -1015,7 +1031,7 @@ public class Scanner
             // 规则检查: 无效锁定的帖子
             if (restThreadChannel.IsLocked)
             {
-                _loggerForScan.Info("🔒 帖子已锁定，视为无效: {ThreadName} (ID: {ThreadId})",
+                _loggerForScan.Info("🔒 帖子已锁定, 视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 isLocked = true;
@@ -1025,7 +1041,7 @@ public class Scanner
             // 规则检查: 无效置顶的帖子
             if (restThreadChannel.Flags.HasFlag(ChannelFlags.Pinned))
             {
-                _loggerForScan.Info("📌 帖子已置顶，视为无效: {ThreadName} (ID: {ThreadId})",
+                _loggerForScan.Info("📌 帖子已置顶, 视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 result.Status = ProcessingStatus.Invalid;
@@ -1033,7 +1049,7 @@ public class Scanner
 
             RestMessage? firstMessage = null;
             RestMessage? lastMessage = null;
-            Attachment? imageAttachment = null;
+            List<string>? imageAttachment = null;
             int highestReactionCount = 0;
 
             // 获取帖子的首楼消息和最新消息
@@ -1052,7 +1068,7 @@ public class Scanner
                                                
                     if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
                     {
-                        _loggerForScan.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}, 尝试备用方法)",
+                        _loggerForScan.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
                     restThreadChannel.Name, restThreadChannel.Id);
                         var iChannel = await _discordSocketClient.GetChannelAsync(restThreadChannel.Id);
                         firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id);
@@ -1069,7 +1085,10 @@ public class Scanner
             if (firstMessage is not null)
             {
                 // 提取首楼消息中的图片附件
-                imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
+                imageAttachment = firstMessage.Attachments
+                    .Where(a => IsImageAttachment(a))
+                    .Select(a => a.Url)
+                    .ToList();
                 // 获取首楼消息的最高反应数
                 highestReactionCount = firstMessage.Reactions.Values
                     .Select(r => r.ReactionCount)
@@ -1107,7 +1126,7 @@ public class Scanner
                 var appliedTagNames = validTags.Select(tag => tag.Name).ToList();
                 tags = string.Join(", ", appliedTagNames);
 
-                // 如果帖子有应用标签，但没有有效标签，记录警告
+                // 如果帖子有应用标签, 但没有有效标签, 记录警告
                 if (restThreadChannel.AppliedTags.Any() && !validTagIds.Any())
                 {
                     _logger.Warning("⚠️ 帖子 {ThreadName} (ID: {ThreadId}) 应用的所有标签都已不存在于论坛中",
@@ -1115,11 +1134,11 @@ public class Scanner
                 }
             }
 
-            if (!_configLoader.ChannelSet.Contains(restThreadChannel.CategoryId ?? 0))
+            if (!_configLoader.ValidChannelSet.Contains(restThreadChannel.CategoryId ?? 0))
             {
-                _logger.Debug("⚠️ 帖子已不在作品区内，视为无效: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("⚠️ 帖子不在作品区内, 视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
-                _logger.Debug("_configLoader.ChannelSet: {ChannelSet}", _configLoader.ChannelSet);
+                _logger.Debug("_configLoader.ChannelSet: {ChannelSet}", _configLoader.ValidChannelSet);
                 isValid = false;
                 result.Status = ProcessingStatus.Invalid;
             }
@@ -1139,7 +1158,7 @@ public class Scanner
                 ReplyCount = restThreadChannel.MessageCount,
                 LastActiveAt = lastMessage is not null ? lastMessage.CreatedAt : restThreadChannel.CreatedAt,
                 JumpUrl = $"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0",
-                AttachmentUrl = imageAttachment?.Url,
+                AttachmentUrls = imageAttachment,
 
                 Title = restThreadChannel.Name,
                 FirstMessageContent = firstMessage?.Content,
@@ -1184,7 +1203,7 @@ public class Scanner
 
             if (restThreadChannel.IsLocked)
             {
-                _logger.Debug("🔒 子区已锁定，视为无效: {ThreadName} (ID: {ThreadId})",
+                _logger.Debug("🔒 子区已锁定, 视为无效: {ThreadName} (ID: {ThreadId})",
                     restThreadChannel.Name, restThreadChannel.Id);
                 isValid = false;
                 isLocked = true;
@@ -1194,7 +1213,7 @@ public class Scanner
             // 子区直接设首条消息为null, 子区: 创建子区的消息 = Title = 首楼
             RestMessage? firstMessage = null;
             RestMessage? lastMessage = null;
-            Attachment? imageAttachment = null;
+            List<string>? imageAttachment = null;
             
             if (!_socketTextChannelsCache.TryGetValue(restThreadChannel.ParentChannelId, out var parentChannel))
             {
@@ -1220,7 +1239,7 @@ public class Scanner
                 ReplyCount = restThreadChannel.MessageCount,
                 LastActiveAt = lastMessage is not null ? lastMessage.CreatedAt : restThreadChannel.CreatedAt,
                 JumpUrl = $"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0",
-                AttachmentUrl = imageAttachment?.Url,
+                AttachmentUrls = imageAttachment,
 
                 Title = restThreadChannel.Name,
                 FirstMessageContent = firstMessage?.Content,
@@ -1259,61 +1278,11 @@ public class Scanner
     /// 判断附件是否为图片类型
     /// </summary>
     /// <param name="attachment">Discord 消息附件</param>
-    /// <returns>如果是图片类型返回 true，否则返回 false</returns>
+    /// <returns>如果是图片类型返回 true, 否则返回 false</returns>
     private bool IsImageAttachment(IAttachment attachment)
     {
         var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp" };
         return imageExtensions.Any(ext =>
             attachment.Filename.ToLowerInvariant().EndsWith(ext));
-    }
-
-    /// <summary>
-    /// 配置 HTTP 请求重试策略
-    /// </summary>
-    /// <returns>Polly 异步重试策略</returns>
-    private AsyncRetryPolicy HttpRetryPolicyConfig()
-    {
-        // --- Polly 策略配置 ---
-        // 配置一个重试策略, 专门用于处理Http的网络重试逻辑
-        return Policy
-            // 定义需要处理的异常:
-            // - 处理特定类型的 Discord.HttpException (例如 500, 502, 503, 429 等)
-            //   不重试的情况: 404(资源不存在), 403(权限不足), 400(请求格式错误)
-            .Handle<Discord.Net.HttpException>(ex => (int)ex.HttpCode != 404 || (int)ex.HttpCode != 403 || (int)ex.HttpCode != 400)
-            // - 处理网络层级的异常，比如 SSL 握手失败、连接被重置等
-            .Or<HttpRequestException>()
-            // - 对 HttpClient 超时的处理
-            .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
-
-            // 定义重试逻辑
-            .WaitAndRetryAsync(
-                retryCount: 3, // 最多重试3次
-                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)), // 指数退避: 2s, 4s, 8s
-                onRetry: (exception, timespan, attempt, context) => // 每次重试时执行的回调
-                {
-                    // 在日志中可以更清晰地看到是哪种异常触发了重试
-                    string errorType = exception is HttpException httpEx
-                        ? $"HttpException (StatusCode: {httpEx.HttpCode})"
-                        : exception.GetType().Name;
-
-                    _logger.Warning("⚠️ HTTP 请求失败 ({ErrorType})，将在 {Seconds:F1} 秒后进行第 {Attempt}/3 次重试",
-                        errorType, timespan.TotalSeconds, attempt);
-                }
-            );
-    }
-
-    /// <summary>
-    /// 配置 Discord API 请求选项
-    /// </summary>
-    /// <returns>Discord.Net 请求选项</returns>
-    public static RequestOptions RequestOptionsConfig()
-    {
-        // RequestOptions: 维持 Discord.Net 的默认重试机制
-        // Timeout 设置一个比 HttpClient 超时更长的时间, 确保 Polly 有足够时间完成重试
-        return new RequestOptions
-        {
-            Timeout = 20 * 60 * 1000, // 设置总超时为20分钟（以毫秒为单位）
-            RetryMode = RetryMode.AlwaysRetry // 启用 Discord.Net 的内置重试机制
-        };
     }
 }

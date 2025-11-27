@@ -1,14 +1,14 @@
 using Npgsql;
 using Dapper;
 
-using LunariumBot.Net.DataCenter.Model;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Models.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
 public partial class DatabaseService
 {
-    public async Task SyncAllChannelsAndTagsAsync(NpgsqlTransaction transaction, List<ChannelData> allChannels, List<TagInfo> allTags)
+    public async Task SyncAllChannelsAndTagsAsync(NpgsqlTransaction transaction, List<ChannelData> allChannels, List<TagData> allTags)
     {
         // 频道同步SQL
         const string syncChannelsSql = """
@@ -59,7 +59,7 @@ public partial class DatabaseService
         {
             var allChannelsDb = allChannels.Select(ChannelDataDb.FromDomain).ToList();
 
-            var allTagsDb = allTags.Select(TagInfoDb.FromDomain).ToList();
+            var allTagsDb = allTags.Select(TagDataDb.FromDomain).ToList();
             
             // 执行频道同步
             if (allChannelsDb.Any())

@@ -1,15 +1,41 @@
 using Discord;
-
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.Logger;
+using LunariumBot.Net.SearchBot.Models;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
-public class BlockPaginatedView : BasePaginatedView<BlackedInfo>, IPaginatedView
+public class BlockPaginatedView : BasePaginatedView<BlockedInfo>, IPaginatedView
 {
-    const int PageSize = 9;
+    
+    const int PageSize = 10;
     // 使用 : base() 将参数传递给父类的构造函数
     // 构造函数体可以是空的，因为所有的初始化逻辑都在基类中完成了。
-    public BlockPaginatedView(IEnumerable<BlackedInfo> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 10) { }
+    public BlockPaginatedView(IEnumerable<BlockedInfo> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 10) { }
+
+    public BlockedInfo? GetItemByIndex(int index)
+    {
+        if (index < 0 || index >= _pages[_currentPageIndex].Items.Count)
+        {
+            return null;
+        }
+        return _pages[_currentPageIndex].GetItemByIndex(index);
+    }
+    
+    public void LogViewDetail(ILogger logger)
+    {
+        logger.Warning("");
+        logger.Warning("""
+            LogViewDetail:
+            PaginatorId: {PaginatorId}
+            Items: {@Items}
+            Pages: {@Pages}
+            ExpiresAt: {ExpiresAt:O}
+            _pageSize: {_pageSize}
+            _totalPages: {_totalPages}
+            _currentPageIndex {_currentPageIndex}
+            """,
+            PaginatorId, _items, _pages, ExpiresAt, _pageSize, _totalPages, _currentPageIndex);
+    }
 
     public override MessageComponent Render()
     {
@@ -26,7 +52,7 @@ public class BlockPaginatedView : BasePaginatedView<BlackedInfo>, IPaginatedView
                             ## 用户: <@{item.BlockedAuthorId}>
                             添加于: <t:{item.AddedAt}:R> | <t:{item.AddedAt}:D>
                             """)
-                        .WithAccessory(new ButtonBuilder("取消屏蔽", $"CancelBlock:{PaginatorId}.{i}", ButtonStyle.Danger))
+                        .WithAccessory(new ButtonBuilder("取消屏蔽", $"UnBlockByList:{PaginatorId}.{i}", ButtonStyle.Primary))
                     );
                     i++;
                 }

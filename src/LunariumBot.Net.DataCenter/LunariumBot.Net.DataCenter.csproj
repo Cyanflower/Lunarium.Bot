@@ -28,15 +28,19 @@
 
   <ItemGroup>
     <PackageReference Include="Polly" Version="8.6.2" />
-    <PackageReference Include="Discord.Net" Version="3.18.0" />
     <PackageReference Include="Npgsql" Version="9.0.4" />
     <PackageReference Include="JiebaNet.Segmenter" Version="1.0.6" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+    <PackageReference Include="System.Threading.RateLimiting" Version="9.0.11" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
     <ProjectReference Include="../LunariumBot.Net.Extensions/LunariumBot.Net.Extensions.csproj" />
     <ProjectReference Include="../LunariumBot.Net.Logger/LunariumBot.Net.Logger.csproj" />
     <ProjectReference Include="../LunariumBot.Net.Scheduler/LunariumBot.Net.Scheduler.csproj" />

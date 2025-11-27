@@ -8,7 +8,7 @@ using LunariumBot.Net.Logger.Models;
 using LunariumBot.Net.Logger.Extensions;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter;
 
@@ -63,7 +63,6 @@ public class Program
                         ContextFilterIncludes = ["DataCenterBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel
                     })
-
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/Scan/Scan.log",
                     maxFileSizeMB: 10,

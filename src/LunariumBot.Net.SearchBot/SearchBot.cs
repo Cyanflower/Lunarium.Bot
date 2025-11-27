@@ -19,7 +19,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.SearchBot.Database;
 using LunariumBot.Net.SearchBot.Scheduler;
 using LunariumBot.Net.SearchBot.Utils;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using LunariumBot.Net.SearchBot.AppInteractionService;
 using System.Text;
 using LunariumBot.Net.Extensions;
@@ -61,7 +61,7 @@ public class SearchBotService : IHostedService, IDisposable
         _client = _privateServices.GetRequiredService<DiscordSocketClient>();
         _interactions = _privateServices.GetRequiredService<InteractionService>();
         _databaseService = _privateServices.GetRequiredService<DatabaseService>();
-        _authUtils = _privateServices.GetRequiredService<AuthUtils>();
+        _authUtils = _privateServices.GetRequiredService<AuthUtil>();
         _logger.Info("✅ SearchBot 服务初始化完成。");
     }
 
@@ -111,7 +111,7 @@ public class SearchBotService : IHostedService, IDisposable
             // 注册数据库服务
             .AddSingleton<DatabaseService>()
             // 注册鉴权服务
-            .AddSingleton<AuthUtils>()
+            .AddSingleton<AuthUtil>()
 
             .AddSingleton<AllTagsAutoCompletion>()
 

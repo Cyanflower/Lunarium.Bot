@@ -9,7 +9,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.Extensions;
 
 using LunariumBot.Net.SearchBot.Database;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using LunariumBot.Net.SearchBot.Utils;
 
 namespace LunariumBot.Net.SearchBot.ApplicationServices;
@@ -20,7 +20,7 @@ public partial class ApplicationService
     {
         try
         {
-            if (userId == authorId) return new() { Status = ServiceStatus.InvalidInput, Message = "不能将自己加入自己的搜索排除名单" };
+            if (userId == authorId) return new() { Status = ServiceStatus.InvalidInput, Message = "不能将自己加入自己的搜索屏蔽名单" };
             var serviceResult = await _dbRetryPolicy.ExecuteAsync( async () =>
             {
                 await using var connection = _databaseService.GetConnection();
@@ -32,11 +32,11 @@ public partial class ApplicationService
                     await transaction.CommitAsync();
                     if (result == InsertResult.Inserted)
                     {
-                        return new ServiceResult() { Status = ServiceStatus.Success, Message = $"成功将 <@{authorId}> 加入搜索排除名单" };
+                        return new ServiceResult() { Status = ServiceStatus.Success, Message = $"成功将 <@{authorId}> 加入搜索屏蔽名单" };
                     }
                     else
                     {
-                        return new ServiceResult() { Status = ServiceStatus.Conflict, Message = $"<@{authorId}> 在此前已经位于您的搜索排除名单中了, 正在尝试为您查询详细信息..." };
+                        return new ServiceResult() { Status = ServiceStatus.Conflict, Message = $"<@{authorId}> 在此前已经位于您的搜索屏蔽名单中了, 正在尝试为您查询详细信息..." };
                     }
                 }
                 catch
@@ -101,7 +101,7 @@ public partial class ApplicationService
         }
     }
     
-    public async Task<List<BlackedInfo>?> QueryUserAllBlockedInfoServiceAsync(ulong userId)
+    public async Task<List<BlockedInfo>> QueryUserAllBlockedInfoServiceAsync(ulong userId)
     {
         try
         {
@@ -115,7 +115,7 @@ public partial class ApplicationService
         {
             string errorId = CorrelationIdGenerator.Generate();
             _logger.Error(ex, "❌ 查询屏蔽名单全部列表失败: 请求人ID: {userId}, 错误ID: {errorId}", userId, errorId);
-            return null;
+            return new();
         }
     }
 }

@@ -5,7 +5,8 @@ using System.Text.Json;
 using LunariumBot.Net.Logger;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Utils;
+using LunariumBot.Net.DataCenter.Models;
 
 
 namespace LunariumBot.Net.DataCenter;
@@ -13,7 +14,8 @@ namespace LunariumBot.Net.DataCenter;
 public class ConfigLoader
 {
     public DataCenterBotConfig Config { get; private set; }
-    public HashSet<ulong> ChannelSet { get; private set; } = new();
+    public HashSet<ulong> AnalysisChannelSet { get; private set; } = new();
+    public HashSet<ulong> ValidChannelSet { get; private set; } = new();
     private readonly object _lockObject = new();
     private readonly ILogger _logger;
 
@@ -39,13 +41,19 @@ public class ConfigLoader
                     throw ex;
                 }
 
+                Credit.Configure(Config.CreditConfig);
+
                 _logger.Info("⚙️ 配置文件加载完成");
 
-                ChannelSet = Config.DeployConfig.GuildAnalysisConfigs.Values
-                    .SelectMany(k => k.CategoryChannels)
-                    .SelectMany(k => k.Value)
+                AnalysisChannelSet = Config.DeployConfig.GuildAnalysisConfigs.Values
+                    .SelectMany(kv => kv.CategoryChannels)
+                    .Select(kv => kv.Value)
                     .ToHashSet();
 
+                ValidChannelSet = Config.DeployConfig.ScanConfigs.Values
+                    .SelectMany(kv => kv.ValidChannels)
+                    .Select(k => k.Value)
+                    .ToHashSet();
             }
             catch (Exception ex)
             {
@@ -55,6 +63,7 @@ public class ConfigLoader
         }
     }
     
+    /// <summary>
     /// 重新加载配置
     /// </summary>
     /// <returns>执行结果元组 (是否成功, 原因说明)</returns>
@@ -65,6 +74,7 @@ public class ConfigLoader
         {
             try
             {
+                // 1. 加载并验证新配置
                 var newConfig = LoadConfigFromFile();
                 var (IsValid, Errors) = ValidateConfig(newConfig);
                 if (!IsValid)
@@ -76,50 +86,41 @@ public class ConfigLoader
                     }
                     return (false, $"配置文件验证失败: {errorMessage}");
                 }
-                
-                // 获取新配置中的所有频道
-                var newChannelSet = newConfig.DeployConfig.GuildAnalysisConfigs.Values
-                    .SelectMany(k => k.CategoryChannels)
-                    .SelectMany(k => k.Value)
+
+                // 2. 准备新数据的 HashSet (在内存中构建，尚未应用)
+                var newAnalysisChannelSet = newConfig.DeployConfig.GuildAnalysisConfigs.Values
+                    .SelectMany(kv => kv.CategoryChannels)
+                    .Select(kv => kv.Value)
                     .ToHashSet();
-                
-                // 找出需要移除的频道（在旧集合中但不在新集合中）
-                var channelsToRemove = ChannelSet.Except(newChannelSet).ToList();
-                
-                // 找出需要添加的频道（在新集合中但不在旧集合中）
-                var channelsToAdd = newChannelSet.Except(ChannelSet).ToList();
-                
-                // 执行移除
-                foreach (var channelId in channelsToRemove)
-                {
-                    ChannelSet.Remove(channelId);
-                    _logger.Debug("移除频道: {channelId}", channelId);
-                }
-                
-                // 执行添加
-                foreach (var channelId in channelsToAdd)
-                {
-                    ChannelSet.Add(channelId);
-                    _logger.Debug("添加频道: {channelId}", channelId);
-                }
-                
-                // 记录变化统计
-                string changeInfo;
-                if (channelsToRemove.Any() || channelsToAdd.Any())
-                {
-                    changeInfo = $"移除 {channelsToRemove.Count} 个频道, 添加 {channelsToAdd.Count} 个频道";
-                    _logger.Info("📊 频道集合已更新 - {changeInfo}", changeInfo);
-                }
-                else
-                {
-                    changeInfo = "频道集合无变化";
-                    _logger.Info(changeInfo);
-                }
-                
+
+                var newValidChannelSet = newConfig.DeployConfig.ScanConfigs.Values
+                    .SelectMany(kv => kv.ValidChannels)
+                    .Select(k => k.Value)
+                    .ToHashSet();
+
+                // 3. 调用通用逻辑更新两个集合 (原地修改)
+                // 这里的 AnalysisChannelSet 和 ValidChannelSet 是类的成员属性/字段
+                var analysisChangeInfo = UpdateSetInPlace(AnalysisChannelSet, newAnalysisChannelSet, "分析频道");
+                var validChangeInfo = UpdateSetInPlace(ValidChannelSet, newValidChannelSet, "有效频道");
+
+                // 4. 替换配置对象
                 Config = newConfig;
-                _logger.Info("⚙️ 配置文件加载完成");
                 
-                return (true, $"配置重新加载成功 - {changeInfo}");
+                Credit.Configure(Config.CreditConfig);
+
+                _logger.Info("⚙️ 配置文件加载完成");
+
+                // 5. 拼接最终返回的变更信息
+                // 如果两个都没变，显示"无变化"；否则拼接变化的那个
+                var changes = new[] { analysisChangeInfo, validChangeInfo }
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToList();
+
+                string finalMessage = changes.Any() 
+                    ? $"配置更新成功 - {string.Join("; ", changes)}" 
+                    : "配置更新成功 - 频道集合无变化";
+
+                return (true, finalMessage);
             }
             catch (Exception ex)
             {
@@ -128,6 +129,22 @@ public class ConfigLoader
                 return (false, errorMsg);
             }
         }
+    }
+
+    /// <summary>
+    /// 验证配置
+    /// </summary>
+    public static (bool IsValid, List<string> Errors) ValidateConfig(DataCenterBotConfig config)
+    {
+        var errors = new List<string>();
+
+        if (config.AuthConfig?.AdminRoleIds is null || config.AuthConfig.AdminRoleIds.Count == 0)
+            errors.Add("AuthConfig.AdminRoleIds 不能为空");
+
+        if (config.DeployConfig?.DeployGuildIds is null || config.DeployConfig.DeployGuildIds.Count == 0)
+            errors.Add("GuildsConfig.DeployGuildIds 不能为空");
+
+        return (errors.Count == 0, errors);
     }
 
     /// <summary>
@@ -156,19 +173,48 @@ public class ConfigLoader
         }
     }
 
+
     /// <summary>
-    /// 验证配置
+    /// 通用集合更新逻辑：对比新旧集合，原地执行增删，并记录详细日志
     /// </summary>
-    public static (bool IsValid, List<string> Errors) ValidateConfig(DataCenterBotConfig config)
+    /// <typeparam name="T">集合元素类型</typeparam>
+    /// <param name="currentSet">当前正在使用的集合（将被原地修改）</param>
+    /// <param name="newSet">从新配置中加载的集合</param>
+    /// <param name="setName">集合名称（用于日志显示）</param>
+    /// <returns>变更统计信息字符串</returns>
+    private string UpdateSetInPlace<T>(HashSet<T> currentSet, HashSet<T> newSet, string setName)
     {
-        var errors = new List<string>();
+        // 1. 找出需要移除的（在旧的中，不在新的中）
+        var toRemove = currentSet.Except(newSet).ToList();
+        
+        // 2. 找出需要添加的（在新的中，不在旧的中）
+        var toAdd = newSet.Except(currentSet).ToList();
+        
+        // 3. 如果没有变化，直接返回
+        if (!toRemove.Any() && !toAdd.Any())
+        {
+            _logger.Info("[{setName}] 集合无变化", setName);
+            return string.Empty; // 返回空表示无变更
+        }
 
-        if (config.AuthConfig?.AdminRoleIds is null || config.AuthConfig.AdminRoleIds.Count == 0)
-            errors.Add("AuthConfig.AdminRoleIds 不能为空");
+        // 4. 执行移除
+        foreach (var item in toRemove)
+        {
+            currentSet.Remove(item);
+            _logger.Debug("[{setName}] 移除项: {item}", setName, item);
+        }
 
-        if (config.DeployConfig?.DeployGuildIds is null || config.DeployConfig.DeployGuildIds.Count == 0)
-            errors.Add("GuildsConfig.DeployGuildIds 不能为空");
+        // 5. 执行添加
+        foreach (var item in toAdd)
+        {
+            currentSet.Add(item);
+            _logger.Debug("[{setName}] 添加项: {item}", setName, item);
+        }
 
-        return (errors.Count == 0, errors);
+        // 6. 生成并记录统计信息
+        var changeInfo = $"{setName}: 移除 {toRemove.Count} 个, 添加 {toAdd.Count} 个";
+        _logger.Info("📊 集合已更新 - {changeInfo}", changeInfo);
+
+        return changeInfo;
     }
 }

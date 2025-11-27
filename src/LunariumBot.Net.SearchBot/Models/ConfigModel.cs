@@ -1,4 +1,4 @@
-namespace LunariumBot.Net.SearchBot.Model;
+namespace LunariumBot.Net.SearchBot.Models;
 
 public class SearchBotConfig
 {

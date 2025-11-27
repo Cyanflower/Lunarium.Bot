@@ -9,18 +9,18 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Utils;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using Polly;
 
-namespace LunariumBot.Net.SearchBot.AppInteractionService;
+namespace LunariumBot.Net.SearchBot.AuthUtils;
 
-public class AuthUtils
+public class AuthUtil
 {
     private readonly ConfigLoader _configLoader;
     private readonly ILogger _logger;
     private readonly HashSet<string> _scanCategories;
     private readonly HashSet<ulong> _allScanChannelIds;
-    public AuthUtils(ILogger logger, ConfigLoader configLoader)
+    public AuthUtil(ILogger logger, ConfigLoader configLoader)
     {
         _logger = logger.ForContext("CommandAuth");
         _configLoader = configLoader;
@@ -33,8 +33,8 @@ public class AuthUtils
     public async Task<AuthorizationResult> Authorization(AuthorizationConditions requiredConditions, IInteractionContext context)
     {
         // 1. 【准备阶段】提取上下文关键信息 (用于日志和逻辑)
-        //    这样做的好处是：如果 context 是 null 或者某些属性为空，我们在这里统一处理，
-        //    后续逻辑和日志都不用再担心空引用。
+        //    这样做的好处是：如果 context 是 null 或者某些属性为空, 在这里统一处理
+        //    后续逻辑和日志都不用再担心空引用访问
         var interactionName = GetInteractionIdentifier(context);
         var userId = context.User.Id;
         var userName = context.User.Username;
@@ -60,8 +60,7 @@ public class AuthUtils
         }
 
         // check: 是否在允许的频道 (使用之前讨论的修正逻辑)
-        // 这里假设 context.Channel 包含了足够的信息
-        if (context.Channel is not null && IsChannelPermitted(context.Channel)) 
+        if (context.Channel is not null && IsChannelPermitted(context.Channel))
         {
             actualConditions |= AuthorizationConditions.IsInPermittedChannel;
         }
@@ -148,26 +147,37 @@ public class AuthUtils
     }
     private bool IsChannelPermitted(IMessageChannel channel)
     {
+        // 交互时事件基本是 Socket 类型
         ulong? ParentChannelId = channel switch
         {
             SocketThreadChannel socketThreadChannel => socketThreadChannel.ParentChannel is not null ? socketThreadChannel.ParentChannel.Id : null,
-            RestThreadChannel restThreadChannel => restThreadChannel.ParentChannelId,
+            // RestThreadChannel restThreadChannel => restThreadChannel.ParentChannelId,
             SocketTextChannel socketTextChannel => socketTextChannel.Id,
-            RestTextChannel restTextChannel => restTextChannel.Id,
+            // RestTextChannel restTextChannel => restTextChannel.Id,
             _ => null
         };
+
+        // ========== [DEBUG] ===========
+        // 检查类型, 如果一旦有触发该 Log, 则取消上面的 switch 中的 case Rest 的注释
+        if (channel.GetType() == typeof(RestThreadChannel) || channel.GetType() == typeof(RestTextChannel))
+        {
+            _logger.Warning("检测到意外的 Rest 类型");
+        }
+        // ========== [DEBUG] ===========
+
         // 逻辑修正：直接检查频道ID是否在允许列表中
         // 如果是帖子(Thread)，通常需要检查其父频道ID
-        if (channel is IThreadChannel threadChannel)
+        if (ParentChannelId is not null)
         {
             // 检查帖子的父频道(论坛频道)是否在白名单
-            return _allScanChannelIds.Contains(threadChannel.CategoryId);
-            // 或者如果你有 threadChannel.CategoryId 的逻辑，也可以加在这里
+            return _allScanChannelIds.Contains(ParentChannelId.Value);
         }
-        
-        // 普通频道直接检查ID
-        return _allScanChannelIds.Contains(channel.Id);
+        else
+        {
+            return false;
+        }
     }
+
     /*
     * =====================================================================================
     *  [技术债警告 - Technical Debt Warning]
@@ -207,19 +217,19 @@ public class AuthUtils
         {
             // 1. 斜线命令 (Slash Command)
             ISlashCommandInteraction slashCommand => $"/ {slashCommand.Data.Name}",
-            
+
             // 2. 组件交互 (按钮、下拉菜单等)
             IComponentInteraction component => $"[Component] {component.Data.CustomId}",
-            
+
             // 3. 模态弹窗提交 (Modal Submit)
             IModalInteraction modal => $"[Modal] {modal.Data.CustomId}",
-            
+
             // 4. 用户上下文命令 (右键用户 -> Apps)
             IUserCommandInteraction userCommand => $"[UserCommand] {userCommand.Data.Name}",
-            
+
             // 5. 消息上下文命令 (右键消息 -> Apps)
             IMessageCommandInteraction messageCommand => $"[MessageCommand] {messageCommand.Data.Name}",
-            
+
             // 默认情况
             _ => "Unknown Interaction"
         };

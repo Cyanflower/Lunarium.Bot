@@ -20,6 +20,7 @@ rsync -avz \
   --include='Resources' \
   --exclude='start.sh' \
   --exclude='*.pdb' \
+  --exclude='*.xml' \
   "$SOURCE_DIR" "$REMOTE_DEST_URL"
 
 # 检查同步结果

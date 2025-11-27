@@ -2,8 +2,8 @@ using Npgsql;
 
 using Dapper;
 
-using LunariumBot.Net.DataCenter.Model;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Models.Database;
 using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.DataCenter.Database;
@@ -19,14 +19,14 @@ public partial class DatabaseService
             INSERT INTO posts_main (
                 thread_id, first_message_id, author_id, channel_id, channel_name, 
                 guild_id, guild_name, created_at, reaction_count, reply_count, 
-                last_active_at, jump_url, attachment_url, updated_at, 
+                last_active_at, jump_url, attachment_urls, updated_at, 
                 updated_jump_url, update_count, tags, is_valid, is_locked, is_deleted, in_forum, 
                 title, first_message_content, title_tokenized, content_tokenized
             )
             VALUES (
                 @ThreadId, @FirstMessageId, @AuthorId, @ChannelId, @ChannelName, 
                 @GuildId, @GuildName, @CreatedAt, @ReactionCount, @ReplyCount, 
-                @LastActiveAt, @JumpUrl, @AttachmentUrl, @UpdatedAt, 
+                @LastActiveAt, @JumpUrl, @AttachmentUrls, @UpdatedAt, 
                 @UpdatedJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, @InForum, 
                 @Title, @FirstMessageContent, @TitleTokenized, @ContentTokenized
             );
@@ -48,7 +48,7 @@ public partial class DatabaseService
             threadDataDb.ReplyCount,
             threadDataDb.LastActiveAt,
             threadDataDb.JumpUrl,
-            threadDataDb.AttachmentUrl,
+            threadDataDb.AttachmentUrls,
             threadDataDb.UpdatedAt,
             threadDataDb.UpdatedJumpUrl,
             threadDataDb.UpdateCount,

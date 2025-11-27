@@ -65,6 +65,7 @@ logs/
 token.txt
 # Bot Config
 config.jsonc
+appsettings.jsonc
 # Example
 Example/
 SourceCodeDoc/

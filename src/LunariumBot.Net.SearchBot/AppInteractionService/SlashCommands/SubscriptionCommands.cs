@@ -10,7 +10,7 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Database;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using LunariumBot.Net.SearchBot.Scheduler;
 using LunariumBot.Net.SearchBot.Utils;
 

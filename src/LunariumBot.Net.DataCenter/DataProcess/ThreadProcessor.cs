@@ -8,7 +8,7 @@ using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Utils;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
@@ -24,7 +24,8 @@ public partial class DataProcessService
     /// 该方法会获取帖子的首楼消息、附件、标签等完整信息，并构建 ThreadData 对象。
     /// 如果首楼消息不存在，则标记该帖子为无效。
     /// </summary>
-    /// <param name="socketThreadChannel">Discord 帖子频道对象。</param>
+    /// <param name="socketThreadChannel">Discord 帖子频道对象</param>
+    /// <param name="socketForumChannel">帖子所属的父频道</param>
     public async Task CreateForumThreadProcessAsync(SocketThreadChannel socketThreadChannel, SocketForumChannel socketForumChannel)
     {
         var isValid = true;
@@ -39,7 +40,13 @@ public partial class DataProcessService
         // 使用重试策略从 Discord API 获取首楼消息内容
         try
         {
-            await _semaphore.WaitAsync();
+            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+            if (!apiRateLimitToken.IsAcquired) 
+            {
+                _logger.Error("_apiRequestRateLimiter 队列已满");
+                // 只记录日志
+                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+            }
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
                 // 获取首楼消息（帖子ID等于首楼消息ID）
@@ -58,17 +65,15 @@ public partial class DataProcessService
             _logger.Critical(ex, "❌ 获取首楼消息失败: 帖子 {ThreadName} (ID: {ThreadId})",
                 socketThreadChannel.Name, socketThreadChannel.Id);
         }
-        finally
-        {
-            _semaphore.Release();
-        }
 
         // 验证首楼消息是否有效, 有效则尝试获取附件
-        string? attachmentUrl = null;
+        List<string>? attachmentUrls = null;
         if (firstMessage is not null)
         {
-            var imageAttachment = firstMessage.Attachments.FirstOrDefault(a => IsImageAttachment(a));
-            attachmentUrl = imageAttachment?.Url;
+            attachmentUrls = firstMessage.Attachments
+                .Where(a => IsImageAttachment(a))
+                .Select(a => a.Url)
+                .ToList();
         }
         // else
         // {
@@ -94,6 +99,14 @@ public partial class DataProcessService
             .ToList();
         var tags = string.Join(", ", appliedTagNames);
 
+        if (!_configLoader.ValidChannelSet.Contains(socketThreadChannel.ParentChannel.Id))
+        {
+            _logger.Debug("⚠️ 帖子不在作品区内，视为无效: {ThreadName} (ID: {ThreadId})",
+                socketThreadChannel.Name, socketThreadChannel.Id);
+            _logger.Debug("_configLoader.ChannelSet: {ChannelSet}", _configLoader.ValidChannelSet);
+            isValid = false;
+        }
+
         // ==========================
         // 构建数据模型
         // ========================== 
@@ -111,7 +124,7 @@ public partial class DataProcessService
             ReplyCount = socketThreadChannel.MessageCount,
             LastActiveAt = socketThreadChannel.CreatedAt,
             JumpUrl = $"https://discord.com/channels/{socketThreadChannel.Guild.Id}/{socketThreadChannel.Id}/0",
-            AttachmentUrl = attachmentUrl,
+            AttachmentUrls = attachmentUrls,
 
             Title = socketThreadChannel.Name,
             FirstMessageContent = firstMessage?.Content,
@@ -155,9 +168,9 @@ public partial class DataProcessService
             UserThreadCountDelta = 1,
             UserMessageCountDelta = 1,
             UserUpdateCountDelta = 0,
-            UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForThread.Level1,
-            UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForThread.Level2,
-            UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForThread.Level3,
+            UserCreditLv1Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
+            UserCreditLv2Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
+            UserCreditLv3Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
         };
 
         // ==========================
@@ -180,7 +193,7 @@ public partial class DataProcessService
 
                     await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
 
-                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+                    await _databaseService.UpsertUserStatusDataAsync(transaction, userData);
 
                     await transaction.CommitAsync();
                 }
@@ -227,7 +240,7 @@ public partial class DataProcessService
             ReplyCount = socketThreadChannel.MessageCount,
             LastActiveAt = socketThreadChannel.CreatedAt,
             JumpUrl = $"https://discord.com/channels/{socketThreadChannel.Guild.Id}/{socketThreadChannel.Id}/0",
-            AttachmentUrl = null,
+            AttachmentUrls = null,
 
             Title = socketThreadChannel.Name,
             FirstMessageContent = socketThreadChannel.Name,
@@ -264,17 +277,15 @@ public partial class DataProcessService
             LastMessageAt = socketThreadChannel.CreatedAt,
         };
 
-        var channelFactor = _configLoader.Config.CreditConfig.ChannelFactor.GetValueOrDefault(socketThreadChannel.Id, 100);
-
         var userData = new UserData()
         {
             UserId = threadInterface.OwnerId,
             UserThreadCountDelta = 0,
             UserMessageCountDelta = 1,
             UserUpdateCountDelta = 0,
-            UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1 * channelFactor,
-            UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2 * channelFactor,
-            UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3 * channelFactor,
+            UserCreditLv1Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
+            UserCreditLv2Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
+            UserCreditLv3Delta = Credit.ForThread(CreditLevel.Level1, socketThreadChannel.ParentChannel.Id),
         };
 
         // ==========================
@@ -295,7 +306,7 @@ public partial class DataProcessService
 
                     await _databaseService.UpsertPostMemberAsync(transaction, postMemberData);
 
-                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+                    await _databaseService.UpsertUserStatusDataAsync(transaction, userData);
 
                     await transaction.CommitAsync();
                 }

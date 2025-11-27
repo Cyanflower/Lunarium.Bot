@@ -25,7 +25,7 @@ public sealed class AdminCommands : InteractionModuleBase<SocketInteractionConte
         _configLoader = configLoader;
         _authUtils = authUtils;
         _archiverService = archiverService;
-        _logger = logger;
+        _logger = logger.ForContext("AdminCommands");
     }
 
     public override async Task BeforeExecuteAsync(ICommandInfo command)

@@ -1,0 +1,76 @@
+using System;
+using System.Threading.Tasks;
+using Discord.API;
+using BulkParams = Discord.API.Rest.ModifyGuildRolesParams;
+using Model = Discord.API.RoleV2;
+
+namespace Discord.Rest
+{
+    internal static class RoleHelperV2
+    {
+        #region General
+        public static Task DeleteAsync(IRole role, BaseDiscordClient client, RequestOptions options)
+            => client.ApiClient.DeleteGuildRoleAsync(role.Guild.Id, role.Id, options);
+
+        public static async Task<Model> ModifyAsync(IRole role, BaseDiscordClient client,
+            Action<RolePropertiesV2> func, RequestOptions? options)
+        {
+            var args = new RolePropertiesV2();
+            func(args);
+
+            if (args.Icon.IsSpecified || args.Emoji.IsSpecified)
+            {
+                role.Guild.Features.EnsureFeature(GuildFeature.RoleIcons);
+
+                if ((args.Icon.IsSpecified && args.Icon.Value != null) && (args.Emoji.IsSpecified && args.Emoji.Value != null))
+                {
+                    throw new ArgumentException("Emoji and Icon properties cannot be present on a role at the same time.");
+                }
+            }
+
+            var apiArgs = new API.Rest.ModifyGuildRoleParamsV2
+            {
+                Color = args.Color.IsSpecified ? args.Color.Value.RawValue : Optional.Create<uint>(),
+                Hoist = args.Hoist,
+                Mentionable = args.Mentionable,
+                Name = args.Name,
+                Permissions = args.Permissions.IsSpecified ? args.Permissions.Value.RawValue.ToString() : Optional.Create<string>(),
+                Icon = args.Icon.IsSpecified ? args.Icon.Value?.ToModel() ?? null : Optional<API.Image?>.Unspecified,
+                Emoji = args.Emoji.IsSpecified ? args.Emoji.Value?.Name ?? "" : Optional.Create<string>(),
+            };
+
+            if (args.Colors.IsSpecified)
+            {
+                var colors = args.Colors.Value;
+                // 将 Discord.RoleColors (Struct) 转换为 API.RoleColors (DTO)
+                apiArgs.Colors = new API.RoleColors
+                {
+                    PrimaryColor = colors.PrimaryColor.RawValue,
+                    SecondaryColor = colors.SecondaryColor?.RawValue,
+                    TertiaryColor = colors.TertiaryColor?.RawValue
+                };
+            }
+            
+            if ((args.Icon.IsSpecified && args.Icon.Value != null) && role.Emoji != null)
+            {
+                apiArgs.Emoji = Optional<string>. Unspecified;
+            }
+
+            if ((args.Emoji.IsSpecified && args.Emoji.Value != null) && !string.IsNullOrEmpty(role.Icon))
+            {
+                apiArgs.Icon = Optional<API.Image?>.Unspecified;
+            }
+
+            var model = await client.ApiClient.ModifyGuildRoleV2Async(role.Guild.Id, role.Id, apiArgs, options).ConfigureAwait(false);
+
+            if (args.Position.IsSpecified)
+            {
+                var bulkArgs = new[] { new BulkParams(role.Id, args.Position.Value) };
+                await client.ApiClient.ModifyGuildRolesAsync(role.Guild.Id, bulkArgs, options).ConfigureAwait(false);
+                model.Position = args.Position.Value;
+            }
+            return model;
+        }
+        #endregion
+    }
+}

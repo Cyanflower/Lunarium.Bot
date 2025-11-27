@@ -9,15 +9,15 @@ using LunariumBot.Net.Scheduler;
 using LunariumBot.Net.Scheduler.Interfaces;
 
 namespace LunariumBot.Net.DataCenter.Scheduler;
-public class FullSyncJob : IAsyncJob
+public class FullSyncAsyncJob : IAsyncJob
 {
     private readonly ILogger _logger;
-    private readonly Scanner _scanner;
+    private readonly ThreadScanner _scanner;
     private readonly DiscordSocketClient _client;
     private readonly ConfigLoader _configLoader;
     private IChannel? _cacheLogChannel;
 
-    public FullSyncJob(ILogger logger, ConfigLoader configLoder, Scanner scanner, DiscordSocketClient client)
+    public FullSyncAsyncJob(ILogger logger, ConfigLoader configLoder, ThreadScanner scanner, DiscordSocketClient client)
     {
         _logger = logger.ForContext("FullSyncJob");
         _configLoader = configLoder;
@@ -32,7 +32,7 @@ public class FullSyncJob : IAsyncJob
         {
             _logger.Info("定时扫描开始");
             // 执行同步扫描
-            var scanResult = await _scanner.SyncScan();
+            var scanResult = await _scanner.SyncScanAsync();
 
             _logger.Info("定时扫描完成");
 

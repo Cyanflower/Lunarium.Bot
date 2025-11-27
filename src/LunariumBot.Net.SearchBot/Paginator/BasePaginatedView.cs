@@ -2,10 +2,10 @@ using Discord;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
-public abstract class BasePaginatedView<T> : IPaginatedView where T : class
+public abstract class BasePaginatedView<T> : IPaginatedView
 {
     public string PaginatorId { get; }
-    public DateTimeOffset ExpiresAt { get; }
+    public DateTimeOffset ExpiresAt { get; private set; } 
     protected int _pageSize;
     protected int _totalPages;
     public int CurrentPageIndex => _currentPageIndex;
@@ -30,6 +30,26 @@ public abstract class BasePaginatedView<T> : IPaginatedView where T : class
     }
 
     #region 状态操作 (Commands) - 只修改状态
+    public void RefreshExpiration(TimeSpan duration)
+    {
+        ExpiresAt = DateTimeOffset.UtcNow.Add(duration);
+    }
+
+    public IPaginatedView FirstPage()
+    {
+        _currentPageIndex = 0;
+        return this;
+    }
+
+    public IPaginatedView PrevPage()
+    {
+        if (_currentPageIndex > 0)
+        {
+            _currentPageIndex--;
+        }
+        return this;
+    }
+    
     public IPaginatedView NextPage()
     {
         if (_currentPageIndex < _totalPages)
@@ -39,12 +59,9 @@ public abstract class BasePaginatedView<T> : IPaginatedView where T : class
         return this;
     }
 
-    public IPaginatedView PreviousPage()
+    public IPaginatedView LastPage()
     {
-        if (_currentPageIndex > 0)
-        {
-            _currentPageIndex--;
-        }
+        _currentPageIndex = _totalPages > 0 ? _totalPages - 1 : 0;
         return this;
     }
 

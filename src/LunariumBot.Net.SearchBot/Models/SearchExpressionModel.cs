@@ -4,7 +4,7 @@ using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using LunariumBot.Net.Extensions;
 
-namespace LunariumBot.Net.SearchBot.Model;
+namespace LunariumBot.Net.SearchBot.Models;
 
 /// <summary>
 /// 定义搜索模式

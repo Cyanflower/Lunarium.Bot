@@ -6,7 +6,7 @@ using Discord;
 using Discord.Rest;
 using Discord.Interactions;
 
-namespace LunariumBot.Net.DataCenter.Model;
+namespace LunariumBot.Net.DataCenter.Models;
 
 // ============================================
 // 核心业务模型（与 Discord.NET 交互，使用 ulong）
@@ -40,7 +40,7 @@ public class ThreadData
     public int ReplyCount { get; set; }
     public DateTimeOffset LastActiveAt { get; set; }
     public string JumpUrl { get; set; } = "";
-    public string? AttachmentUrl { get; set; } = null;
+    public List<string>? AttachmentUrls { get; set; } = null;
 
     // 更新数据
     public DateTimeOffset? UpdatedAt { get; set; } = null;
@@ -87,13 +87,17 @@ public class MessageData
 public class UserData
 {
     public ulong UserId { get; set; }
-    public string UserName { get; set; } = "";
-    public int UserThreadCountDelta { get; set; }
-    public int UserMessageCountDelta { get; set; }
-    public int UserUpdateCountDelta { get; set; }
-    public int UserCreditLv1Delta { get; set; }
-    public int UserCreditLv2Delta { get; set; }
-    public int UserCreditLv3Delta { get; set; }
+    public string UserUsername { get; set; } = "Unknown User";
+    public string? UserNikcname { get; set; }
+    public string? UserGlobalName { get; set; }
+    public string? UserAvatarUrl { get; set; }
+    public List<ulong> UserRoles { get; set; } = new();
+    public int UserThreadCountDelta { get; set; } = 0;
+    public int UserMessageCountDelta { get; set; } = 0;
+    public int UserUpdateCountDelta { get; set; } = 0;
+    public int UserCreditLv1Delta { get; set; } = 0;
+    public int UserCreditLv2Delta { get; set; } = 0;
+    public int UserCreditLv3Delta { get; set; } = 0;
 }
 
 /// <summary>
@@ -116,7 +120,7 @@ public class PostMemberData
 /// <summary>
 /// 标签信息
 /// </summary>
-public class TagInfo
+public class TagData
 {
     public ulong TagId { get; set; }
     public ulong ChannelId { get; set; }
@@ -135,7 +139,7 @@ public class PostDisplayModel
     public ulong ThreadId { get; set; }
     public string? Title { get; set; }
     public string? JumpUrl { get; set; }
-    public string? AttachmentUrl { get; set; }
+    public List<string>? AttachmentUrls { get; set; }
 
     // 详细字段
     public ulong FirstMessageId { get; set; }
@@ -158,4 +162,17 @@ public class PostDisplayModel
     public string? FavoriteAS { get; set; }
     public long UpdatedAt { get; set; } = 0;
     public string MessageJumpUrl { get; set; } = "";
+}
+
+public class RoleData
+{
+    public ulong RoleId { get; set; }
+    public string RoleName { get; set; } = "";
+    public string? RoleIconUrl { get; set; }
+    public string? RoleEmoji { get; set; }
+    public uint? RolePrimaryColor { get; set; }
+    public uint? RoleSecondaryColor { get; set; }
+    public uint? RoleTertiaryColor { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeleteAt { get; set; }
 }

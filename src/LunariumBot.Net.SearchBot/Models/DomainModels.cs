@@ -1,4 +1,4 @@
-namespace LunariumBot.Net.SearchBot.Model;
+namespace LunariumBot.Net.SearchBot.Models;
 
 // ============================================
 // 核心业务模型（与 Discord.NET 交互，使用 ulong）
@@ -136,12 +136,12 @@ public class PostDisplayModel
 
     // ================== 核心内容与链接 ==================
     /// <summary>
-    /// 帖子标题
+    /// 帖子标题, 最长100字符
     /// </summary>
     public string? Title { get; set; }
 
     /// <summary>
-    /// 帖子首条消息的内容
+    /// 帖子首条消息的内容, 最长 2000 或 4000(nitro会员) 字符
     /// </summary>
     public string? Content { get; set; }
 
@@ -223,21 +223,30 @@ public class PostDisplayModel
     /// <summary>
     /// (在收藏夹中) 收藏此帖子的时间
     /// </summary>
-    public long AddedAt { get; set; }
-
+    // public long AddedAt { get; set; }
     /// <summary>
     /// (在收藏夹中) 用户为此收藏设置的别名
     /// </summary>
-    public string? FavoriteAs { get; set; }
+    // public string? FavoriteAs { get; set; }
 
-    /// <summary>
-    /// 指示这是否为从 Discord API 实时获取的回退数据
-    /// </summary>
-    public bool IsFallbackData { get; set; } = false;
-}
-
-public class BlackedInfo
-{
-    public ulong BlockedAuthorId { get; set; }
-    public DateTimeOffset AddedAt { get; set; }
+    public void Update(PostDisplayModel newData)
+    {
+        FirstMessageId = newData.FirstMessageId;
+        Title = newData.Title;
+        Content = newData.Content;
+        JumpUrl = newData.JumpUrl;
+        UpdateMessageJumpUrl = newData.UpdateMessageJumpUrl;
+        AttachmentUrl = newData.AttachmentUrl;
+        AuthorId = newData.AuthorId;
+        ChannelId = newData.ChannelId;
+        ChannelName = newData.ChannelName;
+        GuildId = newData.GuildId;
+        GuildName = newData.GuildName;
+        ReactionCount = newData.ReactionCount;
+        ReplyCount = newData.ReplyCount;
+        CreatedAt = newData.CreatedAt;
+        LastActiveAt = newData.LastActiveAt;
+        UpdatedAt = newData.UpdatedAt;
+        Tags = newData.Tags;
+    }
 }

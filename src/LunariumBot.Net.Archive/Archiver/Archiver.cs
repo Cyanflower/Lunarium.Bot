@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Collections.Concurrent;
+using System.Threading.RateLimiting;
 
 using Discord;
 using Discord.Net;
@@ -11,6 +12,7 @@ using Polly.Retry;
 
 using LunariumBot.Net.Logger;
 using LunariumBot.Net.Extensions;
+using LunariumBot.Net.Extensions.DiscordNetExtension;
 
 using LunariumBot.Net.Archive.Model;
 using Discord.Rest;
@@ -55,7 +57,7 @@ public sealed class ArchiverService : IDisposable
     /// <summary>
     /// 信号量，用于限制并发的Discord API请求数量（最大24个并发请求）
     /// </summary>
-    private readonly SemaphoreSlim _apiRequestSemaphore = new SemaphoreSlim(24, 24);
+    private readonly RateLimiter _apiRequestRateLimiter;
 
     /// <summary>
     /// HTTP请求重试策略，处理网络异常和临时性错误
@@ -92,6 +94,7 @@ public sealed class ArchiverService : IDisposable
         _priorityArchive = new(_priorityArchiveDataLoader.LoadData());
 
         // 配置HTTP重试策略
+        _apiRequestRateLimiter = RateLimiterConfigure();
         _httpRetryPolicy = HttpRetryPolicyConfig();
     }
 
@@ -116,6 +119,25 @@ public sealed class ArchiverService : IDisposable
         }
     }
 
+    private TokenBucketRateLimiter RateLimiterConfigure()
+    {
+        return new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+        {
+            // Token 恢复速率：每秒 45 个
+            TokensPerPeriod = 45,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+
+            // Token 上限
+            TokenLimit = 45,
+
+            // 队列设置
+            QueueLimit = 100000,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            
+            // 自动补充: 开启
+            AutoReplenishment = true
+        });
+    }
     #endregion
 
     #region 公共方法 (用于外部调用)
@@ -482,7 +504,13 @@ public sealed class ArchiverService : IDisposable
             foreach ((var channelId, var pinnedThread) in channelThreadPairs)
             {
                 // 等待API请求信号量，防止请求过于频繁导致速率限制
-                await _apiRequestSemaphore.WaitAsync();
+                using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                if (!apiRateLimitToken.IsAcquired) 
+                {
+                    _logger.Error("_apiRequestRateLimiter 队列已满");
+                    // 只记录日志
+                    // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                }
                 try
                 {
                     // 使用重试策略执行API请求，增加网络波动时的成功率
@@ -518,11 +546,6 @@ public sealed class ArchiverService : IDisposable
                     // 发生未知错误时，选择保守策略：依然将它保留在缓存中，以便下次任务周期时重试
                     updatedPinnedCache[guildId][channelId] = pinnedThread;
                 }
-                finally
-                {
-                    // 确保无论成功还是失败，都释放API请求信号量
-                    _apiRequestSemaphore.Release();
-                }
             }
             _logger.Info("[{guildName}({GuildId})] 步骤5/6: 置顶线程维护完成，共 {updatedPinnedCacheCount} 个线程状态被确认", 
                 guild.Name, guildId, updatedPinnedCache[guildId].Count);
@@ -542,7 +565,13 @@ public sealed class ArchiverService : IDisposable
         int count = 0;
         var lastActivityTasks = threads.Select(async thread =>
         {
-            await _apiRequestSemaphore.WaitAsync();
+            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+            if (!apiRateLimitToken.IsAcquired) 
+            {
+                _logger.Error("_apiRequestRateLimiter 队列已满");
+                // 只记录日志
+                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+            }
             try
             {
                 Interlocked.Increment(ref count);
@@ -574,10 +603,6 @@ public sealed class ArchiverService : IDisposable
                 _logger.Error(ex, "[{guildName}({GuildId})] 步骤3/6: 获取线程 {ThreadId} 最后消息时间时发生异常", guildName, guildId, thread.Id);
                 // 出错时使用线程创建时间作为备选
                 return (LastMessageAt: thread.CreatedAt, Thread: thread);
-            }
-            finally
-            {
-                _apiRequestSemaphore.Release();
             }
         });
 
@@ -623,7 +648,13 @@ public sealed class ArchiverService : IDisposable
 
         var archiveTasks = threadsToArchive.Select(async threadInfo =>
         {
-            await _apiRequestSemaphore.WaitAsync();
+            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+            if (!apiRateLimitToken.IsAcquired) 
+            {
+                _logger.Error("_apiRequestRateLimiter 队列已满");
+                // 只记录日志
+                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+            }
             try
             {
                 await _httpRetryPolicy.ExecuteAsync(async () =>
@@ -642,10 +673,6 @@ public sealed class ArchiverService : IDisposable
             {
                 _logger.Error(ex, "归档线程 {ThreadId} 时发生异常", threadInfo.Thread.Id);
                 return (Success: false, threadInfo.LastMessageAt, threadInfo.Thread);
-            }
-            finally
-            {
-                _apiRequestSemaphore.Release();
             }
         });
 
@@ -754,7 +781,7 @@ public sealed class ArchiverService : IDisposable
     /// <param name="taskDuration">任务执行时长</param>
     /// <param name="taskEndTime">任务结束时间</param>
     /// <returns>格式化的Discord嵌入消息</returns>
-    private Embed CreateStatusEmbed(
+    private Discord.Embed CreateStatusEmbed(
         ulong guildId,
         string guildName,
         int totalActiveThreads,
@@ -1023,7 +1050,7 @@ public sealed class ArchiverService : IDisposable
     public void Dispose()
     {
         _archiveTimer?.Dispose();
-        _apiRequestSemaphore?.Dispose();
+        _apiRequestRateLimiter?.Dispose();
     }
 
     #endregion

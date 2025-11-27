@@ -1,9 +1,10 @@
 using Npgsql;
 using Dapper;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using JiebaNet.Segmenter.Common;
 using System.Text;
-using LunariumBot.Net.SearchBot.Model.Database;
+using LunariumBot.Net.SearchBot.Models.Database;
+using LunariumBot.Net.Extensions;
 
 
 namespace LunariumBot.Net.SearchBot.Database;
@@ -251,12 +252,65 @@ public partial class DatabaseService
                 var results = await connection.QueryAsync<PostDisplayModelDb>(sqlCommand, parameters);
                 return results.Select(result => result.ToDomain()).ToList();
             });
+            return postDisplayModels;
         }
         catch (Exception ex)
         {
             _logger.Error(ex);
+            throw;
         }
-        
-        return postDisplayModels;
+    }
+    
+    public async Task<IReadOnlyList<PostDisplayModel>> SearchForCache(List<ulong> threadIds)
+    {
+        const string SqlCommand = """
+            SELECT
+                thread_id AS ThreadId,
+                first_message_id AS FirstMessageId,
+
+                title AS Title,
+                first_message_content AS Content,
+                jump_url AS JumpUrl,
+                updated_jump_url AS UpdateMessageJumpUrl,
+                attachment_url AS AttachmentUrl,
+
+                author_id AS AuthorId,
+                channel_id AS ChannelId,
+                channel_name AS ChannelName,
+                guild_id AS GuildId,
+                guild_name AS GuildName,
+
+                reaction_count AS ReactionCount,
+                reply_count AS ReplyCount,
+
+                created_at AS CreatedAt,
+                last_active_at AS LastActiveAt,
+                updated_at AS UpdatedAt,
+
+                tags AS Tags,
+
+                is_valid AS IsFallbackData
+            FROM posts_main
+            WHERE thread_id = ANY(@ThreadIds);
+            """;
+        var parameters = new
+        {
+            ThreadIds = threadIds.Select(id => id.ToDbId()).ToArray()
+        };
+        try
+        {
+            using var connection = GetConnection();
+            var postDisplayModels = await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                var results = await connection.QueryAsync<PostDisplayModelDb>(SqlCommand, parameters);
+                return results;
+            });
+            return postDisplayModels.Select(data => data.ToDomain()).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
+            throw;
+        }
     }
 }

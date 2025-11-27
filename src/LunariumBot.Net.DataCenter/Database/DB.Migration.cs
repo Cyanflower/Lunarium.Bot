@@ -9,7 +9,7 @@ using Dapper;
 using LunariumBot.Net.Logger;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter.Database;
 

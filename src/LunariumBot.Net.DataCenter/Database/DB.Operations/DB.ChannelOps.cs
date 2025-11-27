@@ -1,9 +1,9 @@
 using Npgsql;
 using Dapper;
 
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.Extensions;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -15,8 +15,8 @@ public partial class DatabaseService
     /// </summary>
     /// <param name="transaction">NpgsqlTransaction 事务。</param>
     /// <param name="channelData">要创建或更新的频道数据。</param>
-    /// <param name="tagInfos">该频道下最新的完整标签列表。</param>
-    public async Task UpsertForumChannelAsync(NpgsqlTransaction transaction, ChannelData channelData, List<TagInfo> tagInfos)
+    /// <param name="tagDatas">该频道下最新的完整标签列表。</param>
+    public async Task UpsertForumChannelAsync(NpgsqlTransaction transaction, ChannelData channelData, List<TagData> tagDatas)
     {
         const string SqlCommand = """
             -- 步骤 1: 插入或更新频道信息 (UPSERT)
@@ -45,7 +45,7 @@ public partial class DatabaseService
                 guild_name = EXCLUDED.guild_name;
 
             -- 步骤 3: 校准标签 - 删除该频道下已不存在的旧标签
-            -- tagInfos 是该频道的最新标签全集, 所以数据库里有、但新列表里没有的，就是过时的。
+            -- tagDatas 是该频道的最新标签全集, 所以数据库里有、但新列表里没有的，就是过时的。
             -- 使用 <> ALL() 语法可以高效地找出需要删除的标签。
             -- 注意：由于在 v1.initial_schema.sql 中为 tags 表设置了 ON DELETE CASCADE
             -- 删除这里的 tag 会自动清理 post_tags_junction 表中的关联记录，非常方便！
@@ -54,7 +54,7 @@ public partial class DatabaseService
             """;
 
         var channelDataDb = ChannelDataDb.FromDomain(channelData);
-        var tagInfosDb = tagInfos.Select(TagInfoDb.FromDomain).ToList();
+        var tagDataDbs = tagDatas.Select(TagDataDb.FromDomain).ToList();
 
         var parameters = new
         {
@@ -62,8 +62,8 @@ public partial class DatabaseService
             channelDataDb.ChannelName,
             channelDataDb.GuildId,
             channelDataDb.GuildName,
-            AllTagIds = tagInfosDb.Select(t => t.TagId).ToArray(),
-            AllTagNames = tagInfosDb.Select(t => t.TagName).ToArray()
+            AllTagIds = tagDataDbs.Select(t => t.TagId).ToArray(),
+            AllTagNames = tagDataDbs.Select(t => t.TagName).ToArray()
         };
 
         try

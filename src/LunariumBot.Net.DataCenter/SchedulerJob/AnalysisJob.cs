@@ -12,7 +12,7 @@ namespace LunariumBot.Net.DataCenter.Scheduler;
 /// 一个定时任务，负责执行数据分析、生成报告并通过 Embed 消息推送到各服务器的 Dashboard 频道。
 /// 支持多服务器独立推送，每个服务器接收各自的数据分析报告。
 /// </summary>
-public class AnalysisJob : IAsyncJob
+public class AnalysisAsyncJob : IAsyncJob
 {
     private readonly ILogger _logger;
     private readonly DataAnalysis _dataAnalysis;
@@ -29,7 +29,7 @@ public class AnalysisJob : IAsyncJob
         RetryMode = RetryMode.AlwaysRetry // 启用 Discord.Net 的内置重试机制
     };
 
-    public AnalysisJob(ILogger logger, ConfigLoader configLoader, DataAnalysis dataAnalysis, DiscordSocketClient client)
+    public AnalysisAsyncJob(ILogger logger, ConfigLoader configLoader, DataAnalysis dataAnalysis, DiscordSocketClient client)
     {
         _logger = logger.ForContext("AnalysisJob");
         _configLoader = configLoader;

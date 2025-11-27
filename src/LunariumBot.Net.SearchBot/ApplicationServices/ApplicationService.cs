@@ -8,6 +8,8 @@ using Polly.Retry;
 using LunariumBot.Net.Logger;
 
 using LunariumBot.Net.SearchBot.Database;
+using LunariumBot.Net.SearchBot.SearchCache;
+using LunariumBot.Net.SearchBot.Paginator;
 
 namespace LunariumBot.Net.SearchBot.ApplicationServices;
 
@@ -21,13 +23,23 @@ public partial class ApplicationService
 
     /// <summary>数据库服务，用于执行数据库操作</summary>
     private readonly DatabaseService _databaseService;
+
+    /// <summary>帖子对象弱引用缓存池，用于所有用户交互共用的帖子信息对象</summary>
+    private readonly SearchCacheService _searchCacheService;
+
+    /// <summary>泛型翻页器缓存池，用于所有用户交互共用的页面缓存</summary>
+    private readonly PaginatorManager _paginatorManager;
+
     /// <summary>数据库操作重试策略，处理数据库连接相关的临时性错误</summary>
     private readonly AsyncRetryPolicy _dbRetryPolicy;
-    public ApplicationService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService)
+    
+    public ApplicationService(ILogger logger, ConfigLoader configLoader,DatabaseService databaseService, SearchCacheService searchCacheService, PaginatorManager paginatorManager)
     {
         _logger = logger.ForContext("ApplicationService");
         _configLoader = configLoader;
         _databaseService = databaseService;
+        _searchCacheService = searchCacheService;
+        _paginatorManager = paginatorManager;
         _dbRetryPolicy = DbRetryPolicy();
     }
 

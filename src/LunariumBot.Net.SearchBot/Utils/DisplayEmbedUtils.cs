@@ -9,7 +9,7 @@ using Discord;
 using LunariumBot.Net.Extensions;
 
 // 项目内命名空间
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 
 
 namespace LunariumBot.Net.SearchBot.Utils;

@@ -1,6 +1,6 @@
 
 using LunariumBot.Net.Extensions;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 
 
 namespace LunariumBot.Net.SearchBot.Utils;

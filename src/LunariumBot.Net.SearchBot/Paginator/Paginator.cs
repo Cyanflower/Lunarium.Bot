@@ -1,58 +1,137 @@
 using System.Collections.Concurrent;
 using System.Reactive.Disposables;
+using LunariumBot.Net.Logger;
 using NanoidDotNet;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
-public class Paginator : IDisposable
+public class PaginatorManager : IDisposable
 {
+    const int MaxRetry = 5;
     const string Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const int Expire = 1; // 小时
-    private CancellationTokenSource _cts = new(); 
+    const int ExpireHours = 1; // 小时
+    private readonly ILogger _logger;
+    private int retryCount = 0; 
+    private readonly PeriodicTimer _timer; 
+    private readonly CancellationTokenSource _cts = new();
+    private readonly Task _cleanupTask;
+    private volatile bool _isDisposed = false;
+    private volatile bool _isBroken = false;
     private readonly ConcurrentDictionary<string, IPaginatedView> _paginatedViews = new();
-    public Paginator()
+    public PaginatorManager(ILogger logger)
     {
-        _ = Task.Run(async () => { await CleanupLoopAsync(); });
+        _logger = logger.ForContext("PaginatorManager");
+        _timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        _cleanupTask = Task.Run(async () => { await CleanupLoopAsync(); });
     }
-    
-    public void RegisterView<T>(ulong userId, IEnumerable<T> data) where T : class
+
+    public IPaginatedView RegisterView<T>(ulong userId, IEnumerable<T> data) where T : class
     {
-        // 生成uuid, 867658156510150716 + abcde12345 (18/19位 Snowflake ID + 10位 NanoId, 占用 CustomId 28 ~ 29个字符)
+        if (_isDisposed) throw new ObjectDisposedException(nameof(PaginatorManager));
+        if (_isBroken) throw new InvalidOperationException("PaginatorManager is out of service due to repeated failures.");
+        // 生成uuid, 867658156510150716 + abcde12345 (18/19位 Snowflake ID + 10位 NanoId, 占用 CustomId 29 ~ 30个字符, 包括中间那个 - )
         var key = $"{userId}-{Nanoid.Generate(Alphabet, 10)}";
         // 生成过期时间
-        var expiresAt = DateTimeOffset.UtcNow.AddHours(Expire);
+        var expiresAt = DateTimeOffset.UtcNow.AddHours(ExpireHours);
         // 创建 IPaginatedView
-        var view = PaginatedViewFactory.Create(data, expiresAt, key);
+        var view = PaginatedViewFactory.Create(data.ToList(), expiresAt, key);
         // 添加到缓存
         _paginatedViews.TryAdd(key, view);
+        return view;
+    }
+    
+    public IPaginatedView? GetView(string key)
+    {
+        if (_isDisposed || _isBroken) return null;
+
+        if (_paginatedViews.TryGetValue(key, out var view))
+        {
+            // 只要用户还在访问(交互)，就给它续命 1 小时 (续命? 续命! +1h.jpg)
+            view.RefreshExpiration(TimeSpan.FromHours(ExpireHours));
+            return view;
+        }
+        return null;
     }
 
+    // 泛型 Get
+    // TView 必须是 IPaginatedView 的实现类
+    public TView? GetView<TView>(string key) where TView : class, IPaginatedView
+    {
+        // 复用上面的逻辑, 确保"续命"被执行
+        var view = GetView(key);
+        // 尝试转换, 如果类型不匹配, 这里会返回 null
+        return view as TView;
+    }
+    
     private async Task CleanupLoopAsync()
     {
-        while (!_cts.IsCancellationRequested)
+        var retryCount = 0;
+        var token = _cts.Token;
+
+        try
         {
-            // 每分钟检查一次
-            await Task.Delay(TimeSpan.FromMinutes(1));
-
-            if (_paginatedViews.IsEmpty) continue;
-
-            var now = DateTimeOffset.UtcNow;
-            var expiredKeys = new List<string>();
-
-            foreach (var pair in _paginatedViews)
+            while (await _timer.WaitForNextTickAsync(token))
             {
-                if (now >= pair.Value.ExpiresAt) expiredKeys.Add(pair.Key);
+                try
+                {
+                    if (_paginatedViews.IsEmpty) continue;
+
+                    var now = DateTimeOffset.UtcNow;
+                    
+                    // 核心清理逻辑
+                    foreach (var pair in _paginatedViews)
+                    {
+                        // 再次检查取消, 避免在繁重的循环中卡死
+                        if (token.IsCancellationRequested) return;
+
+                        if (now >= pair.Value.ExpiresAt)
+                        {
+                            _paginatedViews.TryRemove(pair.Key, out _);
+                        }
+                    }
+
+                    // 如果成功执行完一轮, 重置重试计数器
+                    retryCount = 0; 
+                }
+                catch (Exception ex)
+                {
+                    // 这里捕获的是 业务逻辑/集合操作 的异常，而不是 Timer 的异常
+                    // 如果是正在关闭引发的异常，直接退出
+                    if (token.IsCancellationRequested) return;
+
+                    retryCount++;
+                    _logger.Error(ex, "CleanupLoop Error: {retryCount}/{MaxRetry}", retryCount, MaxRetry);
+
+                    if (retryCount >= MaxRetry)
+                    {
+                        _isBroken = true;
+                        // 清空缓存
+                        _paginatedViews.Clear();
+                        _logger.Critical("PaginatorManager Circuit Broken: Too many errors.");
+                        return;
+                    }
+                }
             }
-
-            foreach (var key in expiredKeys)
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常的取消流程
+        }
+        catch (Exception ex)
+        {
+            // 这里捕获的是 Timer 本身可能的异常
+            if (!_isDisposed)
             {
-                _paginatedViews.TryRemove(key, out _);
+                _logger.Critical(ex, "PaginatorManager Critical Timer Failure.");
+                _isBroken = true;
             }
         }
     }
-    
+
     public void Dispose()
     {
         _cts.Cancel();
+        _cts.Dispose();
+        _timer.Dispose();
     }
 }

@@ -4,8 +4,8 @@ using Dapper;
 
 using LunariumBot.Net.Extensions;
 
-using LunariumBot.Net.DataCenter.Model;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Models.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -21,14 +21,14 @@ public partial class DatabaseService
             INSERT INTO posts_main (
                 thread_id, first_message_id, author_id, channel_id, channel_name, 
                 guild_id, guild_name, created_at, reaction_count, reply_count, 
-                last_active_at, jump_url, attachment_url, 
+                last_active_at, jump_url, attachment_urls, 
                 tags, is_valid, is_locked, in_forum, is_deleted, 
                 title, first_message_content, title_tokenized, content_tokenized
             )
             SELECT
                 t.thread_id, t.first_message_id, t.author_id, t.channel_id, t.channel_name, 
                 t.guild_id, t.guild_name, t.created_at, t.reaction_count, t.reply_count, 
-                t.last_active_at, t.jump_url, t.attachment_url, 
+                t.last_active_at, t.jump_url, t.attachment_urls, 
                 t.tags, t.is_valid, t.is_locked, t.in_forum, FALSE, 
                 t.title, t.first_message_content, t.title_tokenized, t.content_tokenized
             FROM unnest(
@@ -40,7 +40,7 @@ public partial class DatabaseService
             ) AS t(
                 thread_id, first_message_id, author_id, channel_id, channel_name,
                 guild_id, guild_name, created_at, reaction_count, reply_count,
-                last_active_at, jump_url, attachment_url,
+                last_active_at, jump_url, attachment_urls,
                 tags, is_valid, is_locked, in_forum,
                 title, first_message_content, title_tokenized, content_tokenized
             )
@@ -52,7 +52,7 @@ public partial class DatabaseService
                 reaction_count = EXCLUDED.reaction_count,
                 reply_count = EXCLUDED.reply_count,
                 last_active_at = EXCLUDED.last_active_at,
-                attachment_url = EXCLUDED.attachment_url,
+                attachment_urls = EXCLUDED.attachment_urls,
                 tags = EXCLUDED.tags,
                 is_valid = EXCLUDED.is_valid,
                 is_locked = EXCLUDED.is_locked,
@@ -138,7 +138,7 @@ public partial class DatabaseService
                 ReplyCounts = allThreadsDb.Select(t => t.ReplyCount).ToArray(),
                 LastActiveAts = allThreadsDb.Select(t => t.LastActiveAt).ToArray(),
                 JumpUrls = allThreadsDb.Select(t => t.JumpUrl).ToArray(),
-                AttachmentUrls = allThreadsDb.Select(t => t.AttachmentUrl).ToArray(),
+                AttachmentUrls = allThreadsDb.Select(t => t.AttachmentUrls).ToArray(),
                 Tags = allThreadsDb.Select(t => t.Tags).ToArray(),
                 IsValids = allThreadsDb.Select(t => t.IsValid).ToArray(),
                 IsLockeds = allThreadsDb.Select(t => t.IsLocked).ToArray(),

@@ -25,7 +25,7 @@ public class ScanProgressReporter
     public ScanProgressReporter(SocketInteractionContext context, ILogger logger)
     {
         _context = context;
-        _logger = logger;
+        _logger = logger.ForContext("ScanProgressReporter");
         _description = new StringBuilder();
         _embedBuilder = new EmbedBuilder();
         asyncRetryPolicy = HttpRetryPolicyConfig();

@@ -1,9 +1,10 @@
 using System.Text.Json;
 
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Utils;
 using LunariumBot.Net.Extensions;
 
-namespace LunariumBot.Net.DataCenter.Model.Database;
+namespace LunariumBot.Net.DataCenter.Models.Database;
 // ============================================
 // 数据库模型(用于 PostgreSQL 存储,使用 long)
 // ============================================
@@ -68,7 +69,7 @@ internal class ThreadDataDb
     public int ReplyCount { get; set; }
     public DateTimeOffset LastActiveAt { get; set; }
     public string JumpUrl { get; set; } = "";
-    public string? AttachmentUrl { get; set; } = null;
+    public string? AttachmentUrls { get; set; } = null;
     public DateTimeOffset? UpdatedAt { get; set; } = null;
     public string? UpdatedJumpUrl { get; set; } = null;
     public int UpdateCount { get; set; } = 0;
@@ -98,7 +99,7 @@ internal class ThreadDataDb
         ReplyCount = domain.ReplyCount,
         LastActiveAt = domain.LastActiveAt.ToUniversalTime(),
         JumpUrl = domain.JumpUrl,
-        AttachmentUrl = domain.AttachmentUrl,
+        AttachmentUrls = (domain.AttachmentUrls != null && domain.AttachmentUrls.Count > 0) ? JsonSerializer.Serialize(domain.AttachmentUrls, JsonSerializerConfig.Options) : null,
         UpdatedAt = domain.UpdatedAt?.ToUniversalTime(),
         UpdatedJumpUrl = domain.UpdatedJumpUrl,
         UpdateCount = domain.UpdateCount,
@@ -131,7 +132,7 @@ internal class ThreadDataDb
             ReplyCount = ReplyCount,
             LastActiveAt = LastActiveAt.ToUniversalTime(),
             JumpUrl = JumpUrl,
-            AttachmentUrl = AttachmentUrl,
+            AttachmentUrls = AttachmentUrls is not null ? JsonSerializer.Deserialize<List<string>>(AttachmentUrls) : null,
             UpdatedAt = UpdatedAt?.ToUniversalTime(),
             UpdatedJumpUrl = UpdatedJumpUrl,
             UpdateCount = UpdateCount,
@@ -198,18 +199,26 @@ internal class MessageDataDb
 internal class UserDataDb
 {
     public long UserId { get; set; }
-    public string UserName { get; set; } = "";
-    public int UserThreadCountDelta { get; set; }
-    public int UserMessageCountDelta { get; set; }
-    public int UserUpdateCountDelta { get; set; }
-    public int UserCreditLv1Delta { get; set; }
-    public int UserCreditLv2Delta { get; set; }
-    public int UserCreditLv3Delta { get; set; }
+    public string UserUsername { get; set; } = "";
+    public string? UserNikcname { get; set; }
+    public string? UserGlobalName { get; set; }
+    public string? UserAvatarUrl { get; set; }
+    public List<long> UserRoles { get; set; } = new();
+    public int UserThreadCountDelta { get; set; } = 0;
+    public int UserMessageCountDelta { get; set; } = 0;
+    public int UserUpdateCountDelta { get; set; } = 0;
+    public int UserCreditLv1Delta { get; set; } = 0;
+    public int UserCreditLv2Delta { get; set; } = 0;
+    public int UserCreditLv3Delta { get; set; } = 0;
 
     public static UserDataDb FromDomain(UserData domain) => new()
     {
         UserId = domain.UserId.ToDbId(),
-        UserName = domain.UserName,
+        UserUsername = domain.UserUsername,
+        UserNikcname = domain.UserNikcname,
+        UserGlobalName = domain.UserGlobalName,
+        UserAvatarUrl = domain.UserAvatarUrl,
+        UserRoles = domain.UserRoles.Select(id => id.ToDbId()).ToList(),
         UserThreadCountDelta = domain.UserThreadCountDelta,
         UserMessageCountDelta = domain.UserMessageCountDelta,
         UserUpdateCountDelta = domain.UserUpdateCountDelta,
@@ -221,7 +230,11 @@ internal class UserDataDb
     public UserData ToDomain() => new()
     {
         UserId = UserId.ToDiscordId(),
-        UserName = UserName,
+        UserUsername = UserUsername,
+        UserNikcname = UserNikcname,
+        UserGlobalName = UserGlobalName,
+        UserAvatarUrl = UserAvatarUrl,
+        UserRoles = UserRoles.Select(id => id.ToDiscordId()).ToList(),
         UserThreadCountDelta = UserThreadCountDelta,
         UserMessageCountDelta = UserMessageCountDelta,
         UserUpdateCountDelta = UserUpdateCountDelta,
@@ -279,7 +292,7 @@ internal class PostMemberDataDb
 /// <summary>
 /// 标签信息 - 数据库模型
 /// </summary>
-internal class TagInfoDb
+internal class TagDataDb
 {
     public long TagId { get; set; }
     public long ChannelId { get; set; }
@@ -288,7 +301,7 @@ internal class TagInfoDb
     public string GuildName { get; set; } = "";
     public int UsageCount { get; set; }
 
-    public static TagInfoDb FromDomain(TagInfo domain) => new()
+    public static TagDataDb FromDomain(TagData domain) => new()
     {
         TagId = domain.TagId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
@@ -298,7 +311,7 @@ internal class TagInfoDb
         UsageCount = domain.UsageCount
     };
 
-    public TagInfo ToDomain() => new()
+    public TagData ToDomain() => new()
     {
         TagId = TagId.ToDiscordId(),
         ChannelId = ChannelId.ToDiscordId(),
@@ -317,7 +330,7 @@ internal class PostDisplayModelDb
     public long ThreadId { get; set; }
     public string? Title { get; set; }
     public string? JumpUrl { get; set; }
-    public string? AttachmentUrl { get; set; }
+    public string? AttachmentUrls { get; set; }
     public long FirstMessageId { get; set; }
     public long AuthorId { get; set; }
     public long ChannelId { get; set; }
@@ -342,7 +355,9 @@ internal class PostDisplayModelDb
         ThreadId = domain.ThreadId.ToDbId(),
         Title = domain.Title,
         JumpUrl = domain.JumpUrl,
-        AttachmentUrl = domain.AttachmentUrl,
+        AttachmentUrls = (domain.AttachmentUrls != null && domain.AttachmentUrls.Count > 0)
+                ? JsonSerializer.Serialize(domain.AttachmentUrls)
+                : null,
         FirstMessageId = domain.FirstMessageId.ToDbId(),
         AuthorId = domain.AuthorId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
@@ -368,7 +383,7 @@ internal class PostDisplayModelDb
         ThreadId = ThreadId.ToDiscordId(),
         Title = Title,
         JumpUrl = JumpUrl,
-        AttachmentUrl = AttachmentUrl,
+        AttachmentUrls = AttachmentUrls is not null ? JsonSerializer.Deserialize<List<string>>(AttachmentUrls) : null,
         FirstMessageId = FirstMessageId.ToDiscordId(),
         AuthorId = AuthorId.ToDiscordId(),
         ChannelId = ChannelId.ToDiscordId(),
@@ -388,5 +403,44 @@ internal class PostDisplayModelDb
         UpdatedAt = UpdatedAt,
         MessageJumpUrl = MessageJumpUrl
     };
+}
 
+public class RoleDataDb
+{
+    public long RoleId { get; set; }
+    public string RoleName { get; set; } = "";
+    public string? RoleIconUrl { get; set; }
+    public string? RoleEmoji { get; set; }
+    public uint? RolePrimaryColor { get; set; }
+    public uint? RoleSecondaryColor { get; set; }
+    public uint? RoleTertiaryColor { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeleteAt { get; set; }
+
+    public static RoleDataDb FromDomain(RoleData roleData) => new()
+    {
+        RoleId = roleData.RoleId.ToDbId(),
+        RoleName = roleData.RoleName,
+        RoleIconUrl = roleData.RoleIconUrl,
+        RoleEmoji = roleData.RoleEmoji,
+        RolePrimaryColor = roleData.RolePrimaryColor,
+        RoleSecondaryColor = roleData.RoleSecondaryColor,
+        RoleTertiaryColor = roleData.RoleTertiaryColor,
+        IsDeleted = roleData.IsDeleted,
+        DeleteAt = roleData.DeleteAt,
+    };
+
+
+    public RoleData ToDomain() => new()
+    {
+        RoleId = RoleId.ToDiscordId(),
+        RoleName = RoleName,
+        RoleIconUrl = RoleIconUrl,
+        RoleEmoji = RoleEmoji,
+        RolePrimaryColor = RolePrimaryColor,
+        RoleSecondaryColor = RoleSecondaryColor,
+        RoleTertiaryColor = RoleTertiaryColor,
+        IsDeleted = IsDeleted,
+        DeleteAt = DeleteAt,
+    };
 }

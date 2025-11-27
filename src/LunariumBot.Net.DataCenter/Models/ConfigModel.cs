@@ -1,108 +1,86 @@
-namespace LunariumBot.Net.DataCenter.Model;
+namespace LunariumBot.Net.DataCenter.Models;
 
-public class DataCenterBotConfig
+public record DataCenterBotConfig
 {
-    public string DatabaseConnection { get; set; } = "";
-    public AuthConfig AuthConfig { get; set; } = new();
-    public DeployConfig DeployConfig { get; set; } = new();
-    public BannerConfig BannerConfig { get; set; } = new();
-    public CreditConfig CreditConfig { get; set; } = new();
-    public Dictionary<string, int> ChannelOrder { get; set; } = new();
+    public required string DatabaseConnection { get; init; }
+    public AuthConfig AuthConfig { get; init; } = new();
+    public DeployConfig DeployConfig { get; init; } = new();
+    public CreditConfig CreditConfig { get; init; } = new();
+    public Dictionary<string, int> ChannelOrder { get; init; } = new();
 }
 
-public class AuthConfig
+public record AuthConfig
 {
-    public HashSet<ulong> AdminRoleIds { get; set; } = new();
-    public ulong LogChannel { get; set; }
+    public HashSet<ulong> AdminRoleIds { get; init; } = new();
+    public ulong LogChannel { get; init; }
 }
 
-public class CreditConfig
+public record CreditConfig
 {
     /// <summary>
     /// 发送消息所获得的积分设置
     /// </summary>
-    public CreditLevelSettings ForMessage { get; set; } = new();
+    public CreditLevelSettings ForMessage { get; init; } = new();
 
     /// <summary>
     /// 创建主题（帖子）所获得的积分设置
     /// </summary>
-    public CreditLevelSettings ForThread { get; set; } = new();
+    public CreditLevelSettings ForThread { get; init; } = new();
 
     /// <summary>
     /// 更新内容所获得的积分设置
     /// </summary>
-    public CreditLevelSettings ForUpdate { get; set; } = new();
-
-    public Dictionary<ulong, int> ChannelFactor { get; set; } = new();
-}
-
-public class CreditLevelSettings
-{
-    public int Level1 { get; set; }
-    public int Level2 { get; set; }
-    public int Level3 { get; set; }
-}
-
-public class DeployConfig
-{
-    /// <summary>
-    /// 部署的服务器ID列表（用于数据采集和监听）
-    /// </summary>
-    public HashSet<ulong> DeployGuildIds { get; set; } = new();
+    public CreditLevelSettings ForUpdate { get; init; } = new();
 
     /// <summary>
-    /// 按服务器组织的数据分析配置
-    /// Key: 服务器ID (GuildId)
-    /// Value: 该服务器的分析配置
+    /// 所在频道积分因素
     /// </summary>
-    public Dictionary<ulong, GuildAnalysisConfig> GuildAnalysisConfigs { get; set; } = new();
+    public Dictionary<ulong, int> ChannelFactor { get; init; } = new();
+}
 
-    public HashSet<ulong> ExcludeChannelIds { get; set; } = new();
-    public HashSet<ulong> ExcludeCategoryIds { get; set; } = new();
-    public HashSet<ulong> ExcludeGuildIds { get; set; } = new();
+public record CreditLevelSettings
+{
+    public int Level1 { get; init; }
+    public int Level2 { get; init; }
+    public int Level3 { get; init; }
+}
+
+public record DeployConfig
+{
+    public HashSet<ulong> DeployGuildIds { get; init; } = new();
+    public Dictionary<ulong, GuildAnalysisConfig> GuildAnalysisConfigs { get; init; } = new();
+    public HashSet<ulong> ExcludeChannelIds { get; init; } = new();
+    public HashSet<ulong> ExcludeCategoryIds { get; init; } = new();
+    public HashSet<ulong> ExcludeGuildIds { get; init; } = new();
+    public Dictionary<ulong, ScanConfig> ScanConfigs { get; init; } = new();
+}
+
+public record ScanConfig
+{
+    public Dictionary<string, ulong> ValidChannels { get; init; } = new();
 }
 
 /// <summary>
 /// 单个服务器的数据分析配置
 /// </summary>
-public class GuildAnalysisConfig
+public record GuildAnalysisConfig
 {
     /// <summary>
     /// 该服务器的 Dashboard 频道ID（用于接收数据分析报告）
     /// </summary>
-    public ulong DashboardChannelId { get; set; }
+    public ulong DashboardChannelId { get; init; }
 
     /// <summary>
     /// 该服务器的频道分类映射
     /// Key: 分类名称（例如："男性向"、"女性向"）
     /// Value: 属于该分类的频道ID列表
     /// </summary>
-    public Dictionary<string, List<ulong>> CategoryChannels { get; set; } = new();
+    public Dictionary<string, ulong> CategoryChannels { get; init; } = new();
 }
 
-public class BannerConfig
+public enum CreditLevel
 {
-    public BannerChannelConfig New { get; set; } = new();
-    public BannerChannelConfig Popular { get; set; } = new();
-    public BannerChannelConfig Feature { get; set; } = new();
-    public BannerChannelConfig Toplist { get; set; } = new();
-}
-
-public class BannerChannelConfig
-{
-    public List<ulong> ChannelId { get; set; } = new();
-}
-
-public class CreatorAutomatic
-{
-    public Dictionary<ulong, List<ulong>> CreatorRoleIDs { get; set; } = new();
-    public List<ulong> ListenerChannel { get; set; } = new();
-    public int ReactionThreshold { get; set; }
-}
-
-
-public class ProxyConfig
-{
-    public bool Enable { get; set; } = false;
-    public string ProxyUrl { get; set; } = "";
+    Level1 = 1,
+    Level2 = 2,
+    Level3 = 3
 }

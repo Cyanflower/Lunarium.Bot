@@ -2,8 +2,8 @@ using Npgsql;
 
 using Dapper;
 
-using LunariumBot.Net.DataCenter.Model;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Models.Database;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -11,12 +11,12 @@ public partial class DatabaseService
 {
 
 
-    public async Task UpsertUserDataAsync(NpgsqlTransaction transaction, UserData userData)
+    public async Task UpsertUserStatusDataAsync(NpgsqlTransaction transaction, UserData userData)
     {
         const string SqlCommand = """
             -- 插入一条新记录，如果 user_id 冲突则执行更新
             INSERT INTO user_data (
-                user_id, user_name, user_thread_count, user_message_count, user_update_count,
+                user_id, user_username, user_thread_count, user_message_count, user_update_count,
                 user_credit_lv1, user_credit_lv2, user_credit_lv3
             )
             VALUES (
@@ -39,7 +39,7 @@ public partial class DatabaseService
         var parameters = new
         {
             userDataDb.UserId,
-            userDataDb.UserName,
+            userDataDb.UserUsername,
             userDataDb.UserThreadCountDelta,
             userDataDb.UserMessageCountDelta,
             userDataDb.UserUpdateCountDelta,

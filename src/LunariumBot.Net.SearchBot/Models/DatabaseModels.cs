@@ -1,9 +1,9 @@
 using System.Text.Json;
 
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 using LunariumBot.Net.Extensions;
 
-namespace LunariumBot.Net.SearchBot.Model.Database;
+namespace LunariumBot.Net.SearchBot.Models.Database;
 // ============================================
 // 数据库模型(用于 PostgreSQL 存储,使用 long)
 // ============================================
@@ -414,22 +414,5 @@ internal class PostDisplayModelDb
         AddedAt = AddedAt,
         FavoriteAs = FavoriteAS,
         IsFallbackData = IsFallbackData
-    };
-}
-
-internal class BlackedInfoDb
-{
-    public long BlockedAuthorId { get; set; }
-    public DateTimeOffset AddedAt { get; set; }
-    public static BlackedInfoDb FromDomain(BlackedInfo domain) => new()
-    {
-        BlockedAuthorId = domain.BlockedAuthorId.ToDbId(),
-        AddedAt = domain.AddedAt
-    };
-
-    public BlackedInfo ToDomain() => new()
-    {
-        BlockedAuthorId = BlockedAuthorId.ToDiscordId(),
-        AddedAt = AddedAt
     };
 }

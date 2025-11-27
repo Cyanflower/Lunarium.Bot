@@ -1,5 +1,5 @@
 
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
@@ -10,7 +10,7 @@ public static class PaginatedViewFactory
     static PaginatedViewFactory()
     {
         // 向字典注册所有类型的 IPaginatedView 的 new 方法委托
-        Register<BlackedInfo>((items, expires, id) => new BlockPaginatedView(items, expires, id));
+        Register<BlockedInfo>((items, expires, id) => new BlockPaginatedView(items, expires, id));
     }
 
     /// <summary>

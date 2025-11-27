@@ -8,7 +8,7 @@ using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Utils;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
@@ -32,7 +32,7 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理论坛帖子消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "Unknown User");
 
             IMessage? refreshMessage = message;
             ulong OwnerId;
@@ -64,7 +64,13 @@ public partial class DataProcessService
                 await Task.Delay(1000);
                 try
                 {
-                    await _semaphore.WaitAsync();
+                    using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                    if (!apiRateLimitToken.IsAcquired) 
+                    {
+                        _logger.Error("_apiRequestRateLimiter 队列已满");
+                        // 只记录日志
+                        // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                    }
 
                     await _httpRetryPolicy.ExecuteAsync(async () =>
                     {
@@ -90,10 +96,6 @@ public partial class DataProcessService
                 catch (Exception ex)
                 {
                     _logger.Error(ex, "❌ 刷新消息对象时发生错误: 消息ID {MessageId}", message.Id);
-                }
-                finally
-                {
-                    _semaphore.Release();
                 }
             }
 
@@ -125,23 +127,54 @@ public partial class DataProcessService
                 LastMessageAt = message.CreatedAt,
             };
 
+            string username = "Unknown User";
+
+            if (message.Author.Username is null)
+            {
+                try
+                {
+                    using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
+                    if (!apiRateLimitToken.IsAcquired)
+                    {
+                        _logger.Error("_apiRequestRateLimiter 队列已满");
+                        // 只记录日志
+                        // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
+                    }
+
+                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
+                    });
+                    
+                    if (user is not null) username = user.Username;
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex);
+                }
+            }
+            else
+            {
+                username = message.Author.Username;
+            }
+
             var userData = new UserData();
             userData.UserId = message.Author.Id;
-            userData.UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER";
+            userData.UserUsername = username;
             if (isUpdate)
             {
                 userData.UserMessageCountDelta = 1;
                 userData.UserUpdateCountDelta = 1;
-                userData.UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForUpdate.Level1;
-                userData.UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForUpdate.Level2;
-                userData.UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForUpdate.Level3;
+                userData.UserCreditLv1Delta = Credit.ForUpdate(CreditLevel.Level1, parentChannel.Id);
+                userData.UserCreditLv2Delta = Credit.ForUpdate(CreditLevel.Level2, parentChannel.Id);
+                userData.UserCreditLv3Delta = Credit.ForUpdate(CreditLevel.Level3, parentChannel.Id);
             }
             else
             {
                 userData.UserMessageCountDelta = 1;
-                userData.UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1;
-                userData.UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2;
-                userData.UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3;
+                userData.UserCreditLv1Delta = Credit.ForMessage(CreditLevel.Level1, parentChannel.Id);
+                userData.UserCreditLv2Delta = Credit.ForMessage(CreditLevel.Level2, parentChannel.Id);
+                userData.UserCreditLv3Delta = Credit.ForMessage(CreditLevel.Level3, parentChannel.Id);
             }
 
             await _dbRetryPolicy.ExecuteAsync(async () =>
@@ -181,7 +214,7 @@ public partial class DataProcessService
                     // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
                     if (message.Id != socketThreadChannel.Id)
                     {
-                        await _databaseService.UpsertUserDataAsync(transaction, userData);
+                        await _databaseService.UpsertUserStatusDataAsync(transaction, userData);
                     }
 
                     await transaction.CommitAsync();
@@ -215,7 +248,7 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理文字频道子区消息: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
+                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "Unknown User");
 
             ulong OwnerId;
 
@@ -266,11 +299,11 @@ public partial class DataProcessService
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER",
+                UserUsername = message.Author.GlobalName ?? message.Author.Username ?? "Unknown User",
                 UserMessageCountDelta = 1,
-                UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
-                UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
-                UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3
+                UserCreditLv1Delta = Credit.ForMessage(CreditLevel.Level1, parentChannel.Id),
+                UserCreditLv2Delta = Credit.ForMessage(CreditLevel.Level2, parentChannel.Id),
+                UserCreditLv3Delta = Credit.ForMessage(CreditLevel.Level3, parentChannel.Id)
             };
 
             try
@@ -307,7 +340,7 @@ public partial class DataProcessService
                         // 创建帖子导致的数据变更在 CreateThreadProcessAsync 方法中都处理了
                         if (message.Id != socketThreadChannel.Id)
                         {
-                            await _databaseService.UpsertUserDataAsync(transaction, userData);
+                            await _databaseService.UpsertUserStatusDataAsync(transaction, userData);
                         }
 
                         await transaction.CommitAsync();
@@ -343,7 +376,7 @@ public partial class DataProcessService
         try
         {
             _logger.Debug("处理文字频道消息: [{GuildName}.{ChannelName}] 消息ID: {MessageId}, 作者: {AuthorName}",
-                parentChannel.Guild.Name, parentChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER");
+                parentChannel.Guild.Name, parentChannel.Name, message.Id, message.Author.GlobalName ?? message.Author.Username ?? "Unknown User");
 
             // 准备消息数据
             var messageData = new MessageData()
@@ -362,11 +395,11 @@ public partial class DataProcessService
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserName = message.Author.GlobalName ?? message.Author.Username ?? "UNKNOW USER",
+                UserUsername = message.Author.GlobalName ?? message.Author.Username ?? "Unknown User",
                 UserMessageCountDelta = 1,
-                UserCreditLv1Delta = _configLoader.Config.CreditConfig.ForMessage.Level1,
-                UserCreditLv2Delta = _configLoader.Config.CreditConfig.ForMessage.Level2,
-                UserCreditLv3Delta = _configLoader.Config.CreditConfig.ForMessage.Level3
+                UserCreditLv1Delta = Credit.ForMessage(CreditLevel.Level1, parentChannel.Id),
+                UserCreditLv2Delta = Credit.ForMessage(CreditLevel.Level2, parentChannel.Id),
+                UserCreditLv3Delta = Credit.ForMessage(CreditLevel.Level3, parentChannel.Id)
             };
 
             await _dbRetryPolicy.ExecuteAsync(async () =>
@@ -379,7 +412,7 @@ public partial class DataProcessService
                 {
                     await _databaseService.InsertMessageAsync(transaction, messageData);
 
-                    await _databaseService.UpsertUserDataAsync(transaction, userData);
+                    await _databaseService.UpsertUserStatusDataAsync(transaction, userData);
 
                     await transaction.CommitAsync();
                 }

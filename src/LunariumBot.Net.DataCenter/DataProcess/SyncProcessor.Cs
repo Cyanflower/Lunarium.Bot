@@ -8,7 +8,7 @@ using Discord;
 using Discord.WebSocket;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
@@ -17,7 +17,7 @@ namespace LunariumBot.Net.DataCenter.DataProcess;
 /// </summary>
 public partial class DataProcessService
 {
-    public async Task SyncProcessorAsync(List<ChannelData> allForumsData, List<TagInfo> allTagsData, List<ThreadData> allThreadsData)
+    public async Task SyncAllThreadAsync(List<ChannelData> allForumsData, List<TagData> allTagsData, List<ThreadData> allThreadsData)
     {
         try
         {
@@ -96,6 +96,38 @@ public partial class DataProcessService
         {
             _logger.Error(ex, "❌ SyncProcessorAsync: 同步处理失败，涉及 {ChannelCount} 个频道，{TagCount} 个标签，{ThreadCount} 个帖子",
                 allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+            throw;
+        }
+    }
+
+    public async Task SyncMembersAndRolesAsync(List<RoleData> roleDatas, List<UserData> memberDatas)
+    {
+        try
+        {
+            _logger.Info("📊 开始同步处理: 身份组: {roleDatasCount}, 用户: {memberDatasCount}",
+                roleDatas.Count, memberDatas.Count);
+                
+            await using var connection = _databaseService.GetConnection();
+            await connection.OpenAsync();
+
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+                try
+                {
+                    await _databaseService.SyncAllRolesAsync(transaction, roleDatas);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
             throw;
         }
     }

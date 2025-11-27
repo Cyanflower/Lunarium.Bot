@@ -12,7 +12,7 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Database;
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.DataProcess;
 
 namespace LunariumBot.Net.DataCenter.DataFetcher;
@@ -33,7 +33,13 @@ public class Listener
     /// 获取需要监控的所有频道ID集合。
     /// 从配置文件中读取并合并所有扫描频道ID。
     /// </summary>
-    private HashSet<ulong> ChannelIds => _configLoader.ChannelSet;
+    private HashSet<ulong> ChannelIds => _configLoader.ValidChannelSet;
+
+    /// <summary>
+    /// 获取需要监控的所有服务器ID集合。
+    /// 从配置文件中读取并合并所有扫描频道ID。
+    /// </summary>
+    private HashSet<ulong> GuildIds => _configLoader.Config.DeployConfig.DeployGuildIds;
 
     /// <summary>
     /// 论坛帖子ID缓存字典。
@@ -324,6 +330,13 @@ public class Listener
     {
         try
         {
+            // 检查是否应该完全忽略此消息(根据排除规则)
+            if (ShouldCompletelyIgnored(socketMessage))
+            {
+                _logger.Debug("⏭️ 消息已被过滤规则忽略: 消息ID {MessageId}", socketMessage.Id);
+                return;
+            }
+
             // 只在消息id和所在线程id相等时处理 (帖子首楼消息id=帖子id)
             if (socketMessage.Id == socketMessageChannel.Id)
             {
@@ -825,10 +838,10 @@ public class Listener
         {
             var channel = socketMessage.Channel as SocketGuildChannel;
             
-            // 非服务器频道(如私聊)直接忽略
-            if (channel is null)
+            // 非授权服务器频道或私聊, 直接忽略
+            if (channel is null || (socketMessage.Channel is IGuildChannel guildChannel && GuildIds.Contains(guildChannel.Id)))
             {
-                _logger.Debug("🔍 过滤检查: 非服务器频道，忽略处理");
+                _logger.Debug("🔍 过滤检查: 非服务器频道或非授权服务器，忽略处理");
                 return true;
             }
             
@@ -897,6 +910,13 @@ public class Listener
     {
         try
         {
+            // 非授权服务器频道或私聊, 直接忽略
+            if (GuildIds.Contains(socketForumChannel.Guild.Id))
+            {
+                _logger.Debug("🔍 过滤检查: 非授权服务器，忽略处理");
+                return true;
+            }
+
             // 检查频道ID是否在排除列表中
             var channelId = socketForumChannel.Id;
             if (_configLoader.Config.DeployConfig.ExcludeChannelIds.Contains(channelId))
@@ -943,6 +963,13 @@ public class Listener
     {
         try
         {
+            // 非授权服务器频道或私聊, 直接忽略
+            if (GuildIds.Contains(socketTextChannel.Guild.Id))
+            {
+                _logger.Debug("🔍 过滤检查: 非授权服务器，忽略处理");
+                return true;
+            }
+
             // 检查频道ID是否在排除列表中
             var channelId = socketTextChannel.Id;
             if (_configLoader.Config.DeployConfig.ExcludeChannelIds.Contains(channelId))

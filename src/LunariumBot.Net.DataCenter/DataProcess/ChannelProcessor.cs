@@ -7,7 +7,7 @@ using Discord;
 using Discord.WebSocket;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Model;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter.DataProcess;
 
@@ -37,10 +37,10 @@ public partial class DataProcessService
         };
 
         // 收集频道下的所有标签信息
-        List<TagInfo> tagInfos = new();
+        List<TagData> tagDatas = new();
         foreach (var tag in socketForumChannel.Tags)
         {
-            tagInfos.Add(new TagInfo()
+            tagDatas.Add(new TagData()
             {
                 TagId = tag.Id,
                 ChannelId = socketForumChannel.Id,
@@ -52,7 +52,7 @@ public partial class DataProcessService
         }
 
         _logger.Debug("论坛频道 {ChannelName} (ID: {ChannelId}) 包含 {TagCount} 个标签",
-            socketForumChannel.Name, socketForumChannel.Id, tagInfos.Count);
+            socketForumChannel.Name, socketForumChannel.Id, tagDatas.Count);
 
         try
         {
@@ -65,7 +65,7 @@ public partial class DataProcessService
 
                 try
                 {
-                    await _databaseService.UpsertForumChannelAsync(transaction, channelData, tagInfos);
+                    await _databaseService.UpsertForumChannelAsync(transaction, channelData, tagDatas);
                     await transaction.CommitAsync();
                 }
                 catch
@@ -76,7 +76,7 @@ public partial class DataProcessService
             });
 
             _logger.Info("✅ 成功处理论坛频道: [{GuildName}.{ChannelName}] (ID: {ChannelId}), 标签数: {TagCount}",
-                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, tagInfos.Count);
+                socketForumChannel.Guild.Name, socketForumChannel.Name, socketForumChannel.Id, tagDatas.Count);
         }
         catch (Exception ex)
         {

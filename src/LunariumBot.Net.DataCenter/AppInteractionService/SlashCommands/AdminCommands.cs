@@ -24,18 +24,18 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
     private readonly AuthUtils _authUtils;
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
-    private readonly Scanner _scanner;
+    private readonly ThreadScanner _scanner;
     private readonly Listener _listener;
     private readonly DataAnalysis _dataAnalysis;
-    private readonly AnalysisJob _analysisJob;
+    private readonly AnalysisAsyncJob _analysisJob;
     public AdminCommands(
         ILogger logger,
         AuthUtils authUtils,
         ConfigLoader configLoader,
-        Scanner scanner,
+        ThreadScanner scanner,
         Listener listener,
         DataAnalysis dataAnalysis,
-        AnalysisJob analysisJob
+        AnalysisAsyncJob analysisJob
     )
     {
         _logger = logger.ForContext("AdminCommands");
@@ -143,7 +143,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             await FollowupAsync("✅ 任务已调度");
 
             // 执行扫描
-            var result = await _scanner.SyncScan(reporter);
+            var result = await _scanner.SyncScanAsync(reporter);
 
             success = true;
         }

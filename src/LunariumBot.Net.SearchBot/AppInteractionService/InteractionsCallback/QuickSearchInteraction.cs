@@ -11,7 +11,7 @@ using LunariumBot.Net.Logger;
 
 // 项目内命名空间
 using LunariumBot.Net.SearchBot.Utils;
-using LunariumBot.Net.SearchBot.Model;
+using LunariumBot.Net.SearchBot.Models;
 
 namespace LunariumBot.Net.SearchBot.AppInteractionService;
 

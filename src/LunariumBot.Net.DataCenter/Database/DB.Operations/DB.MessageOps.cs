@@ -1,8 +1,8 @@
 using System.Data;
 using Dapper;
 
-using LunariumBot.Net.DataCenter.Model;
-using LunariumBot.Net.DataCenter.Model.Database;
+using LunariumBot.Net.DataCenter.Models;
+using LunariumBot.Net.DataCenter.Models.Database;
 using LunariumBot.Net.Extensions;
 using Npgsql;
 
