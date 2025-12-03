@@ -7,6 +7,8 @@ using Discord;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
+using LunariumBot.Net.Extensions;
+
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Utils;
@@ -64,13 +66,7 @@ public partial class DataProcessService
                 await Task.Delay(1000);
                 try
                 {
-                    using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
-                    if (!apiRateLimitToken.IsAcquired) 
-                    {
-                        _logger.Error("_apiRequestRateLimiter 队列已满");
-                        // 只记录日志
-                        // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
-                    }
+                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
 
                     await _httpRetryPolicy.ExecuteAsync(async () =>
                     {
@@ -133,13 +129,7 @@ public partial class DataProcessService
             {
                 try
                 {
-                    using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
-                    if (!apiRateLimitToken.IsAcquired)
-                    {
-                        _logger.Error("_apiRequestRateLimiter 队列已满");
-                        // 只记录日志
-                        // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
-                    }
+                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
 
                     var user = await _httpRetryPolicy.ExecuteAsync(async () =>
                     {

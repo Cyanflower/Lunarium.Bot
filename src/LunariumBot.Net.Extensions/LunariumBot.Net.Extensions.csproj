@@ -8,12 +8,18 @@
     <Nullable>enable</Nullable>
     <RootNamespace>LunariumBot.Net.Extensions</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Threading.RateLimiting" Version="9.0.11" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
   </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../LunariumBot.Net.Logger/LunariumBot.Net.Logger.csproj" />
   </ItemGroup>

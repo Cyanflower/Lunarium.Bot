@@ -315,6 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_is_active ON user_roles (is_active);
 CREATE TABLE IF NOT EXISTS roles (
     role_id BIGINT PRIMARY KEY,
     role_name TEXT NOT NULL,
+    role_position INT NOT NULL DEFAULT 0,
     role_icon_url TEXT,
     role_emoji TEXT,
     role_primary_color BIGINT,

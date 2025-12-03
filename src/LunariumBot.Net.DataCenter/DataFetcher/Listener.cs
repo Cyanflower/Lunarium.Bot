@@ -839,7 +839,7 @@ public class Listener
             var channel = socketMessage.Channel as SocketGuildChannel;
             
             // 非授权服务器频道或私聊, 直接忽略
-            if (channel is null || (socketMessage.Channel is IGuildChannel guildChannel && GuildIds.Contains(guildChannel.Id)))
+            if (channel is null || (socketMessage.Channel is IGuildChannel guildChannel && !GuildIds.Contains(guildChannel.Guild.Id)))
             {
                 _logger.Debug("🔍 过滤检查: 非服务器频道或非授权服务器，忽略处理");
                 return true;
@@ -911,7 +911,7 @@ public class Listener
         try
         {
             // 非授权服务器频道或私聊, 直接忽略
-            if (GuildIds.Contains(socketForumChannel.Guild.Id))
+            if (!GuildIds.Contains(socketForumChannel.Guild.Id))
             {
                 _logger.Debug("🔍 过滤检查: 非授权服务器，忽略处理");
                 return true;
@@ -964,7 +964,7 @@ public class Listener
         try
         {
             // 非授权服务器频道或私聊, 直接忽略
-            if (GuildIds.Contains(socketTextChannel.Guild.Id))
+            if (!GuildIds.Contains(socketTextChannel.Guild.Id))
             {
                 _logger.Debug("🔍 过滤检查: 非授权服务器，忽略处理");
                 return true;

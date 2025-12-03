@@ -124,6 +124,50 @@ public partial class DataProcessService
                     throw;
                 }
             });
+
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+                try
+                {
+                    await _databaseService.DeleteOutdatedRolesAsync(transaction, roleDatas);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+                try
+                {
+                    await _databaseService.SyncAllMembersAsync(transaction, memberDatas);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+                try
+                {
+                    await _databaseService.SyncAllMemberRolesAsync(transaction, memberDatas);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
         }
         catch (Exception ex)
         {

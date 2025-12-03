@@ -43,7 +43,7 @@ public class UrlSignedInfoCacheService
     /// <param name="criticalHours">紧急窗口: 小于此时间的必须处理</param>
     /// <param name="lookAheadHours">前瞻窗口: 闲时提前处理的范围</param>
     /// <returns>待刷新的列表</returns>
-    public List<UrlSignedInfo> HourlyCheck(int batchSize = 500, int criticalHours = 2, int lookAheadHours = 12)
+    public List<UrlSignedInfo> HourlyCheck(int batchSize = 800, int criticalHours = 2, int lookAheadHours = 24)
     {
         var itemsToRefresh = new List<UrlSignedInfo>();
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -148,7 +148,7 @@ public class UrlSignedInfoCacheService
         }
     }
 
-    public string GetCacheStatistics(int batchSize = 500, int criticalHours = 2, int lookAheadHours = 12)
+    public string GetCacheStatistics(int batchSize = 800, int criticalHours = 2, int lookAheadHours = 24)
     {
         _lock.EnterReadLock();
         try
@@ -156,15 +156,15 @@ public class UrlSignedInfoCacheService
             if (_cache.Count == 0) return "📊 缓存为空";
 
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            
+
             // 时间阈值定义
             long tCritical = now + (criticalHours * 3600);
-            long t24h = now + (24 * 3600);
+            long tSafe = now + (12 * 3600);
             long tLookAhead = now + (lookAheadHours * 3600);
 
             // 全局统计计数器
             int countCritical = 0; // < 2h
-            int count24h = 0;      // 2h - 24h
+            int countWraning = 0;      // 2h - 24h
             int countSafe = 0;     // > 24h
 
             // 下次调度预测计数
@@ -179,9 +179,9 @@ public class UrlSignedInfoCacheService
                 {
                     countCritical++;
                 }
-                else if (item.ExpireTimestamp <= t24h)
+                else if (item.ExpireTimestamp <= tSafe)
                 {
-                    count24h++;
+                    countWraning++;
                 }
                 else
                 {
@@ -220,15 +220,15 @@ public class UrlSignedInfoCacheService
             sb.AppendLine($"----------------------------------------");
             sb.AppendLine($"🕒 分布情况:");
             sb.AppendLine($"   🔴 临期 (< {criticalHours}h): {countCritical:N0}");
-            sb.AppendLine($"   🟡 预警 (< 24h): {count24h:N0}");
-            sb.AppendLine($"   🟢 安全 (> 24h): {countSafe:N0}");
+            sb.AppendLine($"   🟡 预警 (< 12h): {countWraning:N0}");
+            sb.AppendLine($"   🟢 安全 (> 12h): {countSafe:N0}");
             sb.AppendLine($"----------------------------------------");
             sb.AppendLine($"🔮 下次处理情况预计:");
             sb.AppendLine($"   处理参数: Batch={batchSize}, Crit={criticalHours}h, LookAhead={lookAheadHours}h");
             sb.AppendLine($"   🚀 待处理: {nextTotal:N0} / {batchSize}");
             sb.AppendLine($"      ├─ 🔥 紧急处理: {nextCritical:N0}");
             sb.AppendLine($"      └─ 🛁 填充处理: {nextFill:N0}");
-            
+
             // 添加负载警告
             if (nextTotal > batchSize)
             {
@@ -240,6 +240,40 @@ public class UrlSignedInfoCacheService
             }
 
             return sb.ToString();
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+    
+    /// <summary>
+    /// [Debug] 获取缓存的全量快照
+    /// </summary>
+    public List<UrlSignedInfo> GetAllItemsSnapshot()
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            // 返回副本以避免外部操作影响内部集合或多线程枚举问题
+            return _cache.ToList();
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// [Debug] 根据 ChannelId 和 MessageId 查找缓存项
+    /// 注意：由于 SortedSet 是按时间排序的，此操作复杂度为 O(N)
+    /// </summary>
+    public UrlSignedInfo? FindByIds(ulong channelId)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            return _cache.FirstOrDefault(x => x.ChannelId == channelId);
         }
         finally
         {

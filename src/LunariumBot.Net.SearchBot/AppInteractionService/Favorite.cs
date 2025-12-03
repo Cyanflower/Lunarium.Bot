@@ -21,7 +21,7 @@ using Discord.WebSocket;
 namespace LunariumBot.Net.SearchBot.AppInteractionService;
 
 [Group("收藏功能", "收藏功能相关命令")]
-public class FavoriteCommands : InteractionModuleBase<SocketInteractionContext>
+public class Favorite : InteractionModuleBase<SocketInteractionContext>
 {
     private readonly AuthUtil _authUtil;
     private readonly ILogger _logger;
@@ -29,9 +29,9 @@ public class FavoriteCommands : InteractionModuleBase<SocketInteractionContext>
     private readonly ApplicationService _applicationService;
     private readonly InteractionsCacheManager _interactionsCacheManager;
 
-    public FavoriteCommands(ILogger logger, AuthUtil authUtil, PaginatorManager paginatorManager, ApplicationService applicationService, InteractionsCacheManager interactionsCacheManager)
+    public Favorite(ILogger logger, AuthUtil authUtil, PaginatorManager paginatorManager, ApplicationService applicationService, InteractionsCacheManager interactionsCacheManager)
     {
-        _logger = logger.ForContext("BlockCommands");
+        _logger = logger.ForContext("Favorite");
         _authUtil = authUtil;
         _paginatorManager = paginatorManager;
         _applicationService = applicationService;

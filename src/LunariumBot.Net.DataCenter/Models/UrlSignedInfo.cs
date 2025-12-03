@@ -49,11 +49,32 @@ public class UrlSignedInfo : IComparable<UrlSignedInfo>
         // 第二优先级: 如果时间相同，比较 URL 或 ID
         return string.Compare(this.Url, other.Url, StringComparison.Ordinal);
     }
+
+    public static bool IsDiscordCdnUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+
+        // 检查域名 (cdn 或 media)
+        bool isDiscordDomain = url.StartsWith("https://cdn.discordapp.com/", StringComparison.OrdinalIgnoreCase) ||
+                               url.StartsWith("https://media.discordapp.net/", StringComparison.OrdinalIgnoreCase);
+        if (!isDiscordDomain)
+        {
+            return false;
+        }
+
+        // 检查是否有 'ex' 参数 (没有过期的 ex 参数就不需要维护)
+        if (!url.Contains("ex=", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
 }
 
 public class UrlSignedInfoDb
 {
-    public string? Url { get; init; } = "";
+    public Jsonb<List<string>> Url { get; init; }
     public long ChannelId { get; init; }
     public long MessageId { get; init; }
 
@@ -69,11 +90,24 @@ public class UrlSignedInfoDb
     {
         result = null;
 
-        if (string.IsNullOrEmpty(Url)) 
+        if (Url.Value is null || Url.Value.Count == 0)
             return false;
 
-        result = new UrlSignedInfo(Url, ChannelId.ToDiscordId(), MessageId.ToDiscordId());
+        // 如果没有 Discord 的 CDN 链接，直接忽略，不报错，不进缓存
+        if (Url.Value.FirstOrDefault(UrlSignedInfo.IsDiscordCdnUrl) is null)
+        {
+            return false;
+        }
 
-        return true;
+        try
+        {
+            result = new UrlSignedInfo(Url.Value.First(UrlSignedInfo.IsDiscordCdnUrl), ChannelId.ToDiscordId(), MessageId.ToDiscordId());
+            return true;
+        }
+        catch (FormatException)
+        {
+            // 如果 IsDiscordCdnUrl 通过了, 但解析还是炸了, 那可能是链接格式异常, 此时直接throw
+            throw;
+        }
     }
 }

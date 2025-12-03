@@ -12,7 +12,7 @@ using LunariumBot.Net.Scheduler.Interfaces;
 
 namespace LunariumBot.Net.Scheduler;
 
-public class LunariumScheduler : IAsyncDisposable 
+public class LunariumScheduler : IAsyncDisposable
 {
     private readonly List<ScheduledJob> _jobs = new();
     private readonly ILogger _logger;
@@ -50,9 +50,9 @@ public class LunariumScheduler : IAsyncDisposable
     }
 
     #endregion
-    
+
     #region 公共 API - 注册与移除任务
-    
+
     /// <summary>
     /// 注册一个同步定时任务
     /// </summary>
@@ -60,7 +60,7 @@ public class LunariumScheduler : IAsyncDisposable
     /// <param name="cronExpression">Cron 表达式</param>
     /// <param name="name">任务名称(可选)</param>
     /// <param name="timeZone">任务时区(可选)</param>
-    public void Schedule<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null) 
+    public void Schedule<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null)
         where TJob : IJob
     {
         // 创建任务信息对象
@@ -76,7 +76,7 @@ public class LunariumScheduler : IAsyncDisposable
         {
             _jobs.Add(scheduledJob);
         }
-        
+
         _logger.LogInformation(
             "已注册任务: {JobName} (类型: {JobType}, Cron: {CronExpression}, 时区: {TimeZoneId})",
             scheduledJob.Name,
@@ -84,7 +84,7 @@ public class LunariumScheduler : IAsyncDisposable
             cronExpression,
             scheduledJob.TimeZone.Id
         );
-        
+
         // 如果调度器已经启动, 立即为新任务创建调度
         if (_isRunning && _globalCancellationTokenSource != null)
         {
@@ -103,7 +103,7 @@ public class LunariumScheduler : IAsyncDisposable
     /// <param name="cronExpression">Cron 表达式</param>
     /// <param name="name">任务名称(可选)</param>
     /// <param name="timeZone">任务时区(可选)</param>
-    public void ScheduleAsync<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null) 
+    public void ScheduleAsync<TJob>(string cronExpression, string? name = null, TimeZoneInfo? timeZone = null)
         where TJob : IAsyncJob
     {
         // 创建任务信息对象
@@ -119,7 +119,7 @@ public class LunariumScheduler : IAsyncDisposable
         {
             _jobs.Add(scheduledJob);
         }
-        
+
         _logger.LogInformation(
             "已注册异步任务: {JobName} (类型: {JobType}, Cron: {CronExpression}, 时区: {TimeZoneId})",
             scheduledJob.Name,
@@ -127,7 +127,7 @@ public class LunariumScheduler : IAsyncDisposable
             cronExpression,
             scheduledJob.TimeZone.Id
         );
-        
+
         // 如果调度器已经启动, 立即为新任务创建调度
         if (_isRunning && _globalCancellationTokenSource != null)
         {
@@ -146,7 +146,7 @@ public class LunariumScheduler : IAsyncDisposable
         {
             // 查找任务
             var jobToRemove = _jobs.FirstOrDefault(j => j.JobType == typeof(TJob));
-            
+
             if (jobToRemove == null)
             {
                 _logger.LogWarning(
@@ -155,7 +155,7 @@ public class LunariumScheduler : IAsyncDisposable
                 );
                 return false;
             }
-            
+
             // 取消任务调度循环
             jobToRemove.LoopCancellationTokenSource?.Cancel();
             jobToRemove.LoopCancellationTokenSource?.Dispose();
@@ -163,13 +163,13 @@ public class LunariumScheduler : IAsyncDisposable
 
             // 从列表移除
             _jobs.Remove(jobToRemove);
-            
+
             _logger.LogInformation(
                 "已移除任务: {JobName} (类型: {JobType})",
                 jobToRemove.Name,
                 typeof(TJob).Name
             );
-            
+
             return true;
         }
     }
@@ -217,7 +217,7 @@ public class LunariumScheduler : IAsyncDisposable
     }
 
     #endregion
-    
+
     #region 公共 API - 调度器的生命周期控制
 
     /// <summary>
@@ -256,7 +256,7 @@ public class LunariumScheduler : IAsyncDisposable
                 );
             }
         }
-        
+
         _logger.LogInformation("调度器启动完成");
     }
 
@@ -292,10 +292,10 @@ public class LunariumScheduler : IAsyncDisposable
                 stoppedCount++;
             }
         }
-        
+
         _logger.LogInformation("调度器已停止, 共停止了 {Count} 个任务的调度", stoppedCount);
     }
-    
+
     #endregion
 
     #region 公共 API - 任务信息查询
@@ -310,12 +310,12 @@ public class LunariumScheduler : IAsyncDisposable
         lock (_lock)
         {
             var job = _jobs.FirstOrDefault(j => j.JobType == typeof(TJob));
-            
+
             if (job == null)
             {
                 return null;
             }
-            
+
             return FormatJobInfo(job);
         }
     }
@@ -331,16 +331,16 @@ public class LunariumScheduler : IAsyncDisposable
         {
             return null;
         }
-        
+
         lock (_lock)
         {
             var job = _jobs.FirstOrDefault(j => j.Name == name);
-            
+
             if (job == null)
             {
                 return null;
             }
-            
+
             return FormatJobInfo(job);
         }
     }
@@ -399,7 +399,7 @@ public class LunariumScheduler : IAsyncDisposable
 
         // 等待所有任务完成
         _logger.LogInformation("等待所有任务执行完成...");
-        
+
         List<Task> tasksToWait;
         lock (_lock)
         {
@@ -410,8 +410,20 @@ public class LunariumScheduler : IAsyncDisposable
 
         try
         {
-            await Task.WhenAll(tasksToWait);
-            _logger.LogInformation("所有任务已完成");
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var completedTask = await Task.WhenAny(
+                Task.WhenAll(tasksToWait),
+                timeoutTask
+            );
+
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogWarning("等待任务完成超时(30秒)，强制继续清理");
+            }
+            else
+            {
+                _logger.LogInformation("所有任务已完成");
+            }
         }
         catch (Exception ex)
         {
@@ -452,7 +464,7 @@ public class LunariumScheduler : IAsyncDisposable
             }
             _jobs.Clear();
         }
-        
+
         _logger.LogInformation("调度器资源已释放");
     }
 
@@ -643,18 +655,18 @@ public class LunariumScheduler : IAsyncDisposable
         {
             ExecutedAt = DateTimeOffset.UtcNow
         };
-        
+
         try
         {
             // 创建作用域(临时的服务容器)
             using var scope = _serviceProvider.CreateScope();
-            
+
             // 从 DI 容器获取任务实例
             var jobInstance = scope.ServiceProvider.GetRequiredService(scheduledJob.JobType);
-            
+
             // 转换为 IJob 接口类型
             var job = (IJob)jobInstance;
-            
+
             // 执行任务
             job.Execute();
 
@@ -665,8 +677,8 @@ public class LunariumScheduler : IAsyncDisposable
             history.Duration = stopwatch.Elapsed;
 
             // 更新最后执行时间
-            scheduledJob.LastRun = DateTimeOffset.UtcNow;  
-             
+            scheduledJob.LastRun = DateTimeOffset.UtcNow;
+
             _logger.LogInformation(
                 "任务执行成功: {JobName}, 耗时: {Elapsed:0.00}ms",
                 scheduledJob.Name,
@@ -842,6 +854,6 @@ public class LunariumScheduler : IAsyncDisposable
 
         return sb.ToString();
     }
-    
+
     #endregion
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SOURCE_DIR="./dist/LunariumBot.Net.DataCenter/"
+SOURCE_DIR="./dist/"
 REMOTE_DEST_URL="BotCenterVPS:/home/cyanflower/LunariumBot.Net/LunariumBot.Net.DataCenter"
 REMOTE_DEST_PATH="/home/cyanflower/LunariumBot.Net/LunariumBot.Net.DataCenter"
 

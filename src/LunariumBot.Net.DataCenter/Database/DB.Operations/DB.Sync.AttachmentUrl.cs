@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 // NuGet 包依赖
 using Npgsql;
 using Dapper;
@@ -20,13 +22,13 @@ public partial class DatabaseService
         SELECT 
             thread_id AS ChannelId,
             first_message_id AS MessageId,
-            (attachment_urls::jsonb)->>0 AS Url
+            attachment_urls::jsonb AS Url
         FROM posts_main
         WHERE
             is_deleted = FALSE
             AND attachment_urls IS NOT NULL
-            AND attachment_urls::text != '[]'
-            AND attachment_urls::text != 'null';
+            AND attachment_urls != '[]'
+            AND attachment_urls != 'null';
         """;
 
         try
@@ -51,7 +53,7 @@ public partial class DatabaseService
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "❌ 转换失败: ChannelID: {ChannelId}, MessageId: {MessageId}, Url: {Url}",
+                    _logger.Error(ex, "❌ 转换失败: ChannelID: {ChannelId}, MessageId: {MessageId}, Url: {@Url}",
                         urlSignedInfoDb.ChannelId, urlSignedInfoDb.MessageId, urlSignedInfoDb.Url);
                 }
             }
@@ -64,12 +66,12 @@ public partial class DatabaseService
         }
     }
     
-    public async Task UpdateUrlInfoAsync(NpgsqlTransaction transaction, List<(ulong threadId, string? urls)> urlSignedInfos)
+    public async Task UpdateUrlInfoAsync(NpgsqlTransaction transaction, List<(ulong threadId, Jsonb<List<string>> urls)> urlSignedInfos)
     {
         const string SqlCommand = """
             UPDATE posts_main AS p
             SET
-                attachment_urls = t.new_urls_json
+                attachment_urls = t.new_urls_json::jsonb
             FROM (
                 SELECT 
                     unnest(@ThreadIds) AS thread_id, 
@@ -79,12 +81,12 @@ public partial class DatabaseService
             """;
 
         var threadIds = urlSignedInfos.Select(x => x.threadId.ToDbId()).ToArray();
-        var newJsonStrings = urlSignedInfos.Select(x => x.urls).ToArray();
+        var newJsonUrl = urlSignedInfos.Select(x => x.urls.Value is null ? null : JsonSerializer.Serialize(x.urls.Value)).ToArray();
 
         var parameters = new
         {
             ThreadIds = threadIds,
-            NewJsonStrings = newJsonStrings
+            NewJsonStrings = newJsonUrl
         };
         
         try

@@ -128,7 +128,7 @@ public class SearchBotService : IHostedService, IDisposable
 
             .AddSingleton<InteractionUtils>()
             .AddSingleton<AdminCommands>()
-            .AddSingleton<FavoriteCommands>()
+            .AddSingleton<Favorite>()
             .AddSingleton<SearchCommands>()
             .AddSingleton<SubscriptionCommands>()
             .AddSingleton<UserCommands>()

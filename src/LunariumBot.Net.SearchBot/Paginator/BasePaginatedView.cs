@@ -68,6 +68,13 @@ public abstract class BasePaginatedView<T> : IPaginatedView
     public IPaginatedView ToPage(int page)
     {
         // 使用 Math.Clamp 将页码限制在有效范围内
+        ToPageByZeroBase(page - 1);
+        return this;
+    }
+
+    public IPaginatedView ToPageByZeroBase(int page)
+    {
+        // 使用 Math.Clamp 将页码限制在有效范围内
         _currentPageIndex = Math.Clamp(page, 0, _totalPages > 0 ? _totalPages : 1);
         return this;
     }

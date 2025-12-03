@@ -215,7 +215,7 @@ public partial class DatabaseService
             WHERE p.guild_id = @GuildId
               AND p.is_deleted = FALSE
               AND (@SinceTime IS NULL OR p.created_at >= @SinceTime)
-              AND (@ChannelId IS NULL OR p.channel_id = ChannelId)
+              AND (@ChannelId IS NULL OR p.channel_id = @ChannelId)
             GROUP BY t.tag_id, t.channel_id, t.tag_name, t.channel_name, t.guild_name
             ORDER BY UsageCount DESC
             LIMIT @TopN;

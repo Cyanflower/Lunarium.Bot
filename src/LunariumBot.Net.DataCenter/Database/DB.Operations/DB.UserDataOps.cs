@@ -20,7 +20,7 @@ public partial class DatabaseService
                 user_credit_lv1, user_credit_lv2, user_credit_lv3
             )
             VALUES (
-                @UserId, @UserName, @UserThreadCountDelta, @UserMessageCountDelta, @UserUpdateCountDelta,
+                @UserId, @UserUsername, @UserThreadCountDelta, @UserMessageCountDelta, @UserUpdateCountDelta,
                 @UserCreditLv1Delta, @UserCreditLv2Delta, @UserCreditLv3Delta
             )
             ON CONFLICT (user_id) DO UPDATE 

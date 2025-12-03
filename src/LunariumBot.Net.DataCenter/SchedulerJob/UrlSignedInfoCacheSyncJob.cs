@@ -64,9 +64,9 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
             var embed = EmbedUtils.SuccessEmbed(_urlSignedInfoCacheService.GetCacheStatistics(), "定时同步缓存更新成功");
 
             // 判断是否有缓存或者已有缓存是否和配置相同(检查配置更新)
-            if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogChannel)
+            if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogThread)
             {
-                _cacheLogChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel);
+                _cacheLogChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread);
             }
 
             // 转换为通用可发消息频道

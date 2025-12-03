@@ -6,11 +6,11 @@ namespace LunariumBot.Net.SearchBot.AppInteractionService;
 
 public class AppMenus : InteractionModuleBase<SocketInteractionContext>
 {
-    private readonly FavoriteCommands _favoriteCommands;
+    private readonly Favorite _favoriteCommands;
     private readonly SubscriptionCommands _subscriptionCommands;
     private readonly SearchCommands _searchCommands;
     public AppMenus(
-        FavoriteCommands favoriteCommands,
+        Favorite favoriteCommands,
         SubscriptionCommands subscriptionCommands,
         SearchCommands searchCommands
     )

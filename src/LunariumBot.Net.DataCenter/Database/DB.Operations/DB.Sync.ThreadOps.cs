@@ -1,5 +1,6 @@
-using Npgsql;
+using System.Text.Json;
 
+using Npgsql;
 using Dapper;
 
 using LunariumBot.Net.Extensions;
@@ -34,7 +35,7 @@ public partial class DatabaseService
             FROM unnest(
                 @ThreadIds, @FirstMessageIds, @AuthorIds, @ChannelIds, @ChannelNames,
                 @GuildIds, @GuildNames, @CreatedAts, @ReactionCounts, @ReplyCounts,
-                @LastActiveAts, @JumpUrls, @AttachmentUrls,
+                @LastActiveAts, @JumpUrls, @AttachmentUrls::jsonb[],
                 @Tags, @IsValids, @IsLockeds, @InForums, 
                 @Titles, @FirstMessageContents, @TitleTokenizeds, @ContentTokenizeds
             ) AS t(
@@ -89,7 +90,7 @@ public partial class DatabaseService
             SELECT
                 t.author_id,
                 t.thread_id,
-                TRUE, -- 扫描时，我们只处理作者，所以 is_thread_owner 是 true
+                TRUE, -- 扫描时，只处理作者，所以 is_thread_owner 是 true
                 t.created_at,
                 t.created_at,
                 1, -- 初始消息数为 1 (首楼消息)
@@ -138,7 +139,7 @@ public partial class DatabaseService
                 ReplyCounts = allThreadsDb.Select(t => t.ReplyCount).ToArray(),
                 LastActiveAts = allThreadsDb.Select(t => t.LastActiveAt).ToArray(),
                 JumpUrls = allThreadsDb.Select(t => t.JumpUrl).ToArray(),
-                AttachmentUrls = allThreadsDb.Select(t => t.AttachmentUrls).ToArray(),
+                AttachmentUrls = allThreadsDb.Select(t => t.AttachmentUrls.Value is null ? null : JsonSerializer.Serialize(t.AttachmentUrls.Value)).ToArray(),
                 Tags = allThreadsDb.Select(t => t.Tags).ToArray(),
                 IsValids = allThreadsDb.Select(t => t.IsValid).ToArray(),
                 IsLockeds = allThreadsDb.Select(t => t.IsLocked).ToArray(),

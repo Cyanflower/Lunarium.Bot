@@ -7,6 +7,8 @@ using Discord;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
+using LunariumBot.Net.Extensions;
+
 // 项目内命名空间
 using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Utils;
@@ -40,13 +42,7 @@ public partial class DataProcessService
         // 使用重试策略从 Discord API 获取首楼消息内容
         try
         {
-            using var apiRateLimitToken = await _apiRequestRateLimiter.AcquireAsync(1);
-            if (!apiRateLimitToken.IsAcquired) 
-            {
-                _logger.Error("_apiRequestRateLimiter 队列已满");
-                // 只记录日志
-                // 越过速率控制, 直接交给 Discord.Net 的速率桶控制
-            }
+            using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
                 // 获取首楼消息（帖子ID等于首楼消息ID）
@@ -74,6 +70,12 @@ public partial class DataProcessService
                 .Where(a => IsImageAttachment(a))
                 .Select(a => a.Url)
                 .ToList();
+            // 外链图片以embed形式存在
+            attachmentUrls.AddRange(firstMessage.Embeds
+                .Where(embed => embed.Thumbnail is not null && embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv)
+                .Select(embed => embed.Thumbnail!.Value.Url)
+                .ToList()
+            );
         }
         // else
         // {
@@ -643,7 +645,7 @@ public partial class DataProcessService
     /// <returns>如果是图片类型返回 true，否则返回 false。</returns>
     private bool IsImageAttachment(IAttachment attachment)
     {
-        var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp" };
+        var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".gifv", ".webp", ".bmp" };
         return imageExtensions.Any(ext =>
             attachment.Filename.ToLowerInvariant().EndsWith(ext));
     }

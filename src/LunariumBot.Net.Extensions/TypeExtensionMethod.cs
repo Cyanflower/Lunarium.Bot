@@ -43,11 +43,23 @@ public static class DiscordExtensions
     {
         return unchecked((long)discordId);
     }
-    
+
     // long 转 ulong
     public static ulong ToDiscordId(this long dbId)
     {
         return unchecked((ulong)dbId);
+    }
+    
+    // uint 转 int
+    public static int ToDbId(this uint discordId)
+    {
+        return unchecked((int)discordId);
+    }
+    
+    // int 转 uint
+    public static uint ToDiscordId(this int dbId)
+    {
+        return unchecked((uint)dbId);
     }
 }
 

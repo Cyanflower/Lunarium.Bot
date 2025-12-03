@@ -66,6 +66,20 @@ public class ForumData
     public List<PostDisplayModel> ReplyTopHistory { get; set; } = new();
 }
 
+public struct Jsonb<T>
+{
+    public T? Value { get; set; }
+
+    public Jsonb(T? value) => Value = value;
+
+    // 为了方便使用，重载隐式转换
+    public static implicit operator T?(Jsonb<T> j) => j.Value;
+    public static implicit operator Jsonb<T>(T? v) => new Jsonb<T>(v);
+    
+    // 重写 ToString 方便调试
+    public override string? ToString() => Value?.ToString(); 
+}
+
 // ============================================
 // 数据库迁移相关模型
 // ============================================

@@ -28,7 +28,7 @@ public static class EmbedUtils
     public static Embed SuccessEmbed(string description, string title = "成功")
     {
         return new EmbedBuilder()
-            .WithTitle("成功")
+            .WithTitle(title)
             .WithDescription(description)
             .WithColor(Color.Green)
             .Build();

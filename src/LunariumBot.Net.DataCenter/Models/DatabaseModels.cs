@@ -69,7 +69,7 @@ internal class ThreadDataDb
     public int ReplyCount { get; set; }
     public DateTimeOffset LastActiveAt { get; set; }
     public string JumpUrl { get; set; } = "";
-    public string? AttachmentUrls { get; set; } = null;
+    public Jsonb<List<string>> AttachmentUrls { get; set; } = null;
     public DateTimeOffset? UpdatedAt { get; set; } = null;
     public string? UpdatedJumpUrl { get; set; } = null;
     public int UpdateCount { get; set; } = 0;
@@ -99,7 +99,7 @@ internal class ThreadDataDb
         ReplyCount = domain.ReplyCount,
         LastActiveAt = domain.LastActiveAt.ToUniversalTime(),
         JumpUrl = domain.JumpUrl,
-        AttachmentUrls = (domain.AttachmentUrls != null && domain.AttachmentUrls.Count > 0) ? JsonSerializer.Serialize(domain.AttachmentUrls, JsonSerializerConfig.Options) : null,
+        AttachmentUrls = (domain.AttachmentUrls is not null && domain.AttachmentUrls.Count > 0) ? domain.AttachmentUrls : null,
         UpdatedAt = domain.UpdatedAt?.ToUniversalTime(),
         UpdatedJumpUrl = domain.UpdatedJumpUrl,
         UpdateCount = domain.UpdateCount,
@@ -132,7 +132,7 @@ internal class ThreadDataDb
             ReplyCount = ReplyCount,
             LastActiveAt = LastActiveAt.ToUniversalTime(),
             JumpUrl = JumpUrl,
-            AttachmentUrls = AttachmentUrls is not null ? JsonSerializer.Deserialize<List<string>>(AttachmentUrls) : null,
+            AttachmentUrls = AttachmentUrls,
             UpdatedAt = UpdatedAt?.ToUniversalTime(),
             UpdatedJumpUrl = UpdatedJumpUrl,
             UpdateCount = UpdateCount,
@@ -330,7 +330,7 @@ internal class PostDisplayModelDb
     public long ThreadId { get; set; }
     public string? Title { get; set; }
     public string? JumpUrl { get; set; }
-    public string? AttachmentUrls { get; set; }
+    public Jsonb<List<string>> AttachmentUrls { get; set; }
     public long FirstMessageId { get; set; }
     public long AuthorId { get; set; }
     public long ChannelId { get; set; }
@@ -355,9 +355,7 @@ internal class PostDisplayModelDb
         ThreadId = domain.ThreadId.ToDbId(),
         Title = domain.Title,
         JumpUrl = domain.JumpUrl,
-        AttachmentUrls = (domain.AttachmentUrls != null && domain.AttachmentUrls.Count > 0)
-                ? JsonSerializer.Serialize(domain.AttachmentUrls)
-                : null,
+        AttachmentUrls = (domain.AttachmentUrls is not null && domain.AttachmentUrls.Count > 0) ? domain.AttachmentUrls : null,
         FirstMessageId = domain.FirstMessageId.ToDbId(),
         AuthorId = domain.AuthorId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
@@ -383,7 +381,7 @@ internal class PostDisplayModelDb
         ThreadId = ThreadId.ToDiscordId(),
         Title = Title,
         JumpUrl = JumpUrl,
-        AttachmentUrls = AttachmentUrls is not null ? JsonSerializer.Deserialize<List<string>>(AttachmentUrls) : null,
+        AttachmentUrls = AttachmentUrls,
         FirstMessageId = FirstMessageId.ToDiscordId(),
         AuthorId = AuthorId.ToDiscordId(),
         ChannelId = ChannelId.ToDiscordId(),
@@ -408,12 +406,13 @@ internal class PostDisplayModelDb
 public class RoleDataDb
 {
     public long RoleId { get; set; }
+    public int RolePosition { get; set; }
     public string RoleName { get; set; } = "";
     public string? RoleIconUrl { get; set; }
     public string? RoleEmoji { get; set; }
-    public uint? RolePrimaryColor { get; set; }
-    public uint? RoleSecondaryColor { get; set; }
-    public uint? RoleTertiaryColor { get; set; }
+    public int? RolePrimaryColor { get; set; }
+    public int? RoleSecondaryColor { get; set; }
+    public int? RoleTertiaryColor { get; set; }
     public bool IsDeleted { get; set; }
     public DateTimeOffset? DeleteAt { get; set; }
 
@@ -421,11 +420,12 @@ public class RoleDataDb
     {
         RoleId = roleData.RoleId.ToDbId(),
         RoleName = roleData.RoleName,
+        RolePosition = roleData.RolePosition,
         RoleIconUrl = roleData.RoleIconUrl,
         RoleEmoji = roleData.RoleEmoji,
-        RolePrimaryColor = roleData.RolePrimaryColor,
-        RoleSecondaryColor = roleData.RoleSecondaryColor,
-        RoleTertiaryColor = roleData.RoleTertiaryColor,
+        RolePrimaryColor = roleData.RolePrimaryColor?.ToDbId(),
+        RoleSecondaryColor = roleData.RoleSecondaryColor?.ToDbId(),
+        RoleTertiaryColor = roleData.RoleTertiaryColor?.ToDbId(),
         IsDeleted = roleData.IsDeleted,
         DeleteAt = roleData.DeleteAt,
     };
@@ -435,11 +435,12 @@ public class RoleDataDb
     {
         RoleId = RoleId.ToDiscordId(),
         RoleName = RoleName,
+        RolePosition = RolePosition,
         RoleIconUrl = RoleIconUrl,
         RoleEmoji = RoleEmoji,
-        RolePrimaryColor = RolePrimaryColor,
-        RoleSecondaryColor = RoleSecondaryColor,
-        RoleTertiaryColor = RoleTertiaryColor,
+        RolePrimaryColor = RolePrimaryColor?.ToDiscordId(),
+        RoleSecondaryColor = RoleSecondaryColor?.ToDiscordId(),
+        RoleTertiaryColor = RoleTertiaryColor?.ToDiscordId(),
         IsDeleted = IsDeleted,
         DeleteAt = DeleteAt,
     };

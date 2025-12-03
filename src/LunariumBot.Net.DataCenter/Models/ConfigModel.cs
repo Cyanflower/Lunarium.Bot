@@ -13,6 +13,7 @@ public record AuthConfig
 {
     public HashSet<ulong> AdminRoleIds { get; init; } = new();
     public ulong LogChannel { get; init; }
+    public ulong LogThread { get; init; }
 }
 
 public record CreditConfig

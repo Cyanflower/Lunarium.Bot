@@ -167,6 +167,7 @@ public class PostDisplayModel
 public class RoleData
 {
     public ulong RoleId { get; set; }
+    public int RolePosition { get; set; }
     public string RoleName { get; set; } = "";
     public string? RoleIconUrl { get; set; }
     public string? RoleEmoji { get; set; }

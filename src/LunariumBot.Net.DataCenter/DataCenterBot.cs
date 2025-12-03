@@ -170,6 +170,7 @@ public class DataCenterBotService : IHostedService
             // ==== [服务] ====
             // 注册帖子扫描模块
             .AddSingleton<ThreadScanner>()
+            .AddSingleton<MembersScanner>()
             // 注册监听器
             .AddSingleton<Listener>()
             // 注册分析器
@@ -253,6 +254,8 @@ public class DataCenterBotService : IHostedService
             .Or<HttpRequestException>()
             // - TaskCanceledException: 处理 HttpClient 超时
             .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
+            // - 处理 JSON 解析异常 (针对返回 HTML 错误页的情况)
+            .Or<Newtonsoft.Json.JsonReaderException>() 
 
             // 定义重试逻辑：指数退避
             .WaitAndRetryAsync(
@@ -321,9 +324,6 @@ public class DataCenterBotService : IHostedService
 
         _logger.Info("斜杠命令模块已加载。");
 
-        // 立即从数据库同步一次缓存
-        await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
-
         // 调度器和任务配置
         // 示例：每天凌晨 4:00 执行 FullSyncJob
         // Cron 表达式 "0 4 * * 1" 的意思是：
@@ -336,10 +336,11 @@ public class DataCenterBotService : IHostedService
         _scheduler.ScheduleDailyAsync<AnalysisAsyncJob>(hour: 5, name: "每日分析", timeZone: TimeZone);
         _scheduler.ScheduleDailyAsync<UrlSignedInfoCacheSyncAsyncJob>(hour: 4, minute: 30, name: "Url缓存同步", timeZone: TimeZone);
         // 每小时
-        _scheduler.ScheduleHourlyAsync<SyncMembersAndRolesJob>(minute: 30, name: "用户信息与身份组同步", timeZone: TimeZone);
+        _scheduler.ScheduleHourlyAsync<SyncMembersAndRolesJob>(minute: 50, name: "用户信息与身份组同步", timeZone: TimeZone);
         _scheduler.ScheduleHourlyAsync<UrlSignedInfoCacheCheckAsyncJob>(minute: 45, name: "Url缓存检查", timeZone: TimeZone);
         // 间隔
         _scheduler.ScheduleIntervalAsync<SystemMonitorJob>(5, "系统监控", timeZone: TimeZone);
+        // 启动调度器
         _scheduler.Start();
         _logger.Info("✅ 定时任务已配置完成。");
         _logger.Info($"\n{_scheduler.GetAllJobsInfo()}");
@@ -430,8 +431,11 @@ public class DataCenterBotService : IHostedService
                         {_scheduler.GetAllJobsInfo()}
                         """)
                     .Build();
-                var channelCache = await _client.GetChannelAsync(_configLoader.Config.DeployConfig.GuildAnalysisConfigs.First().Value.DashboardChannelId) as IMessageChannel;
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread) as IMessageChannel;
                 if (channelCache is not null) await channelCache.SendMessageAsync(embed: loginEmbed);
+
+                // 立即从数据库同步一次缓存
+                await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
             }
             else
             {
@@ -460,7 +464,7 @@ public class DataCenterBotService : IHostedService
                 var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
                 var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
 
-                var channelCache = await _client.GetChannelAsync(_configLoader.Config.DeployConfig.GuildAnalysisConfigs.First().Value.DashboardChannelId) as IMessageChannel;
+                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread) as IMessageChannel;
                 if (channelCache is not null)
                 {
                     await channelCache.SendMessageAsync(embed: loginEmbed);

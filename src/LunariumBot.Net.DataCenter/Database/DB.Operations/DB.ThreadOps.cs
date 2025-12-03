@@ -26,7 +26,7 @@ public partial class DatabaseService
             VALUES (
                 @ThreadId, @FirstMessageId, @AuthorId, @ChannelId, @ChannelName, 
                 @GuildId, @GuildName, @CreatedAt, @ReactionCount, @ReplyCount, 
-                @LastActiveAt, @JumpUrl, @AttachmentUrls, @UpdatedAt, 
+                @LastActiveAt, @JumpUrl, @AttachmentUrls::jsonb, @UpdatedAt, 
                 @UpdatedJumpUrl, @UpdateCount, @Tags, @IsValid, @IsLocked, @IsDeleted, @InForum, 
                 @Title, @FirstMessageContent, @TitleTokenized, @ContentTokenized
             );

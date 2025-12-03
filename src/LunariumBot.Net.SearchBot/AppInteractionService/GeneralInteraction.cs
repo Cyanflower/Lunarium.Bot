@@ -24,28 +24,20 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
     private readonly ILogger _logger;
     private readonly DatabaseService _databaseService;
     private readonly PaginatorManager _paginatorManager;
-    private readonly UserCooldown _userCooldown;
     private readonly ConfigLoader _configLoader;
-    private readonly MessageComponent? _directSearchMenuComponent;
-    private readonly Embed _directSearchMenuEmbed;
 
     public GeneralInteraction(
         ILogger logger,
         DatabaseService databaseService,
         PaginatorManager paginatorManager,
-        UserCooldown userCooldown,
         ConfigLoader configLoader
     )
     {
-        _userCooldown = userCooldown;
         _logger = logger.ForContext("GeneralInteraction");
         _databaseService = databaseService;
         _paginatorManager = paginatorManager;
         _configLoader = configLoader;
 
-        _directSearchMenuEmbed = DisplayEmbedBuilder.DirectSearchEmbed();
-
-        _directSearchMenuComponent = AppInteractionUitls.DirectSearchMenuComponent(_configLoader);
     }
 
     /// <summary>
@@ -114,7 +106,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
             if (Context.Interaction is SocketMessageComponent interaction)
             {
                 await DeferAsync(ephemeral: true);
-                var textPart = interaction.Message.Components.FindComponentById<TextDisplayComponent>(1000);
+                var textPart = interaction.Message.Components.FindComponentById<TextDisplayComponent>(10010);
 
                 var componentV2 = new ComponentBuilderV2()
                     .WithContainer(c => c
@@ -144,7 +136,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
     }
 
     [ComponentInteraction("pg:*:*")]
-    public async Task HandlePaginationActionAsync(string action, string id)
+    public async Task HandlePaginationActionAsync(string action, string viewId)
     {
         try
         {
@@ -164,7 +156,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
                 return;
             }
 
-            var view = _paginatorManager.GetView(id);
+            var view = _paginatorManager.GetView(viewId);
 
             if (view is null)
             {
@@ -174,7 +166,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
                         .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
                     )
                     .Build();
-                await FollowupAsync(components: component, ephemeral: true);
+                await RespondAsync(components: component, ephemeral: true);
                 return;
             }
 
@@ -192,7 +184,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
                     // 弹出模态框
                     var mb = new ModalBuilder()
                         .WithTitle("跳至页面")
-                        .WithCustomId($"pg_modal:{id}")
+                        .WithCustomId($"pg_modal:{viewId}")
                         .AddTextInput("目标页面", "target_page", placeholder: "请输入要跳转到的页数", maxLength: 4, minLength: 1);
                     await RespondWithModalAsync(mb.Build());
                     return;
@@ -214,7 +206,7 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
     }
 
     [ComponentInteraction("pg_modal:*")]
-    public async Task Handle()
+    public async Task HandlePaginationModelAsync(string viewId, SocketModal modal)
     {
         try
         {
@@ -233,6 +225,46 @@ public partial class GeneralInteraction : InteractionModuleBase<SocketInteractio
                 _logger.Warning(" 错误ID: {errorId} | 交互回调: [] Context.Interaction is Not SocketMessageComponent", errorId);
                 return;
             }
+
+            var view = _paginatorManager.GetView(viewId);
+
+            if (view is null)
+            {
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
+                    )
+                    .Build();
+                await RespondAsync(components: component, ephemeral: true);
+                return;
+            }
+
+            var componentData = modal.Data.Components
+                .FirstOrDefault(x => x.CustomId == "target_page");
+
+            var page = componentData?.Value;
+
+            if (int.TryParse(page, out var pageNum)) { }
+            else
+            {
+                string errorId = CorrelationIdGenerator.Generate();
+                _logger.Error("跳至页面失败, index 无法解析为 indexNum: 用户ID: {UserId}, 原始参数: viewId:{viewId}; page:{page}; 错误ID: {errorId}",
+                    Context.User.Id, viewId, page, errorId);
+                var indexCantParseComponent = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"## 搜索屏蔽名单移除失败", 1000)
+                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
+                    )
+                    .Build();
+                await RespondAsync(components: indexCantParseComponent, ephemeral: true);
+                return;
+            }
+
+            view.ToPage(pageNum);
+
+            await modal.Message.ModifyAsync(msg => { msg.Components = view.Render(); });
         }
         catch (Exception ex)
         {

@@ -1,12 +1,14 @@
 // NuGet 包依赖
 using Npgsql;
 using Dapper;
+using System.Data;
+using System.Text.Json;
 
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
 
 // 项目内命名空间
-using LunariumBot.Net.DataCenter.Utils;
+using LunariumBot.Net.DataCenter.Models;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -35,6 +37,7 @@ public partial class DatabaseService : IDisposable
             ?? throw new InvalidOperationException("在配置中未找到 'PostgresSQL' 的连接字符串。");
 
         Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+        SqlMapper.AddTypeHandler(new JsonTypeHandler<List<string>>());
 
         // 定义迁移脚本的存放路径
         _migrationsPath = Path.Combine(AppContext.BaseDirectory, "DBMigrations");
@@ -63,5 +66,38 @@ public partial class DatabaseService : IDisposable
         _logger.Info("✅ Npgsql 连接池已清理。DatabaseService 清理完成。");
 
         GC.SuppressFinalize(this);
+    }
+
+    public class JsonTypeHandler<T> : SqlMapper.TypeHandler<Jsonb<T>>
+    {
+        public override void SetValue(IDbDataParameter parameter, Jsonb<T> value)
+        {
+            // 要序列化的是 value.Value (内部数据)，而不是 value (包装)
+            // 注意：如果是 struct，value 本身不会为 null，但 value.Value 可能是 null
+            if (value.Value is null)
+            {
+                parameter.Value = DBNull.Value;
+            }
+            else
+            {
+                parameter.Value = JsonSerializer.Serialize(value.Value);
+            }
+
+            // 显式指定 jsonb
+            ((NpgsqlParameter)parameter).NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb;
+        }
+
+        public override Jsonb<T> Parse(object value)
+        {
+            // 反序列化出 T，然后包进 Json<T>
+            if (value is string json)
+            {
+                var innerValue = JsonSerializer.Deserialize<T>(json);
+                return new Jsonb<T>(innerValue);
+            }
+
+            // 如果数据库是 null，或者类型不对，返回默认值
+            return default; 
+        }
     }
 }

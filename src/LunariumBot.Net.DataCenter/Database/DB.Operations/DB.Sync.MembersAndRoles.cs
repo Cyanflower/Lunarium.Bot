@@ -12,26 +12,27 @@ public partial class DatabaseService
     {
         const string sqlCommand = """
             INSERT INTO roles (
-                role_id, role_name, role_icon_url,
+                role_id, role_name, role_position, role_icon_url,
                 role_emoji, role_primary_color, role_secondary_color,
                 role_tertiary_color
             )
             SELECT
-                t.role_id, t.role_name, t.role_icon_url,
+                t.role_id, t.role_name, t.role_position, t.role_icon_url,
                 t.role_emoji, t.role_primary_color, t.role_secondary_color,
-                t.role_tertiary_color, t.is_deleted
+                t.role_tertiary_color
             FROM unnest(
-                @RoleIds, @RoleNames, @RoleIconUrls,
+                @RoleIds, @RoleNames, @RolePositions, @RoleIconUrls,
                 @RoleEmojis, @RolePrimaryColors, @RoleSecondaryColors,
                 @RoleTertiaryColors
             ) AS t(
-                role_id, role_name, role_icon_url,
+                role_id, role_name, role_position, role_icon_url,
                 role_emoji, role_primary_color, role_secondary_color,
                 role_tertiary_color
             )
             ON CONFLICT (role_id) DO UPDATE
             SET
                 role_name = EXCLUDED.role_name,
+                role_position = EXCLUDED.role_position,
                 role_icon_url = EXCLUDED.role_icon_url,
                 role_emoji = EXCLUDED.role_emoji,
                 role_primary_color = EXCLUDED.role_primary_color,
@@ -45,6 +46,7 @@ public partial class DatabaseService
             {
                 RoleIds = roleDataDbs.Select(data => data.RoleId).ToArray(),
                 RoleNames = roleDataDbs.Select(data => data.RoleName).ToArray(),
+                RolePositions = roleDataDbs.Select(data => data.RolePosition).ToArray(),
                 RoleIconUrls = roleDataDbs.Select(data => data.RoleIconUrl).ToArray(),
                 RoleEmojis = roleDataDbs.Select(data => data.RoleEmoji).ToArray(),
                 RolePrimaryColors = roleDataDbs.Select(data => data.RolePrimaryColor).ToArray(),
@@ -60,7 +62,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ SyncAllMemberRolesAsync: 同步身份组信息表失败");
+            _logger.Error(ex, "❌ SyncAllRolesAsync: 同步身份组信息表失败");
             throw;
         }
     }
@@ -96,7 +98,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ SyncAllMemberRolesAsync: 同步身份组信息表(软删除)失败");
+            _logger.Error(ex, "❌ DeleteOutdatedRolesAsync: 同步身份组信息表(软删除)失败");
             throw;
         }
     }
@@ -118,7 +120,7 @@ public partial class DatabaseService
                 user_id, user_username, user_nickname,
                 user_global_name, user_avatar_url
             )
-            ON CONFLICT (role_id) DO UPDATE
+            ON CONFLICT (user_id) DO UPDATE
             SET
                 user_username = EXCLUDED.user_username,
                 user_nickname = EXCLUDED.user_nickname,
@@ -143,7 +145,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ SyncAllMemberRolesAsync: 同步用户信息表失败");
+            _logger.Error(ex, "❌ SyncAllMembersAsync: 同步用户信息表失败");
             throw;
         }
     }
@@ -161,11 +163,11 @@ public partial class DatabaseService
             WHERE user_id = ANY(@UniqueUserIds);
 
             -- 批量插入或更新最新的关系，将其标记为 "活跃"
-            INSERT INTO user_roles (user_id, role_id, is_active, deactive_at, updated_at)
+            INSERT INTO user_roles (user_id, role_id, deactive_at, is_active, updated_at)
             SELECT 
                 t.user_id, 
                 t.role_id, 
-                NULL,
+                NULL,      -- deactive_at
                 TRUE,      -- is_active
                 NOW()      -- updated_at
             FROM unnest(@FlatUserIds, @FlatRoleIds) AS t(user_id, role_id)

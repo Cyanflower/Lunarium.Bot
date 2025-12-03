@@ -12,7 +12,7 @@
     <!-- 项目名 -->
     <AssemblyName>LunariumBot.Net.DataCenter</AssemblyName>
 
-    <PublishDir>$(SolutionDir)dist\$(MSBuildProjectName)\</PublishDir>
+    <PublishDir>dist\</PublishDir>
     <!-- <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath> -->
 
     <!-- 单文件发布 -->
@@ -51,12 +51,18 @@
     <!-- PreserveNewest: 如果文件没变动就不复制 -->
     <Content Include="appsettings.template.jsonc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
     <Content Include="start.sh">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
     <Content Include="Resources\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 
