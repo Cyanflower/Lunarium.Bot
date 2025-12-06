@@ -196,7 +196,7 @@ public partial class DatabaseService
             {
                 if (user.UserRoles is null || user.UserRoles.Count == 0) continue;
 
-                foreach (var roleId in user.UserRoles)
+                foreach (var roleId in user.UserRoles.Distinct())
                 {
                     flatUserIds.Add(user.UserId);
                     flatRoleIds.Add(roleId);

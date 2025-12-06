@@ -4,6 +4,10 @@ using Discord.Rest;
 namespace LunariumBot.Net.SearchBot.Models;
 
 
+// ============================================
+// 服务结果
+// ============================================
+
 public class ServiceResult
 {
     public ServiceStatus Status { get; init; }
@@ -17,11 +21,9 @@ public class ServiceResult<T> where T : class
     public string? Message { get; init; }
 }
 
-public class ExistenceCheckResult<T> where T : class
-{
-    public bool Exists { get; init; }
-    public T? Payload { get; init; }
-}
+// ============================================
+// 枚举类型
+// ============================================
 
 public enum InsertResult
 {
@@ -35,45 +37,51 @@ public enum DeleteResult
     NoExists
 }
 
-
-// ============================================
-// 枚举类型
-// ============================================
-
 /// <summary>
 /// 帖子的处理结果状态
 /// </summary>
 public enum ServiceStatus
 {
+    /// <summary>
+    /// 成功
+    /// </summary>
     Success,
     /// <summary>
     /// 输入不合法或不符合规则
     /// </summary>
     InvalidInput,
-    /// <summary>
-    /// 鉴权未通过
-    /// </summary>
-    PermissionDenied,
     // --- 业务失败 ---
     /// <summary>
     /// INSERT 冲突 (关系性数据已存在)
     /// </summary>
     Conflict,
+    /// <summary>
+    /// 未查询到任何结果
+    /// </summary>
     NotFound,
+    /// <summary>
+    /// 预检查已存在 (关系性数据已存在)
+    /// </summary>
     Exist,
-    ValidationFailed,
-    // ... 其他业务失败
-
     // --- 系统失败 ---
     InternalError
 }
 
 
-/// <summary>
-/// 数值更新类型
-/// </summary>
-public enum NumericUpdateType
+// ============================================
+// 枚举类型
+// ============================================
+
+public struct Jsonb<T>
 {
-    Increase,  // 增加
-    Decrease   // 减少
+    public T? Value { get; set; }
+
+    public Jsonb(T? value) => Value = value;
+
+    // 为了方便使用，重载隐式转换
+    public static implicit operator T?(Jsonb<T> j) => j.Value;
+    public static implicit operator Jsonb<T>(T? v) => new Jsonb<T>(v);
+
+    // 重写 ToString 方便调试
+    public override string? ToString() => Value?.ToString();
 }

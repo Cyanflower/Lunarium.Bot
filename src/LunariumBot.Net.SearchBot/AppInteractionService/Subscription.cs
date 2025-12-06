@@ -41,10 +41,10 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
     // =============================================
     #region 业务方法
     // =============================================
-    public async Task<MessageComponent> ConfirmSubscriptionAsync(IUser user, IUser authorId)
+    public async Task<MessageComponent> ConfirmSubscriptionAsync(ulong userId, ulong authorId)
     {
         // ===== 收藏存在性检查 =====
-        var existResult = await _applicationService.CheckSubscriptionExistServiceAsync(user.Id, authorId.Id);
+        var existResult = await _applicationService.CheckSubscriptionExistAsync(userId, authorId);
         switch (existResult.Status)
         {
             case ServiceStatus.NotFound:
@@ -55,12 +55,12 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
                         .WithTextDisplay(existResult.Message, 1001)
                         .WithSeparator()
                         .WithTextDisplay($"""
-                            是否要关注作者: <@{authorId.Id}> ?
+                            是否要关注作者: <@{authorId}> ?
                             """)
                         .WithActionRow(actionRow =>
                         {
-                            actionRow.WithButton("确认", "", ButtonStyle.Success, new Emoji("✅"));
-                            actionRow.WithButton("取消", "", ButtonStyle.Danger, new Emoji("❌"));
+                            actionRow.WithButton("确认", $"Sub:{userId}:{authorId}", ButtonStyle.Success, new Emoji("✅"));
+                            actionRow.WithButton("取消", $"GeneralCancelV2", ButtonStyle.Danger, new Emoji("❌"));
                         })
                     )
                     .Build();
@@ -80,15 +80,15 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
             case ServiceStatus.InternalError:
                 return new ComponentBuilderV2()
                     .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
+                        .WithAccentColor(Color.Red)
                         .WithTextDisplay($"## 关注失败", 1000)
                         .WithTextDisplay(existResult.Message, 1001)
                     )
                     .Build();
             default:
                 string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("{errorId}: 确认收藏存在性失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                    errorId, existResult.Status.ToString(), (int)existResult.Status, user.Id);
+                _logger.Error("{errorId}: 确认关注存在性失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
+                    errorId, existResult.Status.ToString(), (int)existResult.Status, userId);
                 return new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Red)
@@ -99,43 +99,52 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
-    public async Task<MessageComponent> ConfirmUnFavoriteAsync(IUser user, IThreadChannel threadChannel)
+    public async Task<MessageComponent> ConfirmUnSubscriptionAsync(ulong userId, ulong authorId)
     {
-        var existResult = await _applicationService.RemoveFavoriteServiceAsync(user.Id, threadChannel.Id);
+        var existResult = await _applicationService.CheckSubscriptionExistAsync(userId, authorId);
         switch (existResult.Status)
         {
-            case ServiceStatus.Success:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 取消收藏成功", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
             case ServiceStatus.NotFound:
                 return new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
+                        .WithTextDisplay($"## 取消关注失败", 1000)
                         .WithTextDisplay(existResult.Message, 1001)
+                    )
+                    .Build();
+            case ServiceStatus.Exist:
+                return new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Gold)
+                        .WithTextDisplay($"## 取消关注作者", 1000)
+                        .WithTextDisplay(existResult.Message, 1001)
+                        .WithSeparator()
+                        .WithTextDisplay($"""
+                            是否要取消关注作者: <@{authorId}> ?
+                            """)
+                        .WithActionRow(actionRow =>
+                        {
+                            actionRow.WithButton("确认", $"UnSub:{userId}:{authorId}", ButtonStyle.Success, new Emoji("✅"));
+                            actionRow.WithButton("取消", $"GeneralCancelV2", ButtonStyle.Danger, new Emoji("❌"));
+                        })
                     )
                     .Build();
             case ServiceStatus.InternalError:
                 return new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
+                        .WithTextDisplay($"## 取消关注失败", 1000)
                         .WithTextDisplay(existResult.Message, 1001)
                     )
                     .Build();
             default:
                 string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("{errorId}: 取消收藏失败失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                    errorId, existResult.Status.ToString(), (int)existResult.Status, user.Id);
+                _logger.Error("{errorId}: 确认关注存在性失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
+                    errorId, existResult.Status.ToString(), (int)existResult.Status, userId);
                 return new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
+                        .WithTextDisplay($"## 取消关注失败", 1000)
                         .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
                     )
                     .Build();
@@ -147,303 +156,185 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
     #region  交互回调
     // =============================================
 
-    [ComponentInteraction("Fav:*:*")]
-    public async Task HandleFavoriteInteractionAsync(string action, string cacheId)
+    [ComponentInteraction("Sub:*:*")]
+    public async Task HandleSubscriptionAsync(ulong userId, ulong authorId)
     {
         try
         {
             if (Context.Interaction is not SocketMessageComponent interactionComponent)
             {
-                _logger.Warning("交互回调: Fav:Select:* Context.Interaction is Not SocketMessageComponent");
+                _logger.Warning("交互回调: [Sub:*:*] Context.Interaction is Not SocketMessageComponent");
                 return;
             }
 
-            var cache = _interactionsCacheManager.GetView<FavoriteInteractionCache>(cacheId);
+            await DeferAsync(ephemeral: true);
 
-            if (cache is null)
+            try
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await RespondAsync(components: component, ephemeral: true);
-                return;
+                var result = await _applicationService.AddSubscriptionAsync(userId, authorId);
+                switch (result.Status)
+                {
+                    case ServiceStatus.Success:
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Green)
+                                .WithTextDisplay($"## 关注成功", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    case ServiceStatus.Conflict:
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Orange)
+                                .WithTextDisplay($"## 关注失败", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    case ServiceStatus.InternalError:
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Red)
+                                .WithTextDisplay($"## 关注失败", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    default:
+                        string errorId = CorrelationIdGenerator.Generate();
+                        _logger.Error("{errorId}: 关注失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}, 作者ID: {AuthorId}",
+                            errorId, result.Status.ToString(), (int)result.Status, userId, authorId);
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Red)
+                                .WithTextDisplay($"## 关注失败", 1000)
+                                .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
+                            )
+                            .Build());
+                        break;
+                }
             }
-
-            switch (action)
+            catch (Exception ex)
             {
-                case "New":// 弹出新建收藏夹模态框
-                    var mb = new ModalBuilder()
-                        .WithTitle("新建收藏夹")
-                        .WithCustomId($"Fav:Modal:Create:{cacheId}")
-                        .AddTextInput("收藏夹名称", "folder_name", placeholder: "收藏夹名称", maxLength: 50, minLength: 1);
-                    await RespondWithModalAsync(mb.Build());
-                    return;
-                case "First":
-                    cache.ToFirst();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Prev":
-                    cache.Prev();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Next":
-                    cache.Next();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Last":
-                    cache.ToLast();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Push:On":
-                    cache.EnablePush();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Push:Off":
-                    cache.DisablePush();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    return;
-                case "Cancel":
-                    cache.Cancel();
-                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-                    _interactionsCacheManager.TryRemove(cache.CacheId);
-                    return;
-                case "Confirm":
-                    await DeferAsync(ephemeral:true);
-                    var result = await _applicationService.CreateFavoriteServiceAsync(cache.Confirm());
-                    switch (result.Status)
-                    {
-                        case ServiceStatus.Success:
-                            var successComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Green)
-                                    .WithTextDisplay($"## 收藏成功", 1000)
-                                    .WithSeparator()
-                                    .WithTextDisplay($"""
-                                        帖子 <#{result.Payload?.ThreadId}> 已被添加于收藏夹 {result.Payload?.FavoriteTypeName}, 添加于: <t:{result.Payload?.AddedAt.ToUnixTimeSeconds()}:R>
-                                        """, 1001)
-                                )
-                                .Build();
-                            await interactionComponent.Message.ModifyAsync(msg => msg.Components = cache.Render());
-                            await FollowupAsync(components: successComponent, ephemeral: true);
-                            _interactionsCacheManager.TryRemove(cache.CacheId);
-                            return;
-                        case ServiceStatus.Conflict:
-                        case ServiceStatus.NotFound:
-                            var notFoundComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Orange)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay(result.Message, 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: notFoundComponent, ephemeral: true);
-                            return;
-                        case ServiceStatus.InternalError:
-                            var internalErrorComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Orange)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay(result.Message, 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: internalErrorComponent, ephemeral: true);
-                            return;
-                        default:
-                            string errorId = CorrelationIdGenerator.Generate();
-                            _logger.Error("{errorId}: 为用户添加收藏失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                                errorId, result.Status.ToString(), (int)result.Status, Context.User.Id);
-                            var defaultComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Red)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: defaultComponent, ephemeral: true);
-                            return;
-                    }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "HandleFavoriteInteractionAsync Exception");
-        }
-    }
+                _logger.Error(ex);
 
-    // 处理下拉菜单的选择
-    [ComponentInteraction("Fav:Select:*")]
-    public async Task HandleFolderSelectionAsync(string cacheId)
-    {
-        try
-        {
-            if (Context.Interaction is not SocketMessageComponent interactionComponent)
-            {
-                _logger.Warning("交互回调: Fav:Select:* Context.Interaction is Not SocketMessageComponent");
-                return;
-            }
-    
-            var cache = _interactionsCacheManager.GetView<FavoriteInteractionCache>(cacheId);
-    
-            if (cache is null)
-            {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await RespondAsync(components: component, ephemeral: true);
-                return;
-            }
-    
-            var selectedValue = interactionComponent.Data.Values.FirstOrDefault(defaultValue: "");
-    
-            cache.UpdateSelected(selectedValue);
-    
-            await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "HandleFolderSelectionAsync Exception");
-        }
-    }
-    
-    // 处理新建收藏夹的模态框提交
-    [ModalInteraction("Fav:Modal:Create:*")]
-    public async Task HandleCreateFolderModalAsync(string cacheId, SocketModal modal)
-    {
-        try
-        {
-            await DeferAsync(ephemeral:true);
-            var componentData = modal.Data.Components
-                .FirstOrDefault(x => x.CustomId == "folder_name");
-
-            var folderName = componentData?.Value;
-
-            if (string.IsNullOrWhiteSpace(folderName))
-            {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 文件夹名称不能为空")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
-                return;
-            }
-
-            if (folderName.Length <= 1 || folderName.Length > 50)
-            {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 文件夹名称长度必须在 1 到 50 之间")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
-                return;
-            }
-
-            var cleanTypeName = folderName.Trim();
-            var result = await _applicationService.CreateFavoriteTypeServiceAsync(Context.User.Id, cleanTypeName);
-
-            switch (result.Status)
-            {
-                case ServiceStatus.Success:
-                    break;
-                case ServiceStatus.Conflict:
-                    var conflictComponent = new ComponentBuilderV2()
-                        .WithContainer(container => container
-                            .WithAccentColor(Color.Orange)
-                            .WithTextDisplay($"## 收藏失败", 1000)
-                            .WithTextDisplay(result.Message, 1001)
-                        )
-                        .Build();
-                    await FollowupAsync(components: conflictComponent, ephemeral: true);
-                    return;
-                case ServiceStatus.InternalError:
-                    var internalErrorComponent = new ComponentBuilderV2()
-                        .WithContainer(container => container
-                            .WithAccentColor(Color.Orange)
-                            .WithTextDisplay($"## 收藏失败", 1000)
-                            .WithTextDisplay(result.Message, 1001)
-                        )
-                        .Build();
-                    await FollowupAsync(components: internalErrorComponent, ephemeral: true);
-                    return;
-            }
-
-            var cache = _interactionsCacheManager.GetView<FavoriteInteractionCache>(cacheId);
-
-            if (cache is null)
-            {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
-                return;
-            }
-
-            if (result.Payload is null)
-            {
                 string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("错误ID: {errorId} | result.Payload is null", errorId);
-                var payloadNullComponent = new ComponentBuilderV2()
+
+                _logger.Error(ex, "{errorId}: 关注失败, 用户ID: {UserId}, 作者ID: {AuthorId}",
+                    errorId, userId, authorId);
+
+                var component = new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 收藏失败", 1000)
+                        .WithTextDisplay($"## 关注失败", 1000)
                         .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
                     )
                     .Build();
-                await FollowupAsync(components: payloadNullComponent, ephemeral: true);
-                return;
+                await interactionComponent.FollowupAsync(components: component);
             }
-
-            cache.UpdateFolders(result.Payload);
-
-            await modal.Message.ModifyAsync(msg =>
-            {
-                msg.Components = cache.Render();
-            });
-            
-            var successComponent = new ComponentBuilderV2()
-                .WithContainer(container => container
-                    .WithAccentColor(Color.Green)
-                    .WithTextDisplay($"收藏夹 **{cleanTypeName}** 创建成功! 请点击刷新按钮刷新菜单, 然后在下拉菜单中选择", 1000)
-                )
-                .Build();
-            await FollowupAsync(components: successComponent, ephemeral: true);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "HandleCreateFolderModalAsync Exception");
+            _logger.Error(ex, "HandleSubscriptionAsync Exception");
         }
     }
 
+    [ComponentInteraction("UnSub:*:*")]
+    public async Task HandleUnSubscriptionAsync(ulong userId, ulong authorId)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interactionComponent)
+            {
+                _logger.Warning("交互回调: [UnSub:*:*] Context.Interaction is Not SocketMessageComponent");
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var result = await _applicationService.RemoveSubscriptionAsync(userId, authorId);
+                switch (result.Status)
+                {
+                    case ServiceStatus.Success:
+                        await interactionComponent.Message.ModifyAsync( msg => msg.Components = new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Green)
+                                .WithTextDisplay($"## 取消关注成功", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    case ServiceStatus.NotFound:
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Orange)
+                                .WithTextDisplay($"## 取消关注失败", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    case ServiceStatus.InternalError:
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Red)
+                                .WithTextDisplay($"## 取消关注失败", 1000)
+                                .WithTextDisplay(result.Message, 1001)
+                            )
+                            .Build());
+                        break;
+                    default:
+                        string errorId = CorrelationIdGenerator.Generate();
+                        _logger.Error("{errorId}: 取消关注失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}, 作者ID: {AuthorId}",
+                            errorId, result.Status.ToString(), (int)result.Status, userId, authorId);
+                        await interactionComponent.FollowupAsync(components: new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Red)
+                                .WithTextDisplay($"## 取消关注失败", 1000)
+                                .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
+                            )
+                            .Build());
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex);
+
+                string errorId = CorrelationIdGenerator.Generate();
+
+                _logger.Error(ex, "{errorId}: 取消关注失败, 用户ID: {UserId}, 作者ID: {AuthorId}",
+                    errorId, userId, authorId);
+
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"## 取消关注失败", 1000)
+                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
+                    )
+                    .Build();
+                await interactionComponent.FollowupAsync(components: component);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleUnSubscriptionAsync Exception");
+        }
+    }
     #endregion
 
     // =============================================
     #region  AppMenu
     // =============================================
-    #endregion
-
-
-    // =============================================
-    #region  斜杠命令 
-    // =============================================
-    [SlashCommand("收藏该贴", "收藏该帖子")]
-    public async Task FavoriteAsync()
+    [MessageCommand("关注该作者")]
+    public async Task MessageMenuSubscriptionfAsync(IMessage message)
     {
         try
         {
             // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild;
             // 2. 进行鉴权
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             // 3. 检查鉴权结果，如果失败则提前返回
@@ -454,13 +345,133 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
                 await RespondAsync(components: failedReasonComponent, ephemeral: true);
                 return; // 终止命令执行
             }
-    
+
             await DeferAsync(ephemeral: true);
-    
+
+            var component = await ConfirmSubscriptionAsync(Context.User.Id, message.Author.Id);
+            await FollowupAsync(components: component, ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MessageMenuSubscriptionfAsync Ex");
+        }
+    }
+
+    [MessageCommand("取消关注该作者")]
+    public async Task MessageMenuUnSubscriptionfAsync(IMessage message)
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var component = await ConfirmUnSubscriptionAsync(Context.User.Id, message.Author.Id);
+                await FollowupAsync(components: component, ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MessageMenuUnSubscriptionfAsync Ex");
+        }
+    }
+
+    [UserCommand("关注该作者")]
+    public async Task UserMenuSubscriptionAsync(IUser user)
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var component = await ConfirmSubscriptionAsync(Context.User.Id, user.Id);
+                await FollowupAsync(components: component, ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "UserMenuSubscriptionAsync Ex");
+        }
+    }
+
+    [UserCommand("取消关注该作者")]
+    public async Task UserMenuUnSubscriptionAsync(IUser user)
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var component = await ConfirmUnSubscriptionAsync(Context.User.Id, user.Id);
+                await FollowupAsync(components: component, ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "UserMenuUnSubscriptionAsync Ex");
+        }
+    }
+    #endregion
+
+    // =============================================
+    #region  斜杠命令 
+    // =============================================
+    [SlashCommand("关注本帖作者", "将本帖作者添加到关注列表")]
+    public async Task SubscriptionAsync()
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
             if (Context.Channel is IThreadChannel threadChannel)
             {
-                var result = await ConfirmSubscriptionAsync(Context.User, threadChannel);
-                await FollowupAsync(components: result, ephemeral: true);
+                var component = await ConfirmSubscriptionAsync(Context.User.Id, threadChannel.OwnerId);
+                await FollowupAsync(components: component, ephemeral: true);
             }
             else
             {
@@ -478,17 +489,17 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "FavoriteAsync Exception");
+            _logger.Error(ex, "SubscriptionAsync Ex");
         }
     }
 
-    [SlashCommand("取消收藏", "取消收藏该帖子")]
-    public async Task UnfavoriteAsync()
+    [SlashCommand("取消关注本帖作者", "将本帖作者从关注列表移除")]
+    public async Task UnSubscriptionAsync()
     {
         try
         {
             // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
             // 2. 进行鉴权
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             // 3. 检查鉴权结果，如果失败则提前返回
@@ -499,29 +510,36 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
                 await RespondAsync(components: failedReasonComponent, ephemeral: true);
                 return; // 终止命令执行
             }
-    
+
             await DeferAsync(ephemeral: true);
-    
-            // === 命令逻辑 ===
+
             if (Context.Channel is IThreadChannel threadChannel)
             {
-                var result = await ConfirmUnFavoriteAsync(Context.User, threadChannel);
-                await FollowupAsync(components: result, ephemeral: true);
+                var component = await ConfirmUnSubscriptionAsync(Context.User.Id, threadChannel.OwnerId);
+                await FollowupAsync(components: component, ephemeral: true);
             }
             else
             {
-                // 这个分支理论上不会被触发，因为 InGuildThread 已经检查过了
-                await FollowupAsync(embed: EmbedUtils.FailedEmbed("错误", "无法在非帖子频道执行此操作。"), ephemeral: true);
+                var components = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay("""
+                        ## 操作失败
+                        **xxxx本帖** 系列命令仅可在论坛频道的帖子内使用
+                        """)
+                    )
+                    .Build();
+                await FollowupAsync(components: components, ephemeral: true);
             }
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "FavoriteAsync Exception");
+            _logger.Error(ex, "UnSubscriptionAsync Ex");
         }
     }
 
-    [SlashCommand("查看收藏", "查看自己的收藏列表")]
-    public async Task ViewFavoriteAsync()
+    [SlashCommand("查看关注列表", "查看自己的关注列表")]
+    public async Task ViewSubscriptionAsync()
     {
         try
         {
@@ -539,63 +557,54 @@ public class Subscription : InteractionModuleBase<SocketInteractionContext>
             }
 
             await DeferAsync(ephemeral: true);
-    
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "FavoriteAsync Exception");
-        }
-    }
 
-    [SlashCommand("删除收藏夹", "删除一个收藏夹并处理其中的帖子")]
-    public async Task DeleteFavoriteCategoryAsync()
-    {        try
-        {
-            // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
-            // 2. 进行鉴权
-            var authResult = await _authUtil.Authorization(requiredConditions, Context);
-            // 3. 检查鉴权结果，如果失败则提前返回
-            if (authResult.Status != AuthorizationStatus.Success)
+            var result = await _applicationService.QueryUserSubscriptionsAsync(Context.User.Id);
+            switch (result.Status)
             {
-                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
-                // 以 "仅自己可见" 的方式回复失败原因
-                await RespondAsync(components: failedReasonComponent, ephemeral: true);
-                return; // 终止命令执行
+                case ServiceStatus.Success:
+                    var view = _paginatorManager.RegisterView<SubscriptionData>(Context.User.Id, result.Payload!);
+                    await FollowupAsync(components: view.Render(), ephemeral: true);
+                    return;
+                case ServiceStatus.NotFound:
+                    var notFoundComponents = new ComponentBuilderV2()
+                        .WithContainer(container => container
+                            .WithAccentColor(Color.Red)
+                            .WithTextDisplay("""
+                            ## 查看关注列表
+                            您当前的关注列表还没有任何内容, 快去关注自己喜欢的作者吧!
+                            """)
+                        )
+                        .Build();
+                    await FollowupAsync(components: notFoundComponents, ephemeral: true);
+                    return;
+                case ServiceStatus.InternalError:
+                    var internalErrorComponent = new ComponentBuilderV2()
+                        .WithContainer(container => container
+                            .WithAccentColor(Color.Red)
+                            .WithTextDisplay($"## 查看关注列表失败", 1000)
+                            .WithTextDisplay(result.Message, 1001)
+                        )
+                        .Build();
+                    await FollowupAsync(components: internalErrorComponent, ephemeral: true);
+                    return;
+                default:
+                    string errorId = CorrelationIdGenerator.Generate();
+                    _logger.Error("{errorId}: 查看关注列表失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
+                        errorId, result.Status.ToString(), (int)result.Status, Context.User.Id);
+                    var defaultComponent = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"## 查看关注列表失败", 1000)
+                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
+                    )
+                    .Build();
+                    await FollowupAsync(components: defaultComponent, ephemeral: true);
+                    return;
             }
-
-            await DeferAsync(ephemeral: true);
-    
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "FavoriteAsync Exception");
-        }
-    }
-
-    [SlashCommand("重命名收藏夹", "更改一个收藏夹的名称")]
-    public async Task RenameFavoriteCategoryAsync()
-    {        try
-        {
-            // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
-            // 2. 进行鉴权
-            var authResult = await _authUtil.Authorization(requiredConditions, Context);
-            // 3. 检查鉴权结果，如果失败则提前返回
-            if (authResult.Status != AuthorizationStatus.Success)
-            {
-                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
-                // 以 "仅自己可见" 的方式回复失败原因
-                await RespondAsync(components: failedReasonComponent, ephemeral: true);
-                return; // 终止命令执行
-            }
-
-            await DeferAsync(ephemeral: true);
-    
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "FavoriteAsync Exception");
+            _logger.Error(ex, "ViewSubscriptionAsync Ex");
         }
     }
     #endregion

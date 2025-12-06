@@ -35,7 +35,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("GetFavoriteTypeAsync Exception", ex);
+            _logger.Error(ex, "GetFavoriteTypeAsync Exception");
             throw;
         }
     }
@@ -66,12 +66,12 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("CheckFavoriteExistAsync Exception", ex);
+            _logger.Error(ex, "CheckFavoriteExistAsync Exception");
             throw;
         }
     }
 
-    public async Task<DeleteResult> RemoveFavoriteAsync(ulong userId, ulong threadId)
+    public async Task<DeleteResult> RemoveFavoriteAsync(NpgsqlTransaction transaction, ulong userId, ulong threadId)
     {
         const string SqlCommand = $"""
             DELETE FROM user_favorite_posts
@@ -84,8 +84,8 @@ public partial class DatabaseService
         };
         try
         {
-            await using var connection = GetConnection();
-            var affectedRows = await connection.ExecuteAsync(SqlCommand, parameters);
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var affectedRows = await transaction.Connection.ExecuteAsync(SqlCommand, parameters);
 
             if (affectedRows > 0)
             {
@@ -95,7 +95,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("RemoveFavoriteAsync Exception", ex);
+            _logger.Error(ex, "RemoveFavoriteAsync Exception");
             throw;
         }
     }
@@ -125,17 +125,17 @@ public partial class DatabaseService
         try
         {
             await using var connection = GetConnection();
-            var result = await connection.QueryAsync<FavoriteInfo>(SqlCommand, parameters);
-            return result.ToList();
+            var result = await connection.QueryAsync<FavoriteInfoDb>(SqlCommand, parameters);
+            return result.Select(r => r.ToDomain()).ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error("QueryUserFavoritesAsync Exception", ex);
+            _logger.Error(ex, "QueryUserFavoritesAsync Exception");
             throw;
         }
     }
 
-    public async Task<FavoriteTypeInfo?> CreateFavoriteTypeAsync(ulong userId, string typeName)
+    public async Task<FavoriteTypeInfo?> CreateFavoriteTypeAsync(NpgsqlTransaction transaction, ulong userId, string typeName)
     {
         const string SqlCommand = $"""
             INSERT INTO user_favorite_types (
@@ -164,20 +164,19 @@ public partial class DatabaseService
 
         try
         {
-            await using var connection = GetConnection();
-
-            var result = await connection.QuerySingleOrDefaultAsync<FavoriteTypeInfoDb>(SqlCommand, parameters);
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var result = await transaction.Connection.QuerySingleOrDefaultAsync<FavoriteTypeInfoDb>(SqlCommand, parameters);
 
             return result?.ToDomain();
         }
         catch (Exception ex)
         {
-            _logger.Error("CreateFavoriteTypeAsync Exception", ex);
+            _logger.Error(ex, "CreateFavoriteTypeAsync Exception");
             throw;
         }
     }
 
-    public async Task<FavoriteInfo?> AddUserFavoriteAsync(FavoriteInfoDb favoriteDb)
+    public async Task<FavoriteInfo?> AddUserFavoriteAsync(NpgsqlTransaction transaction, FavoriteInfoDb favoriteDb)
     {
         const string SqlCommand = $"""
             INSERT INTO user_favorite_posts (
@@ -209,13 +208,12 @@ public partial class DatabaseService
 
         try
         {
-            await using var connection = GetConnection();
-            
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
             // QuerySingleOrDefaultAsync:
             // 1. 插入成功 -> RETURNING 返回 1 行 -> 映射为对象
             // 2. 冲突 (DO NOTHING) -> RETURNING 不返回行 -> 返回 null
-            var result = await connection.QuerySingleOrDefaultAsync<FavoriteInfoDb>(SqlCommand, favoriteDb);
-            
+            var result = await transaction.Connection.QuerySingleOrDefaultAsync<FavoriteInfoDb>(SqlCommand, favoriteDb);
+
             return result?.ToDomain();
         }
         catch (PostgresException ex) when (ex.SqlState == "23503") // foreign_key_violation
@@ -225,7 +223,150 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("AddUserFavoriteAsync Exception", ex);
+            _logger.Error(ex, "AddUserFavoriteAsync Exception");
+            throw;
+        }
+    }
+
+    public async Task<string?> GetFavoriteTypeNameAsync(NpgsqlTransaction transaction, ulong userId, long favoriteId)
+    {
+        const string sql = """
+            SELECT type_name 
+            FROM user_favorite_types 
+            WHERE user_id = @UserId AND favorite_id = @FavoriteId;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            FavoriteId = favoriteId
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            return await transaction.Connection.QuerySingleOrDefaultAsync<string>(sql, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "GetFavoriteTypeNameAsync Exception");
+            throw;
+        }
+    }
+
+    public async Task<int> MoveFavoritePostsAsync(NpgsqlTransaction transaction, ulong userId, long oldFavoriteId, long newFavoriteId)
+    {
+        const string sql = """
+            UPDATE user_favorite_posts 
+            SET 
+                favorite_as = @NewFavoriteId,
+                added_at = NOW()
+            WHERE 
+                user_id = @UserId AND favorite_as = @OldFavoriteId;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            OldFavoriteId = oldFavoriteId,
+            NewFavoriteId = newFavoriteId
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            return await transaction.Connection.ExecuteAsync(sql, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MoveFavoritePostsAsync Exception");
+            throw;
+        }
+    }
+
+    public async Task<int> DeleteFavoriteCategoryAsync(NpgsqlTransaction transaction, ulong userId, long favoriteId)
+    {
+        const string sql = """
+            DELETE FROM user_favorite_types 
+            WHERE user_id = @UserId AND favorite_id = @FavoriteId;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            FavoriteId = favoriteId
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            return await transaction.Connection.ExecuteAsync(sql, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "DeleteFavoriteCategoryAsync Exception");
+            throw;
+        }
+    }
+
+    public async Task<bool> CheckOtherFavoriteTypeExistsAsync(NpgsqlTransaction transaction, ulong userId, string typeName, long excludeId)
+    {
+        const string sql = """
+            SELECT 1 
+            FROM user_favorite_types 
+            WHERE user_id = @UserId 
+              AND type_name = @TypeName 
+              AND favorite_id != @ExcludeId
+            LIMIT 1;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            TypeName = typeName,
+            ExcludeId = excludeId
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var result = await transaction.Connection.ExecuteScalarAsync<int?>(sql, parameters, transaction);
+            return result.HasValue;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 更新收藏夹名称
+    /// 注意：数据库触发器 trigger_sync_favorite_type_name 会自动同步更新 user_favorite_posts 表
+    /// </summary>
+    public async Task<int> RenameFavoriteTypeAsync(NpgsqlTransaction transaction, ulong userId, long favoriteId, string newTypeName)
+    {
+        const string sql = """
+            UPDATE user_favorite_types 
+            SET type_name = @NewTypeName 
+            WHERE user_id = @UserId AND favorite_id = @FavoriteId;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            FavoriteId = favoriteId,
+            NewTypeName = newTypeName
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            return await transaction.Connection.ExecuteAsync(sql, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
             throw;
         }
     }

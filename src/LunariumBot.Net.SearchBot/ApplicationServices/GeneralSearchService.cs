@@ -16,7 +16,7 @@ namespace LunariumBot.Net.SearchBot.ApplicationServices;
 
 public partial class ApplicationService
 {
-    public async Task<ServiceResult<IPaginatedView>> GeneralSerachService(ulong userId, SearchConditions searchConditions)
+    public async Task<ServiceResult<IPaginatedView>> GeneralSerachServiceAsync(ulong userId, SearchConditions searchConditions)
     {
         try
         {
@@ -54,7 +54,7 @@ public partial class ApplicationService
         }
     }
 
-    public async Task<ServiceResult> SerachForCacheService(List<ulong> threadIds)
+    public async Task<ServiceResult<IPaginatedView>> GeneralPostCacheServiceAsync(ulong userId, List<ulong> threadIds)
     {
         try
         {
@@ -87,7 +87,48 @@ public partial class ApplicationService
         catch (Exception ex)
         {
             string errorId = CorrelationIdGenerator.Generate();
-            _logger.Error(ex, "❌ 通用搜索失败: 请求人ID: {userId}, 搜索条件: {@searchConditions}, 错误ID: {errorId}", userId, searchConditions, errorId);
+            _logger.Error(ex, "❌ 帖子数据通用缓存获取失败: 请求人ID: {userId}, 帖子列表: {@searchConditions}, 错误ID: {errorId}", userId, threadIds, errorId);
+            return new() { Status = ServiceStatus.InternalError, Message = $"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```" };
+        }
+    }
+
+    public async Task<ServiceResult<Dictionary<ulong, PostDisplayModel>>> GeneralPostCacheServiceAsync(List<ulong> threadIds)
+    {
+        try
+        {
+            var result = await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                return await _databaseService.SearchForCache(threadIds);
+            });
+
+            Dictionary<ulong, PostDisplayModel> posts = new();
+
+            result.Select(post => posts[post.ThreadId] = post);
+
+            if (posts.Count > 0)
+            {
+                var cacheItems = _searchCacheService.CacheItems(result);
+                return new()
+                {
+                    Status = ServiceStatus.Success,
+                    Payload = posts,
+                    Message = "OK"
+                };
+            }
+            else
+            {
+                return new()
+                {
+                    Status = ServiceStatus.NotFound,
+                    Payload = null,
+                    Message = "未找到符合条件的结果"
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "❌ 帖子数据通用缓存获取失败: 帖子列表: {@searchConditions}, 错误ID: {errorId}", threadIds, errorId);
             return new() { Status = ServiceStatus.InternalError, Message = $"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```" };
         }
     }

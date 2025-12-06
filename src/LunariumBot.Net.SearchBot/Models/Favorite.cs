@@ -43,14 +43,21 @@ public class FavoriteTypeInfo
 {
     public ulong UserId { get; init; }
     public long FavoriteId { get; init; }
-    public string TypeName { get; init; } = "";
+    public int FavoriteCount { get; init; }
+    public string TypeName { get; set; } = "";
     public DateTimeOffset CreatedAt { get; init; }
+
+    public void UpdateName(string newName)
+    {
+        TypeName = newName;
+    }
 }
 
 public class FavoriteTypeInfoDb
 {
     public long UserId { get; init; }
     public long FavoriteId { get; init; }
+    public int FavoriteCount { get; init; }
     public string TypeName { get; init; } = "";
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -58,6 +65,7 @@ public class FavoriteTypeInfoDb
     {
         UserId = favoriteTypeInfo.UserId.ToDbId(),
         FavoriteId = favoriteTypeInfo.FavoriteId,
+        FavoriteCount = favoriteTypeInfo.FavoriteCount,
         TypeName = favoriteTypeInfo.TypeName,
         CreatedAt = favoriteTypeInfo.CreatedAt
     };
@@ -66,6 +74,7 @@ public class FavoriteTypeInfoDb
     {
         UserId = UserId.ToDiscordId(),
         FavoriteId = FavoriteId,
+        FavoriteCount = FavoriteCount,
         TypeName = TypeName,
         CreatedAt = CreatedAt
     };

@@ -40,21 +40,62 @@ public partial class DatabaseService
         }
     }
 
-    public async Task<DeleteResult> RemoveFavoriteAsync(ulong userId, ulong threadId)
+    public async Task<InsertResult> AddSubscriptionAsync(NpgsqlTransaction transaction, ulong userId, ulong authorId)
     {
         const string SqlCommand = $"""
-            DELETE FROM user_favorite_posts
-            WHERE user_id = @UserId AND thread_id = @ThreadId;
+            INSERT INTO user_subscriptions_author (
+                user_id,
+                author_id,
+                added_at
+            )
+            VALUES (
+                @UserId,
+                @AuthorId,
+                NOW()
+            )
+            ON CONFLICT (user_id, thread_id) DO NOTHING;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            AuthorId = authorId.ToDbId()
+        };
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+
+            var affectedRows = await transaction.Connection.ExecuteAsync(SqlCommand, parameters);
+
+            if (affectedRows > 0)
+            {
+                return InsertResult.Inserted;
+            }
+            return InsertResult.AlreadyExists;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("AddSubscriptionAsync Exception", ex);
+            throw;
+        }
+    }
+    
+    public async Task<DeleteResult> RemoveSubscriptionAsync(NpgsqlTransaction transaction, ulong userId, ulong authorId)
+    {
+        const string SqlCommand = $"""
+            DELETE FROM user_subscriptions_author
+            WHERE user_id = @UserId AND author_id = @AuthorId;
             """;
         var parameters = new
         {
             UserId = userId.ToDbId(),
-            ThreadId = threadId.ToDbId()
+            AuthorId = authorId.ToDbId()
         };
         try
         {
-            await using var connection = GetConnection();
-            var affectedRows = await connection.ExecuteAsync(SqlCommand, parameters);
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+
+            var affectedRows = await transaction.Connection.ExecuteAsync(SqlCommand, parameters);
 
             if (affectedRows > 0)
             {
@@ -64,137 +105,37 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("RemoveFavoriteAsync Exception", ex);
+            _logger.Error("RemoveSubscriptionAsync Exception", ex);
             throw;
         }
     }
 
-    public async Task<List<FavoriteInfo>> QueryUserFavoritesAsync(ulong userId, long? favoriteAs)
+    public async Task<List<SubscriptionData>> QueryUserSubscriptionsAsync(ulong userId)
     {
         const string SqlCommand = $"""
             SELECT
                 user_id AS UserId,
-                thread_id AS ThreadId,
-                favorite_type_name AS FavoriteTypeName,
-                allow_push AS AllowPush,
+                author_id AS AuthorId,
                 added_at AS AddedAt
-            FROM user_favorite_posts
-            WHERE
-                user_id = @UserId 
-                AND (@FavoriteAs IS NULL OR favorite_as = @FavoriteAs)
+            FROM user_subscriptions_author
+            WHERE user_id = @UserId
             ORDER BY added_at DESC;
             """;
 
         var parameters = new
         {
-            UserId = userId.ToDbId(),
-            FavoriteAs = favoriteAs
+            UserId = userId.ToDbId()
         };
 
         try
         {
             await using var connection = GetConnection();
-            var result = await connection.QueryAsync<FavoriteInfo>(SqlCommand, parameters);
-            return result.ToList();
+            var result = await connection.QueryAsync<SubscriptionDataDb>(SqlCommand, parameters);
+            return result.Select(r => r.ToDomain()).ToList();
         }
         catch (Exception ex)
         {
             _logger.Error("QueryUserFavoritesAsync Exception", ex);
-            throw;
-        }
-    }
-
-    public async Task<FavoriteTypeInfo?> CreateFavoriteTypeAsync(ulong userId, string typeName)
-    {
-        const string SqlCommand = $"""
-            INSERT INTO user_favorite_types (
-                user_id,
-                type_name,
-                created_at
-            )
-            VALUES (
-                @UserId,
-                @TypeName,
-                NOW()
-            )
-            ON CONFLICT (user_id, type_name) DO NOTHING
-            RETURNING 
-                user_id AS UserId,
-                favorite_id AS FavoriteId, 
-                type_name AS TypeName, 
-                created_at AS CreatedAt;
-            """;
-
-        var parameters = new
-        {
-            UserId = userId.ToDbId(),
-            TypeName = typeName
-        };
-
-        try
-        {
-            await using var connection = GetConnection();
-
-            var result = await connection.QuerySingleOrDefaultAsync<FavoriteTypeInfoDb>(SqlCommand, parameters);
-
-            return result?.ToDomain();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("CreateFavoriteTypeAsync Exception", ex);
-            throw;
-        }
-    }
-
-    public async Task<FavoriteInfo?> AddUserFavoriteAsync(FavoriteInfoDb favoriteDb)
-    {
-        const string SqlCommand = $"""
-            INSERT INTO user_favorite_posts (
-                user_id,
-                thread_id,
-                favorite_as,
-                favorite_type_name, 
-                allow_push,
-                added_at
-            )
-            VALUES (
-                @UserId,
-                @ThreadId,
-                @FavoriteAs,
-                -- 强一致性设计：直接使用子查询获取分类名称，忽略传入的 FavoriteTypeName
-                (SELECT type_name FROM user_favorite_types WHERE favorite_id = @FavoriteAs), 
-                @AllowPush,
-                NOW()
-            )
-            ON CONFLICT (user_id, thread_id) DO NOTHING
-            RETURNING 
-                user_id AS UserId,
-                thread_id AS ThreadId,
-                favorite_as AS FavoriteAs,
-                favorite_type_name AS FavoriteTypeName,
-                allow_push AS AllowPush,
-                added_at AS AddedAt;
-            """;
-
-        try
-        {
-            await using var connection = GetConnection();
-            
-            // QuerySingleOrDefaultAsync:
-            // 1. 插入成功 -> RETURNING 返回 1 行 -> 映射为对象
-            // 2. 冲突 (DO NOTHING) -> RETURNING 不返回行 -> 返回 null
-            var result = await connection.QuerySingleOrDefaultAsync<FavoriteInfoDb>(SqlCommand, favoriteDb);
-            
-            return result?.ToDomain();
-        }
-        catch (PostgresException ex) when (ex.SqlState == "23503") // foreign_key_violation
-        {
-            _logger.Warning("AddUserFavoriteAsync FK Violation: User {0} tried to add to non-existent folder {1}", favoriteDb.UserId, favoriteDb.FavoriteAs);
-            throw new InvalidOperationException("指定的收藏夹不存在", ex);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("AddUserFavoriteAsync Exception", ex);
             throw;
         }
     }

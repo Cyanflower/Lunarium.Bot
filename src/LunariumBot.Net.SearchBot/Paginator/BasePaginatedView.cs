@@ -2,7 +2,7 @@ using Discord;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
-public abstract class BasePaginatedView<T> : IPaginatedView
+public abstract class BasePaginatedView<T> : IPaginatedView where T : class 
 {
     public string PaginatorId { get; }
     public DateTimeOffset ExpiresAt { get; private set; } 
@@ -27,6 +27,15 @@ public abstract class BasePaginatedView<T> : IPaginatedView
         _pageSize = pageSize;
         _items = items.ToList();
         BuildPages();
+    }
+
+    public T? GetItemByIndex(int index)
+    {
+        if (index < 0 || index >= _pages[_currentPageIndex].Items.Count)
+        {
+            return null;
+        }
+        return _pages[_currentPageIndex].GetItemByIndex(index);
     }
 
     #region 状态操作 (Commands) - 只修改状态

@@ -12,14 +12,14 @@ public class BlockPaginatedView : BasePaginatedView<BlockedInfo>, IPaginatedView
     // 构造函数体可以是空的，因为所有的初始化逻辑都在基类中完成了。
     public BlockPaginatedView(IEnumerable<BlockedInfo> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 10) { }
 
-    public BlockedInfo? GetItemByIndex(int index)
-    {
-        if (index < 0 || index >= _pages[_currentPageIndex].Items.Count)
-        {
-            return null;
-        }
-        return _pages[_currentPageIndex].GetItemByIndex(index);
-    }
+    // public BlockedInfo? GetItemByIndex(int index)
+    // {
+    //     if (index < 0 || index >= _pages[_currentPageIndex].Items.Count)
+    //     {
+    //         return null;
+    //     }
+    //     return _pages[_currentPageIndex].GetItemByIndex(index);
+    // }
     
     public void LogViewDetail(ILogger logger)
     {
@@ -44,6 +44,7 @@ public class BlockPaginatedView : BasePaginatedView<BlockedInfo>, IPaginatedView
         // Container 本身占用一个组件
         messageComponent.WithContainer(c =>
             {
+                c.WithAccentColor(Color.Blue);
                 // 3 * 10, 30个组件
                 foreach (var item in _pages[_currentPageIndex].Items)
                 {
@@ -56,13 +57,15 @@ public class BlockPaginatedView : BasePaginatedView<BlockedInfo>, IPaginatedView
                     );
                     i++;
                 }
-                c.WithAccentColor(Color.Blue);
                 // 分隔线一个组件
                 c.WithSeparator();
-                // 翻页部分: 5 按钮 + 1 容器, 6组件
-                c.WithActionRow(PaginationControlsBuilder.Build(this));
+                c.WithActionRow(actionRow => actionRow
+                    .AddComponent(new ButtonBuilder("或前往 Web 页面进行管理", style: ButtonStyle.Link, url: "https://opizontas.org/"))
+                );
             }
         );
+        // 翻页部分: 5 按钮 + 1 容器, 6组件
+        messageComponent.WithActionRow(PaginationControlsBuilder.Build(this));
         // 30(每item行) + 6(翻页交互) + 1(Container) + 1(Separator) = 38
         // 目前 discord 限制为 40 个组件
         return messageComponent.Build();

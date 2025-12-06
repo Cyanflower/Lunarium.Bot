@@ -14,6 +14,7 @@ public static class InteractionsCacheFactory
     static InteractionsCacheFactory()
     {
         Register<FavoriteInteractionState>((data, exp, id) => new FavoriteInteractionCache(data, exp, id));
+        Register<List<FavoriteTypeInfo>>((data, exp, id) => new RemoveFavoriteInteractionCache(data, exp, id));
     }
 
     /// <summary>

@@ -11,6 +11,9 @@ public static class PaginatedViewFactory
     {
         // 向字典注册所有类型的 IPaginatedView 的 new 方法委托
         Register<BlockedInfo>((items, expires, id) => new BlockPaginatedView(items, expires, id));
+        Register<SubscriptionData>((items, expires, id) => new SubscriptionPaginatedView(items, expires, id));
+        Register<FavoriteTypeInfo>((items, expires, id) => new FavoriteTypePaginatedView(items, expires, id));
+        Register<FavoriteDisplayItem>((items, expires, id) => new FavoriteDisplayPaginatedView(items, expires, id));
     }
 
     /// <summary>

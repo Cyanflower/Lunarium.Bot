@@ -94,3 +94,35 @@
 
 ***
 *注意：`SearchBot` 是一个采用旧架构的待重构项目，开发新功能或新机器人时不应作为参考。*
+
+
+Discord.Net/Directory.Build.props
+```
+<Project>
+  <!-- 
+    这个文件会自动被子项目加载。
+    在这里做的配置会应用到 Discord.Net 的所有项目 (Rest, WebSocket, Core 等)。
+  -->
+
+  <ItemGroup>
+    <!-- 
+      核心：注入 InternalsVisibleTo 属性。
+      _Parameter1 是你的项目程序集名称（注意：是程序集名称，通常与 .csproj 文件名一致）。
+      如果有多个项目需要访问，就复制多行。
+    -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>LunariumBot.Net.Extensions</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- 
+      重要：禁用强签名 (Strong Naming)。
+      默认情况下 Discord.Net 是开启签名的, 如果程序集已签名, InternalsVisibleTo 必须包含公钥
+    -->
+    <SignAssembly>false</SignAssembly>
+    <AssemblyOriginatorKeyFile></AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+</Project>
+```

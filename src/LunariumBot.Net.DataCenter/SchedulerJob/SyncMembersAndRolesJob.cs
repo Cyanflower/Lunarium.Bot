@@ -16,7 +16,7 @@ public class SyncMembersAndRolesJob : IAsyncJob
 
     public SyncMembersAndRolesJob(ILogger logger, MembersScanner scanner)
     {
-        _logger = logger.ForContext("FullSyncJob");
+        _logger = logger.ForContext("SyncMembersAndRolesJob");
         _scanner = scanner;
     }
 
@@ -30,7 +30,7 @@ public class SyncMembersAndRolesJob : IAsyncJob
         }
         catch (Exception ex)
         {
-            _logger.Error("FullSyncJob 执行时发生未处理的异常:", ex);
+            _logger.Error("SyncMembersAndRolesJob 执行时发生未处理的异常:", ex);
         }
     }
 }

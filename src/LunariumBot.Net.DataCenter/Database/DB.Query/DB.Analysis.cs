@@ -273,7 +273,6 @@ public partial class DatabaseService
                 thread_id AS ThreadId,
                 title AS Title,
                 jump_url AS JumpUrl,
-                attachment_urls AS AttachmentUrls,
                 reaction_count AS ReactionCount,
                 reply_count AS ReplyCount,
                 channel_name AS ChannelName
@@ -326,7 +325,6 @@ public partial class DatabaseService
                 thread_id AS ThreadId,
                 title AS Title,
                 jump_url AS JumpUrl,
-                attachment_urls AS AttachmentUrls,
                 reaction_count AS ReactionCount,
                 reply_count AS ReplyCount,
                 channel_name AS ChannelName

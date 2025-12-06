@@ -6,8 +6,14 @@ namespace LunariumBot.Net.SearchBot.SearchCache;
 
 public class SearchCacheService
 {
+    // 弱引用对象缓存池
     private readonly ConcurrentDictionary<ulong, WeakReference<PostDisplayModel>> _cache = new();
 
+    /// <summary>
+    /// 将对象对象到缓存池
+    /// </summary>
+    /// <param name="items"></param>
+    /// <returns></returns>
     public List<PostDisplayModel> CacheItems(IReadOnlyList<PostDisplayModel> items)
     {
         var results = new List<PostDisplayModel>(items.Count);
@@ -20,6 +26,11 @@ public class SearchCacheService
         return results;
     }
 
+    /// <summary>
+    /// 处理对象
+    /// </summary>
+    /// <param name="newItem"></param>
+    /// <returns></returns>
     private PostDisplayModel ProcessItem(PostDisplayModel newItem)
     {
         // 自旋重试, 应对高并发极小概率的竞争

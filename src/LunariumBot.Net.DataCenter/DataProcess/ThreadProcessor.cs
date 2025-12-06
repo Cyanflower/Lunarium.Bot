@@ -370,7 +370,7 @@ public partial class DataProcessService
             Tags = tags,
             TagsId = appliedTagIds,
             // 是否锁定
-            IsValid = socketThreadChannel.IsLocked,
+            IsValid = !socketThreadChannel.IsLocked,
             IsLocked = socketThreadChannel.IsLocked,
         };
 

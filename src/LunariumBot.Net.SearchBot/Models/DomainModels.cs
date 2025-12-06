@@ -16,48 +16,6 @@ public class ChannelData
 }
 
 /// <summary>
-/// 帖子数据
-/// </summary>
-public class ThreadData
-{
-    public ulong ThreadId { get; set; }
-    public ulong FirstMessageId { get; set; }
-    public ulong AuthorId { get; set; }
-    public ulong ChannelId { get; set; }
-    public string ChannelName { get; set; } = "";
-    public ulong GuildId { get; set; }
-    public string GuildName { get; set; } = "";
-    public DateTimeOffset CreatedAt { get; set; }
-    public int ReactionCount { get; set; }
-    public int ReplyCount { get; set; }
-    public DateTimeOffset LastActiveAt { get; set; }
-    public string JumpUrl { get; set; } = "";
-    public string? AttachmentUrl { get; set; } = null;
-
-    // 更新数据
-    public DateTimeOffset? UpdatedAt { get; set; } = null;
-    public string? UpdatedJumpUrl { get; set; } = null;
-    public int UpdateCount { get; set; } = 0;
-
-    // 标签
-    public string? Tags { get; set; } = null;
-    public List<ulong> TagsId { get; set; } = [];
-
-    // 状态标志
-    public bool IsValid { get; set; } = true;
-    public bool IsLocked { get; set; } = false;
-    public bool IsDeleted { get; set; } = false;
-    public bool InForum { get; set; } = false;
-    public DateTimeOffset? DeleteAt { get; set; } = null;
-
-    // 标题和内容
-    public string Title { get; set; } = "";
-    public string? FirstMessageContent { get; set; } = null;
-    public string TitleTokenized { get; set; } = "";
-    public string? ContentTokenized { get; set; } = null;
-}
-
-/// <summary>
 /// 消息数据
 /// </summary>
 public class MessageData
@@ -158,7 +116,7 @@ public class PostDisplayModel
     /// <summary>
     /// 帖子首条消息的附件 URL
     /// </summary>
-    public string? AttachmentUrl { get; set; }
+    public List<string>? AttachmentUrls { get; set; } = null;
 
     // ================== 上下文信息 ==================
     /// <summary>
@@ -201,17 +159,17 @@ public class PostDisplayModel
     /// <summary>
     /// 帖子创建时间的 Unix 时间戳
     /// </summary>
-    public long CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
     /// 帖子最后活跃时间的 Unix 时间戳
     /// </summary>
-    public long LastActiveAt { get; set; }
+    public DateTimeOffset LastActiveAt { get; set; }
 
     /// <summary>
     /// 帖子最后更新时间的 Unix 时间戳 (用于推送)
     /// </summary>
-    public long UpdatedAt { get; set; } = 0;
+    public DateTimeOffset? UpdatedAt { get; set; }
 
     // ================== 关联数据 ==================
     /// <summary>
@@ -236,7 +194,7 @@ public class PostDisplayModel
         Content = newData.Content;
         JumpUrl = newData.JumpUrl;
         UpdateMessageJumpUrl = newData.UpdateMessageJumpUrl;
-        AttachmentUrl = newData.AttachmentUrl;
+        AttachmentUrls = newData.AttachmentUrls;
         AuthorId = newData.AuthorId;
         ChannelId = newData.ChannelId;
         ChannelName = newData.ChannelName;

@@ -28,6 +28,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
     private readonly PaginatorManager _paginatorManager;
     private readonly ApplicationService _applicationService;
     private readonly InteractionsCacheManager _interactionsCacheManager;
+    private readonly ComponentUtils _componentUtils;
 
     public Favorite(ILogger logger, AuthUtil authUtil, PaginatorManager paginatorManager, ApplicationService applicationService, InteractionsCacheManager interactionsCacheManager)
     {
@@ -36,6 +37,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         _paginatorManager = paginatorManager;
         _applicationService = applicationService;
         _interactionsCacheManager = interactionsCacheManager;
+        _componentUtils = new(_logger);
     }
 
     // =============================================
@@ -45,145 +47,71 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
     {
         // ===== 收藏存在性检查 =====
         var existResult = await _applicationService.CheckFavoriteExistServiceAsync(user.Id, threadChannel.Id);
-        switch (existResult.Status)
+        if (existResult.Status != ServiceStatus.NotFound)
         {
-            case ServiceStatus.NotFound:
-                break;
-            case ServiceStatus.Exist:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                        .WithSeparator()
-                        .WithTextDisplay($"""
-                            帖子: <#{existResult.Payload?.ThreadId}>
-                            收藏夹: {existResult.Payload?.FavoriteTypeName}
-                            允许推送: {(existResult.Payload is not null && existResult.Payload.AllowPush == true ? "允许推送" : "禁止推送")}
-                            收藏于: <t:{existResult.Payload?.AddedAt.ToUnixTimeSeconds()}:f>
-                            """)
-                    )
-                    .Build();
-            case ServiceStatus.InternalError:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
-            default:
-                string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("{errorId}: 确认收藏存在性失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                    errorId, existResult.Status.ToString(), (int)existResult.Status, user.Id);
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                    )
-                    .Build();
+            return _componentUtils.ErrorComponente(existResult, "## 确认收藏失败");
         }
 
         // ===== 获取收藏夹 =====
         var foldersResult = await _applicationService.GetFavoriteTypeServiceAsync(user.Id);
-        switch (existResult.Status)
+        if (foldersResult.Status != ServiceStatus.NotFound && foldersResult.Status != ServiceStatus.Success)
         {
-            case ServiceStatus.NotFound:
-            case ServiceStatus.Success:
-                string? avatarUrl = null;
-                if (threadChannel is SocketThreadChannel socketThreadChannel)
-                {
-                    avatarUrl = socketThreadChannel.Owner?.GetAvatarUrl();
-                }
-
-                List<FavoriteTypeInfo> folders;
-                if (foldersResult.Status == ServiceStatus.Conflict || foldersResult.Payload is null)
-                {
-                    folders = new();
-                }
-                else
-                {
-                    folders = foldersResult.Payload;
-                }
-
-                var state = new FavoriteInteractionState
-                {
-                    ThreadId = threadChannel.Id,
-                    ThreadName = threadChannel.Name,
-                    AuthorAvatarUrl = avatarUrl,
-                    AllFolders = folders,
-                    IsPushEnabled = true,
-                    CurrentFolderPage = 0
-                    // SelectedFolderIds 初始为空
-                };
-
-                var view = _interactionsCacheManager.RegisterView(user.Id, state);
-
-                return view.Render();
-            case ServiceStatus.InternalError:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
-            default:
-                string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("{errorId}: 获取用户的收藏的收藏夹列表失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                    errorId, existResult.Status.ToString(), (int)existResult.Status, user.Id);
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                    )
-                    .Build();
+            return _componentUtils.ErrorComponente(existResult, "## 收藏失败");
         }
+
+        string? avatarUrl = null;
+
+        if (threadChannel is SocketThreadChannel socketThreadChannel)
+        {
+            avatarUrl = socketThreadChannel.Owner?.GetAvatarUrl();
+        }
+
+        List<FavoriteTypeInfo> folders;
+        if (foldersResult.Status == ServiceStatus.Conflict || foldersResult.Payload is null)
+        {
+            folders = new();
+        }
+        else
+        {
+            folders = foldersResult.Payload;
+        }
+
+        var state = new FavoriteInteractionState
+        {
+            ThreadId = threadChannel.Id,
+            ThreadName = threadChannel.Name,
+            AuthorAvatarUrl = avatarUrl,
+            AllFolders = folders,
+            IsPushEnabled = true,
+            CurrentFolderPage = 0
+            // SelectedFolderIds 初始为空
+        };
+
+        var view = _interactionsCacheManager.RegisterView(user.Id, state);
+
+        return view.Render();
     }
 
     public async Task<MessageComponent> ConfirmUnFavoriteAsync(IUser user, IThreadChannel threadChannel)
     {
-        var existResult = await _applicationService.RemoveFavoriteServiceAsync(user.Id, threadChannel.Id);
-        switch (existResult.Status)
+        var existResult = await _applicationService.CheckFavoriteExistServiceAsync(user.Id, threadChannel.Id);
+        if (existResult.Status != ServiceStatus.NotFound)
         {
-            case ServiceStatus.Success:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 取消收藏成功", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
-            case ServiceStatus.NotFound:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Orange)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
-            case ServiceStatus.InternalError:
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
-                        .WithTextDisplay(existResult.Message, 1001)
-                    )
-                    .Build();
-            default:
-                string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("{errorId}: 取消收藏失败失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                    errorId, existResult.Status.ToString(), (int)existResult.Status, user.Id);
-                return new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 取消收藏失败", 1000)
-                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                    )
-                    .Build();
+            return _componentUtils.ErrorComponente(existResult, "## 确认取消收藏失败");
         }
+
+        return new ComponentBuilderV2()
+            .WithContainer(container => container
+                .WithAccentColor(Color.Orange)
+                .WithTextDisplay($"## 确认取消收藏\n确定取消收藏帖子: {threadChannel.Name}?", 1000)
+                .WithTextDisplay("", 1001)
+                .WithActionRow(actionRow =>
+                {
+                    actionRow.WithButton("确认", $"UnFav:{user.Id}:{threadChannel.Id}", ButtonStyle.Success, new Emoji("✅"));
+                    actionRow.WithButton("取消", $"GeneralCancelV2", ButtonStyle.Danger, new Emoji("❌"));
+                })
+            )
+            .Build();
     }
     #endregion
 
@@ -198,7 +126,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         {
             if (Context.Interaction is not SocketMessageComponent interactionComponent)
             {
-                _logger.Warning("交互回调: Fav:Select:* Context.Interaction is Not SocketMessageComponent");
+                _logger.Warning("交互回调: [Fav:Select:*] Context.Interaction is Not SocketMessageComponent");
                 return;
             }
 
@@ -206,13 +134,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
 
             if (cache is null)
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await RespondAsync(components: component, ephemeral: true);
+                await RespondAsync(components: _componentUtils.ExpiredComponente(), ephemeral: true);
                 return;
             }
 
@@ -255,65 +177,72 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
                     _interactionsCacheManager.TryRemove(cache.CacheId);
                     return;
                 case "Confirm":
-                    await DeferAsync(ephemeral:true);
-                    var result = await _applicationService.CreateFavoriteServiceAsync(cache.Confirm());
-                    switch (result.Status)
+                    await DeferAsync(ephemeral: true);
+                    var result = await _applicationService.AddFavoriteServiceAsync(cache.Confirm());
+                    if (result.Status != ServiceStatus.Success)
                     {
-                        case ServiceStatus.Success:
-                            var successComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Green)
-                                    .WithTextDisplay($"## 收藏成功", 1000)
-                                    .WithSeparator()
-                                    .WithTextDisplay($"""
-                                        帖子 <#{result.Payload?.ThreadId}> 已被添加于收藏夹 {result.Payload?.FavoriteTypeName}, 添加于: <t:{result.Payload?.AddedAt.ToUnixTimeSeconds()}:R>
-                                        """, 1001)
-                                )
-                                .Build();
-                            await interactionComponent.Message.ModifyAsync(msg => msg.Components = cache.Render());
-                            await FollowupAsync(components: successComponent, ephemeral: true);
-                            _interactionsCacheManager.TryRemove(cache.CacheId);
-                            return;
-                        case ServiceStatus.Conflict:
-                        case ServiceStatus.NotFound:
-                            var notFoundComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Orange)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay(result.Message, 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: notFoundComponent, ephemeral: true);
-                            return;
-                        case ServiceStatus.InternalError:
-                            var internalErrorComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Orange)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay(result.Message, 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: internalErrorComponent, ephemeral: true);
-                            return;
-                        default:
-                            string errorId = CorrelationIdGenerator.Generate();
-                            _logger.Error("{errorId}: 为用户添加收藏失败, 意外的枚举: {result.Status}(result.StatusNum), 用户ID: {UserId}",
-                                errorId, result.Status.ToString(), (int)result.Status, Context.User.Id);
-                            var defaultComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Red)
-                                    .WithTextDisplay($"## 收藏失败", 1000)
-                                    .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                                )
-                                .Build();
-                            await FollowupAsync(components: defaultComponent, ephemeral: true);
-                            return;
+                        var component = _componentUtils.ErrorComponente(result, "## 收藏失败");
+                        await FollowupAsync(components: component, ephemeral: true);
+                        return;
+                    }
+                    else
+                    {
+                        var component = new ComponentBuilderV2()
+                            .WithContainer(container => container
+                                .WithAccentColor(Color.Green)
+                                .WithTextDisplay($"## 收藏成功", 1000)
+                                .WithSeparator()
+                                .WithTextDisplay($"""
+                                    帖子 <#{result.Payload?.ThreadId}> 已被添加于收藏夹 {result.Payload?.FavoriteTypeName}, 添加于: <t:{result.Payload?.AddedAt.ToUnixTimeSeconds()}:R>
+                                    """, 1001)
+                            )
+                            .Build();
+                        await interactionComponent.Message.ModifyAsync(msg => msg.Components = cache.Render());
+                        await FollowupAsync(components: component, ephemeral: true);
+                        _interactionsCacheManager.TryRemove(cache.CacheId);
+                        return;
                     }
             }
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "HandleFavoriteInteractionAsync Exception");
+        }
+    }
+
+    [ComponentInteraction("UnFav:*:*")]
+    public async Task HandleUnFavoriteInteractionAsync(ulong userId, ulong threadId)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interactionComponent)
+            {
+                _logger.Warning("交互回调: [Fav:Select:*] Context.Interaction is Not SocketMessageComponent");
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var result = await _applicationService.RemoveFavoriteServiceAsync(userId, threadId);
+
+            if (result.Status != ServiceStatus.Success)
+            {
+                await FollowupAsync(components: _componentUtils.ErrorComponente(result, "## 取消收藏失败"), ephemeral: true);
+                return;
+            }
+            
+            var component = new ComponentBuilderV2()
+                .WithContainer(container => container
+                    .WithAccentColor(Color.Green)
+                    .WithTextDisplay($"## 取消收藏成功", 1000)
+                    .WithTextDisplay(result.Message, 1001)
+                )
+                .Build();
+            await FollowupAsync(components: component, ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleUnFavoriteInteractionAsync Exception");
         }
     }
 
@@ -325,28 +254,22 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         {
             if (Context.Interaction is not SocketMessageComponent interactionComponent)
             {
-                _logger.Warning("交互回调: Fav:Select:* Context.Interaction is Not SocketMessageComponent");
+                _logger.Warning("交互回调: [Fav:Select:*] Context.Interaction is Not SocketMessageComponent");
                 return;
             }
-    
+
             var cache = _interactionsCacheManager.GetView<FavoriteInteractionCache>(cacheId);
-    
+
             if (cache is null)
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await RespondAsync(components: component, ephemeral: true);
+                await RespondAsync(components: _componentUtils.ExpiredComponente(), ephemeral: true);
                 return;
             }
-    
+
             var selectedValue = interactionComponent.Data.Values.FirstOrDefault(defaultValue: "");
-    
+
             cache.UpdateSelected(selectedValue);
-    
+
             await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
         }
         catch (Exception ex)
@@ -354,14 +277,14 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
             _logger.Error(ex, "HandleFolderSelectionAsync Exception");
         }
     }
-    
+
     // 处理新建收藏夹的模态框提交
     [ModalInteraction("Fav:Modal:Create:*")]
     public async Task HandleCreateFolderModalAsync(string cacheId, SocketModal modal)
     {
         try
         {
-            await DeferAsync(ephemeral:true);
+            await DeferAsync(ephemeral: true);
             var componentData = modal.Data.Components
                 .FirstOrDefault(x => x.CustomId == "folder_name");
 
@@ -369,83 +292,35 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
 
             if (string.IsNullOrWhiteSpace(folderName))
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 文件夹名称不能为空")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 文件夹名称不能为空"), ephemeral: true);
                 return;
             }
 
             if (folderName.Length <= 1 || folderName.Length > 50)
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 文件夹名称长度必须在 1 到 50 之间")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 文件夹名称长度必须在 1 到 50 之间"), ephemeral: true);
                 return;
             }
 
             var cleanTypeName = folderName.Trim();
             var result = await _applicationService.CreateFavoriteTypeServiceAsync(Context.User.Id, cleanTypeName);
-
-            switch (result.Status)
+            if (result.Status != ServiceStatus.Success)
             {
-                case ServiceStatus.Success:
-                    break;
-                case ServiceStatus.Conflict:
-                    var conflictComponent = new ComponentBuilderV2()
-                        .WithContainer(container => container
-                            .WithAccentColor(Color.Orange)
-                            .WithTextDisplay($"## 收藏失败", 1000)
-                            .WithTextDisplay(result.Message, 1001)
-                        )
-                        .Build();
-                    await FollowupAsync(components: conflictComponent, ephemeral: true);
-                    return;
-                case ServiceStatus.InternalError:
-                    var internalErrorComponent = new ComponentBuilderV2()
-                        .WithContainer(container => container
-                            .WithAccentColor(Color.Orange)
-                            .WithTextDisplay($"## 收藏失败", 1000)
-                            .WithTextDisplay(result.Message, 1001)
-                        )
-                        .Build();
-                    await FollowupAsync(components: internalErrorComponent, ephemeral: true);
-                    return;
+                await FollowupAsync(components: _componentUtils.ErrorComponente(result, "## 收藏失败"), ephemeral: true);
+                return;
             }
 
             var cache = _interactionsCacheManager.GetView<FavoriteInteractionCache>(cacheId);
 
             if (cache is null)
             {
-                var component = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("## 该交互已过期\n请使用命令发起新的交互")
-                    )
-                    .Build();
-                await FollowupAsync(components: component, ephemeral: true);
+                await FollowupAsync(components: _componentUtils.ExpiredComponente(), ephemeral: true);
                 return;
             }
 
             if (result.Payload is null)
             {
-                string errorId = CorrelationIdGenerator.Generate();
-                _logger.Error("错误ID: {errorId} | result.Payload is null", errorId);
-                var payloadNullComponent = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay($"## 收藏失败", 1000)
-                        .WithTextDisplay($"内部错误, 请联系管理组并提供此错误ID: \n```\n{errorId}\n```", 1001)
-                    )
-                    .Build();
-                await FollowupAsync(components: payloadNullComponent, ephemeral: true);
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("## 收藏失败", "result.Payload is null"), ephemeral: true);
                 return;
             }
 
@@ -455,7 +330,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
             {
                 msg.Components = cache.Render();
             });
-            
+
             var successComponent = new ComponentBuilderV2()
                 .WithContainer(container => container
                     .WithAccentColor(Color.Green)
@@ -470,11 +345,370 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
+    [ComponentInteraction("FavView:*:*:*")]
+    public async Task HandleFavView(string action, string viewId, int index)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interactionComponent)
+            {
+                _logger.Warning("交互回调:[FavView:Select:*] Context.Interaction is Not SocketMessageComponent");
+                return;
+            }
+
+            var view = _paginatorManager.GetView<FavoriteTypePaginatedView>(viewId);
+
+            if (view is null)
+            {
+                await FollowupAsync(components: _componentUtils.ExpiredComponente(), ephemeral: true);
+                return;
+            }
+
+            var favoriteType = view.GetItemByIndex(index);
+
+            if (favoriteType is null)
+            {
+                await RespondAsync(components: _componentUtils.OutBoundComponente("查看收藏列表失败", $"action: {action}, viewId: {viewId}, index: {index}"), ephemeral: true);
+                return;
+            }
+
+            switch (action)
+            {
+                case "View":
+                    {
+                        await DeferAsync(ephemeral: true);
+
+                        var favorites = await _applicationService.QueryUserFavoritesServiceAsync(Context.User.Id, favoriteType.FavoriteId);
+
+                        if (favorites.Status != ServiceStatus.Success || favorites.Payload is null)
+                        {
+                            await FollowupAsync(components: _componentUtils.ErrorComponente(favorites, "查看收藏列表失败"), ephemeral: true);
+                            return;
+                        }
+
+                        var posts = await _applicationService.GeneralPostCacheServiceAsync(favorites.Payload!.Select(f => f.ThreadId).ToList());
+
+                        if (posts.Status != ServiceStatus.Success || posts.Payload is null)
+                        {
+                            await FollowupAsync(components: _componentUtils.ErrorComponente(favorites, "查看收藏列表失败"), ephemeral: true);
+                            return;
+                        }
+
+                        List<FavoriteDisplayItem> items = new();
+                        foreach (var favoritesInfo in favorites.Payload)
+                        {
+                            if (posts.Payload.TryGetValue(favoritesInfo.ThreadId, out var post))
+                            {
+                                items.Add(new(favoritesInfo, post));
+                            }
+                        }
+
+                        var postView = _paginatorManager.RegisterView<FavoriteDisplayItem>(Context.User.Id, items);
+
+                        await FollowupAsync(components: postView.Render(), ephemeral: true);
+                        return;
+                    }
+
+                case "Rename":
+                    {
+                        var mb = new ModalBuilder()
+                            .WithTitle("重命名收藏夹")
+                            .WithCustomId($"Fav:Modal:Rename:{viewId}:{favoriteType.FavoriteId}")
+                            .AddTextInput("新收藏夹名称", "folder_name", placeholder: "新收藏夹名称", maxLength: 50, minLength: 1);
+
+                        await RespondWithModalAsync(mb.Build());
+                        return;
+                    }
+                case "Delete":
+                    {
+                        await DeferAsync(ephemeral: true);
+
+                        var foldersResult = await _applicationService.GetFavoriteTypeServiceAsync(Context.User.Id);
+
+                        if (foldersResult.Status != ServiceStatus.Success || foldersResult.Payload == null)
+                        {
+                            await FollowupAsync(components: _componentUtils.ErrorComponente(foldersResult, "无法获取收藏夹列表"), ephemeral: true);
+                            return;
+                        }
+
+                        var removeCache = _interactionsCacheManager.RegisterView(Context.User.Id, foldersResult.Payload) as RemoveFavoriteInteractionCache;
+                        if (removeCache == null) return;
+
+                        removeCache.SetContext(favoriteType.FavoriteId, interactionComponent, view);
+
+                        await FollowupAsync(components: removeCache.Render(), ephemeral: true);
+                        return;
+                    }
+            }
+
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
+        }
+    }
+
+    [ComponentInteraction("FavRemove:*:*")]
+    public async Task HandleRemoveFavoriteInteraction(string action, string cacheId)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interactionComponent) return;
+
+            var cache = _interactionsCacheManager.GetView<RemoveFavoriteInteractionCache>(cacheId);
+            if (cache is null)
+            {
+                await interactionComponent.UpdateAsync(msg => msg.Components = _componentUtils.ExpiredComponente());
+                return;
+            }
+
+            switch (action)
+            {
+                case "Mode:Drop":
+                    cache.SetMode(true);
+                    break;
+
+                case "Mode:Trans":
+                    cache.SetMode(false);
+                    break;
+
+                case "Select":
+                    var selected = interactionComponent.Data.Values.FirstOrDefault();
+                    if (selected != null) cache.SelectDestination(selected);
+                    break;
+
+                case "First":
+                    cache.PageFirst();
+                    break;
+
+                case "Prev":
+                    cache.PagePrev();
+                    break;
+
+                case "Next":
+                    cache.PageNext();
+                    break;
+
+                case "Last":
+                    cache.PageLast();
+                    break;
+
+                case "Cancel":
+                    cache.Cancel();
+                    await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
+                    _interactionsCacheManager.TryRemove(cacheId);
+                    return;
+
+                case "Confirm":
+                    await DeferAsync(ephemeral: true);
+                    var (isDropAll, targetFavorite, destinationFavorite) = cache.Confirm();
+
+                    ServiceResult result;
+                    if (isDropAll)
+                    {
+                        // 直接删除收藏夹
+                        result = await _applicationService.RemoveFavoriteCategoryServiceAsync(Context.User.Id, targetFavorite);
+                        if (result.Status != ServiceStatus.Success)
+                        {
+                            await FollowupAsync(components: _componentUtils.ErrorComponente(result, "## 删除收藏夹失败"));
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        // 执行转移并删除
+                        result = await _applicationService.MoveAndRemoveFavoriteCategoryServiceAsync(Context.User.Id, targetFavorite.FavoriteId, destinationFavorite!.FavoriteId);
+                        if (result.Status != ServiceStatus.Success)
+                        {
+                            await FollowupAsync(components: _componentUtils.ErrorComponente(result, "## 删除并转移收藏夹失败"));
+                            return;
+                        }
+                    }
+
+                    // 更新 UI 为完成状态
+                    await interactionComponent.Message.ModifyAsync(msg => msg.Components = cache.Render());
+
+                    // 发送结果提示
+                    var resultComponent = new ComponentBuilderV2()
+                        .WithContainer(c => c
+                        .WithAccentColor(Color.Green)
+                        .WithTextDisplay($"## 操作成功\n{result.Message}"))
+                        .Build();
+
+                    await FollowupAsync(components: resultComponent, ephemeral: true);
+
+                    _interactionsCacheManager.TryRemove(cacheId);
+                    return;
+            }
+
+            // 对于非终结操作，更新 UI
+            await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleRemoveFavoriteInteraction Exception");
+        }
+    }
+
+    [ModalInteraction("Fav:Modal:Rename:*:*")]
+    public async Task HandleRenameFavoriteInteraction(string viewId, long favoriteId, SocketModal modal)
+    {
+        try
+        {
+            await DeferAsync(ephemeral: true);
+
+            var componentData = modal.Data.Components
+                .FirstOrDefault(x => x.CustomId == "folder_name");
+
+            var folderName = componentData?.Value;
+
+            if (string.IsNullOrWhiteSpace(folderName))
+            {
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 文件夹名称不能为空"), ephemeral: true);
+                return;
+            }
+
+            if (folderName.Length <= 1 || folderName.Length > 50)
+            {
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 文件夹名称长度必须在 1 到 50 之间"), ephemeral: true);
+                return;
+            }
+
+            var view = _paginatorManager.GetView<FavoriteTypePaginatedView>(viewId);
+
+            if (view is null)
+            {
+                await FollowupAsync(components: _componentUtils.ExpiredComponente(), ephemeral: true);
+                return;
+            }
+
+            var result = await _applicationService.RenameFavoriteCategoryServiceAsync(Context.User.Id, favoriteId, folderName);
+            if (result.Status != ServiceStatus.Success)
+            {
+                await FollowupAsync(components: _componentUtils.ErrorComponente(result, "## 重命名文件夹失败"), ephemeral: true);
+                return;
+            }
+
+            view.UpdateName(favoriteId, folderName);
+
+            var component = new ComponentBuilderV2()
+                .WithContainer(container => container
+                    .WithAccentColor(Color.Green)
+                    .WithTextDisplay($"## 重命名文件夹成功", 1000)
+                    .WithSeparator()
+                    .WithTextDisplay(result.Message, 1001)
+                )
+                .Build();
+
+            await FollowupAsync(components: component, ephemeral: true);
+            await modal.Message.ModifyAsync(msg =>
+            {
+                msg.Components = view.Render();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleRenameFavoriteInteraction Exception");
+        }
+    }
+
+    [ComponentInteraction("UnFavByView:*:*:*")]
+    public async Task HandleUnFavoriteByViewInteractionAsync(string viewId, ulong userId, ulong threadId)
+    {
+        try
+        {
+            if (Context.Interaction is not SocketMessageComponent interactionComponent) return;
+
+            var cache = _interactionsCacheManager.GetView<RemoveFavoriteInteractionCache>(viewId);
+            if (cache is null)
+            {
+                await interactionComponent.UpdateAsync(msg => msg.Components = _componentUtils.ExpiredComponente());
+                return;
+            }
+
+            await HandleUnFavoriteInteractionAsync(userId, threadId);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex);
+        }
+    }
     #endregion
 
     // =============================================
     #region  AppMenu
     // =============================================
+    [MessageCommand("收藏本帖")]
+    public async Task MessageMenuFavoriteAsync(IMessage message)
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            if (message.Channel is IThreadChannel threadChannel)
+            {
+                var component = await ConfirmFavoriteAsync(Context.User, threadChannel);
+                await FollowupAsync(components: component, ephemeral: true);
+            }
+            else
+            {
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 操作失败\n本交互仅可在资源论坛频道的帖子内使用"), ephemeral: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MessageMenuFavoriteAsync Ex");
+        }
+    }
+
+    [MessageCommand("取消收藏本帖")]
+    public async Task MessageMenuUnFavoriteAsync(IMessage message)
+    {
+        try
+        {
+            // 1. 定义此命令所需的权限条件
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
+            // 2. 进行鉴权
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            // 3. 检查鉴权结果，如果失败则提前返回
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                // 以 "仅自己可见" 的方式回复失败原因
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return; // 终止命令执行
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            if (message.Channel is IThreadChannel threadChannel)
+            {
+                var component = await ConfirmUnFavoriteAsync(Context.User, threadChannel);
+                await FollowupAsync(components: component, ephemeral: true);
+            }
+            else
+            {
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 操作失败\n本交互仅可在资源论坛频道的帖子内使用"), ephemeral: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MessageMenuUnFavoriteAsync Ex");
+        }
+    }
     #endregion
 
 
@@ -487,7 +721,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         try
         {
             // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
             // 2. 进行鉴权
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             // 3. 检查鉴权结果，如果失败则提前返回
@@ -498,9 +732,9 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
                 await RespondAsync(components: failedReasonComponent, ephemeral: true);
                 return; // 终止命令执行
             }
-    
+
             await DeferAsync(ephemeral: true);
-    
+
             if (Context.Channel is IThreadChannel threadChannel)
             {
                 var result = await ConfirmFavoriteAsync(Context.User, threadChannel);
@@ -508,16 +742,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
             }
             else
             {
-                var components = new ComponentBuilderV2()
-                    .WithContainer(container => container
-                        .WithAccentColor(Color.Red)
-                        .WithTextDisplay("""
-                        ## 操作失败
-                        **xxxx本帖** 系列命令仅可在论坛频道的帖子内使用
-                        """)
-                    )
-                    .Build();
-                await FollowupAsync(components: components, ephemeral: true);
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 操作失败\n**xxxx本帖** 系列命令仅可在资源论坛频道的帖子内使用"), ephemeral: true);
             }
         }
         catch (Exception ex)
@@ -526,13 +751,13 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
-    [SlashCommand("取消收藏", "取消收藏该帖子")]
+    [SlashCommand("取消收藏本帖", "取消收藏该帖子")]
     public async Task UnfavoriteAsync()
     {
         try
         {
             // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
             // 2. 进行鉴权
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             // 3. 检查鉴权结果，如果失败则提前返回
@@ -543,10 +768,9 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
                 await RespondAsync(components: failedReasonComponent, ephemeral: true);
                 return; // 终止命令执行
             }
-    
+
             await DeferAsync(ephemeral: true);
-    
-            // === 命令逻辑 ===
+
             if (Context.Channel is IThreadChannel threadChannel)
             {
                 var result = await ConfirmUnFavoriteAsync(Context.User, threadChannel);
@@ -554,8 +778,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
             }
             else
             {
-                // 这个分支理论上不会被触发，因为 InGuildThread 已经检查过了
-                await FollowupAsync(embed: EmbedUtils.FailedEmbed("错误", "无法在非帖子频道执行此操作。"), ephemeral: true);
+                await FollowupAsync(components: _componentUtils.TextErrorComponente("## 操作失败\n**xxxx本帖** 系列命令仅可在资源论坛频道的帖子内使用"), ephemeral: true);
             }
         }
         catch (Exception ex)
@@ -564,13 +787,13 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
-    [SlashCommand("查看收藏", "查看自己的收藏列表")]
+    [SlashCommand("查看收藏列表", "查看自己的收藏列表")]
     public async Task ViewFavoriteAsync()
     {
         try
         {
             // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
             // 2. 进行鉴权
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             // 3. 检查鉴权结果，如果失败则提前返回
@@ -583,59 +806,17 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
             }
 
             await DeferAsync(ephemeral: true);
-    
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "FavoriteAsync Exception");
-        }
-    }
 
-    [SlashCommand("删除收藏夹", "删除一个收藏夹并处理其中的帖子")]
-    public async Task DeleteFavoriteCategoryAsync()
-    {        try
-        {
-            // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
-            // 2. 进行鉴权
-            var authResult = await _authUtil.Authorization(requiredConditions, Context);
-            // 3. 检查鉴权结果，如果失败则提前返回
-            if (authResult.Status != AuthorizationStatus.Success)
+            var foldersResult = await _applicationService.GetFavoriteTypeServiceAsync(Context.User.Id);
+
+            if (foldersResult.Status != ServiceStatus.Success)
             {
-                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
-                // 以 "仅自己可见" 的方式回复失败原因
-                await RespondAsync(components: failedReasonComponent, ephemeral: true);
-                return; // 终止命令执行
+                await FollowupAsync(components: _componentUtils.ErrorComponente(foldersResult, "## 查看收藏列表失败"), ephemeral: true);
             }
 
-            await DeferAsync(ephemeral: true);
-    
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "FavoriteAsync Exception");
-        }
-    }
-
-    [SlashCommand("重命名收藏夹", "更改一个收藏夹的名称")]
-    public async Task RenameFavoriteCategoryAsync()
-    {        try
-        {
-            // 1. 定义此命令所需的权限条件
-            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;;
-            // 2. 进行鉴权
-            var authResult = await _authUtil.Authorization(requiredConditions, Context);
-            // 3. 检查鉴权结果，如果失败则提前返回
-            if (authResult.Status != AuthorizationStatus.Success)
-            {
-                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
-                // 以 "仅自己可见" 的方式回复失败原因
-                await RespondAsync(components: failedReasonComponent, ephemeral: true);
-                return; // 终止命令执行
-            }
-
-            await DeferAsync(ephemeral: true);
-    
+            var view = _paginatorManager.RegisterView<FavoriteTypeInfo>(Context.User.Id, foldersResult.Payload!);
+            
+            await FollowupAsync(components: view.Render(), ephemeral: true);
         }
         catch (Exception ex)
         {

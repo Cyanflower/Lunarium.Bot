@@ -212,18 +212,27 @@ public class MembersScanner
                 if (guild is null) continue;
 
                 scannedGuilds++;
-                
+
                 using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
     
-                await _httpRetryPolicy.ExecuteAsync(async () =>
+                // 使用临时变量 fetchedUsers 在闭包内收集数据, 成功后再合并到主列表, 防止部分失败重试导致的数据重复累加
+                var fetchedUsers = await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
+                    var tempUsers = new List<IGuildUser>(); 
                     var pages = guild.GetUsersAsync();
     
                     await foreach (var page in pages)
                     {
-                        allGuildUsers.AddRange(page);
+                        tempUsers.AddRange(page);
                     }
+                    return tempUsers;
                 });
+
+                // 只有当 ExecuteAsync 成功返回后，才添加到总表中
+                if (fetchedUsers is not null)
+                {
+                    allGuildUsers.AddRange(fetchedUsers);
+                }
             }
 
             _logger.Info("📥 成员原始数据获取完成: 覆盖 {GuildCount} 个服务器, 原始记录 {RawCount} 条",
@@ -283,9 +292,8 @@ public class MembersScanner
                     RoleId = role.Id,
                     RoleName = roleName,
                     RolePosition = role.Position,
-                    RoleIconUrl = role.Icon,
-                    // TODO: 待重构
-                    // RoleIconUrl = role.GetIconUrl(),
+                    // RoleIconUrl = role.Icon,
+                    RoleIconUrl = role.GetIconUrl(),
                     RoleEmoji = role.Emoji?.ToString(),
                     RolePrimaryColor = role.Colors?.PrimaryColor.RawValue,
                     RoleSecondaryColor = role.Colors?.SecondaryColor?.RawValue,

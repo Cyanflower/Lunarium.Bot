@@ -252,9 +252,6 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         // === 命令逻辑 ===
         try
         {
-            // 报告任务开始
-            await reporter.ReportStartAsync("🚀 开始执行成员与身份组同步任务...", Color.Blue);
-
             // 回复 Slash Command 避免超时 (Followup已经在reporter初始化中隐式处理，这里主要作为确认)
             await FollowupAsync(embed: EmbedUtils.SuccessEmbed("✅ 任务已调度", "正在后台执行同步操作，请查看进度卡片。"));
 

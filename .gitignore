@@ -71,6 +71,7 @@ Example/
 SourceCodeDoc/
 # Test
 LunariumBot.Net.Tests/
+tests/
 # OpsLog
 synced_logs
 # 框架库参考
@@ -80,3 +81,4 @@ Discord.Net/
 # 无关的环境文件
 .env
 [/d].md
+docker-manual.md
