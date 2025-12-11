@@ -1,51 +1,56 @@
 namespace LunariumBot.Net.SearchBot.Models;
 
-public class SearchBotConfig
+public record BotConfig
 {
-    public string DatabaseConnection { get; set; } = "";
-    public AuthConfig AuthConfig { get; set; } = new();
-    public GuildsConfig GuildsConfig { get; set; } = new();
-    public BannerConfig BannerConfig { get; set; } = new();
-    public Dictionary<string, int> ChannelOrder { get; set; } = new();
-    public CreatorAutomatic CreatorAutomatic { get; set; } = new();
+    public required string DatabaseConnection { get; init; }
+    public AuthConfig AuthConfig { get; init; } = new();
+    public DeployConfig DeployConfig { get; init; } = new();
+    public Dictionary<string, int> ChannelOrder { get; init; } = new();
 }
 
-public class AuthConfig
+public record AuthConfig
 {
-    public List<ulong> AdminRoleIds { get; set; } = new();
-    public ulong LogChannel { get; set; }
+    public HashSet<ulong> AdminRoleIds { get; init; } = new();
+    public ulong LogChannel { get; init; }
+    public ulong LogThread { get; init; }
 }
 
-public class GuildsConfig
+public record DeployConfig
 {
-    public List<ulong> DeployGuildIds { get; set; } = new();
-    public List<ulong> DashboardChannels { get; set; } = new();
-    public Dictionary<string, List<ulong>> ScanChannelIDS { get; set; } = new();
+    public HashSet<ulong> DeployGuildIds { get; init; } = new();
+    public Dictionary<ulong, GuildAnalysisConfig> GuildAnalysisConfigs { get; init; } = new();
+    public HashSet<ulong> ExcludeChannelIds { get; init; } = new();
+    public HashSet<ulong> ExcludeCategoryIds { get; init; } = new();
+    public HashSet<ulong> ExcludeGuildIds { get; init; } = new();
+    public Dictionary<ulong, ScanConfig> ScanConfigs { get; init; } = new();
 }
 
-public class BannerConfig
+public record ScanConfig
 {
-    public BannerChannelConfig New { get; set; } = new();
-    public BannerChannelConfig Popular { get; set; } = new();
-    public BannerChannelConfig Feature { get; set; } = new();
-    public BannerChannelConfig Toplist { get; set; } = new();
+    public Dictionary<string, ulong> ValidChannels { get; init; } = new();
 }
 
-public class BannerChannelConfig
+/// <summary>
+/// 单个服务器的数据分析配置
+/// </summary>
+public record GuildAnalysisConfig
 {
-    public List<ulong> ChannelId { get; set; } = new();
+    /// <summary>
+    /// 该服务器的 Dashboard 频道ID（用于接收数据分析报告）
+    /// </summary>
+    public ulong DashboardChannelId { get; init; }
+
+    /// <summary>
+    /// 该服务器的频道分类映射
+    /// Key: 分类名称（例如："男性向"、"女性向"）
+    /// Value: 属于该分类的频道ID列表
+    /// </summary>
+    public Dictionary<string, ulong> CategoryChannels { get; init; } = new();
 }
 
-public class CreatorAutomatic
+public enum CreditLevel
 {
-    public Dictionary<ulong, List<ulong>> CreatorRoleIDs { get; set; } = new();
-    public List<ulong> ListenerChannel { get; set; } = new();
-    public int ReactionThreshold { get; set; }
-}
-
-
-public class ProxyConfig
-{
-    public bool Enable { get; set; } = false;
-    public string ProxyUrl { get; set; } = "";
+    Level1 = 1,
+    Level2 = 2,
+    Level3 = 3
 }

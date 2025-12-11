@@ -10,7 +10,7 @@ namespace LunariumBot.Net.Logger.Sink;
 public class ConsoleSink : ILogSink
 {
     // 线程安全锁，以防止多条日志消息的输出在控制台中交错
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     /// <summary>
     /// 格式化日志条目并将其写入控制台。

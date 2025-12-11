@@ -81,7 +81,6 @@ public class FavoriteTypePaginatedView : BasePaginatedView<FavoriteTypeInfo>, IP
 public class FavoriteDisplayPaginatedView : BasePaginatedView<FavoriteDisplayItem>, IPaginatedView
 {
     
-    const int PageSize = 10;
     // 使用 : base() 将参数传递给父类的构造函数
     // 构造函数体可以是空的，因为所有的初始化逻辑都在基类中完成了。
     public FavoriteDisplayPaginatedView(IEnumerable<FavoriteDisplayItem> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 5) { }
@@ -110,7 +109,7 @@ public class FavoriteDisplayPaginatedView : BasePaginatedView<FavoriteDisplayIte
         messageComponent.WithContainer(c =>
             {
                 c.WithAccentColor(Color.Blue);
-                // 3 * 10, 30个组件
+                // 5 * 6, 30个组件
                 foreach (var item in _pages[_currentPageIndex].Items)
                 {
                     var sb = new StringBuilder();
@@ -135,19 +134,24 @@ public class FavoriteDisplayPaginatedView : BasePaginatedView<FavoriteDisplayIte
                     }
                     sb.AppendLine("============");
                     sb.AppendLine($"-# 收藏于: {item.FavoriteInfo.FavoriteTypeName} <t:{item.FavoriteInfo.AddedAt}:R> | <t:{item.FavoriteInfo.AddedAt}:D>");
-
+                    // 1
                     c.WithSection(section =>
                     {
+                        // 2
                         section.WithTextDisplay(sb.ToString());
                         if (item.PostDisplayModel.AttachmentUrls?.Count > 0)
                         {
+                            // 3
                             section.WithAccessory(new ThumbnailBuilder().WithMedia(item.PostDisplayModel.AttachmentUrls[0]));
                         }
                     }
                     );
+                    // 4
                     c.WithActionRow(actionRow => actionRow
+                        // 5
                         .AddComponent(new ButtonBuilder("取消收藏", customId: $"UnFavByView:{PaginatorId}:{item.FavoriteInfo.UserId}:{item.PostDisplayModel.ThreadId}", style: ButtonStyle.Danger))
                     );
+                    // 6
                     c.WithSeparator();
                     i++;
                 }

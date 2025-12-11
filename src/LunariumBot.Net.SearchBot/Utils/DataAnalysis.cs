@@ -296,7 +296,7 @@ public class DataAnalysis
     /// <summary>
     /// 格式化热门标签列表
     /// </summary>
-    private string FormatTopTagsSection(string title, Dictionary<TagInfo, int> tags)
+    private string FormatTopTagsSection(string title, Dictionary<TagData, int> tags)
     {
         var sb = new StringBuilder();
         sb.AppendLine(title);

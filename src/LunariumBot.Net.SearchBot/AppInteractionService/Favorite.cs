@@ -352,7 +352,7 @@ public class Favorite : InteractionModuleBase<SocketInteractionContext>
         {
             if (Context.Interaction is not SocketMessageComponent interactionComponent)
             {
-                _logger.Warning("交互回调:[FavView:Select:*] Context.Interaction is Not SocketMessageComponent");
+                _logger.Warning("交互回调:[FavView:*:*:*] Context.Interaction is Not SocketMessageComponent");
                 return;
             }
 

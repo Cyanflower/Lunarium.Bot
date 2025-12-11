@@ -144,6 +144,38 @@ CREATE INDEX IF NOT EXISTS idx_message_main_created_at ON message_main (created_
 CREATE INDEX IF NOT EXISTS idx_message_main_channel_id ON message_main (channel_id);
 CREATE INDEX IF NOT EXISTS idx_message_main_thread_id ON message_main (thread_id);
 
+
+CREATE TABLE IF NOT EXISTS release_main (
+    release_message_id BIGINT PRIMARY KEY,
+    thread_id BIGINT NOT NULL,
+    author_id BIGINT NOT NULL,
+    release_at TIMESTAMPTZ NOT NULL,
+    guild_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    message_jump_url TEXT NOT NULL,
+
+    release_model INT NOT NULL,
+    release_password TEXT,
+
+    cache_message_url TEXT,
+    cache_message_id BIGINT,
+    cache_thread_id BIGINT,
+    cache_channel_id BIGINT,
+    cache_guild_id BIGINT,
+    cache_attachment_urls TEXT,
+
+    alerts TEXT,
+    enabled_alerts BOOLEAN NOT NULL,
+
+    is_update BOOLEAN NOT NULL,
+    is_deleted BOOLEAN NOT NULL,
+    delete_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_release_main_thread_id ON release_main (thread_id);
+CREATE INDEX IF NOT EXISTS idx_release_main_author_id ON release_main (author_id);
+CREATE INDEX IF NOT EXISTS idx_release_main_thread_and_author_id ON release_main (thread_id, author_id);
+
 -- ===================================================================
 -- 3. 用户数据表
 -- ===================================================================
@@ -190,6 +222,40 @@ CREATE TABLE IF NOT EXISTS post_tags_junction (
 CREATE INDEX IF NOT EXISTS idx_post_tags_junction_thread_id ON post_tags_junction (thread_id);
 CREATE INDEX IF NOT EXISTS idx_post_tags_junction_tag_id ON post_tags_junction (tag_id);
 
+-- 表: post_reactions
+-- 描述: 帖子内的反应表
+CREATE TABLE IF NOT EXISTS post_reactions (
+    thread_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    emoji TEXT NOT NULL,
+
+    PRIMARY KEY (user_id, thread_id, emoji),
+    CONSTRAINT fk_thread
+        FOREIGN KEY (thread_id) 
+        REFERENCES posts_main(thread_id) 
+        ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_post_reactions_user_id ON post_reactions (user_id);
+CREATE INDEX IF NOT EXISTS idx_post_reactions_thread_id ON post_reactions (thread_id);
+CREATE INDEX IF NOT EXISTS idx_post_reactions_thread_and_user_id ON post_reactions (thread_id, user_id);
+
+-- 表: post_members
+-- 描述: 帖子内的成员表
+CREATE TABLE IF NOT EXISTS post_members (
+    user_id BIGINT NOT NULL,
+    thread_id BIGINT NOT NULL,
+    is_thread_owner BOOLEAN NOT NULL,
+    first_join_at TIMESTAMPTZ NOT NULL, 
+    last_join_at TIMESTAMPTZ NOT NULL,
+    last_leave_at TIMESTAMPTZ,
+    is_leave BOOLEAN NOT NULL,
+    message_count INTEGER DEFAULT 0,
+    -- 一些非发送消息事件也可以导致用户被添加到帖子里, 所以消息相关非必须
+    last_message_id BIGINT,
+    last_message_at TIMESTAMPTZ,
+
+    PRIMARY KEY (user_id, thread_id)
+);
 -- ===================================================================
 -- 5. 用户订阅收藏表
 -- ===================================================================

@@ -195,7 +195,7 @@ public partial class DatabaseService
     /// <param name="sinceTime">可选：只统计该时间之后创建的帖子。为 null 时统计全部历史</param>
     /// <param name="channelIds">可选：频道ID列表</param>
     /// <returns>标签信息及其使用次数的字典</returns>
-    public async Task<Dictionary<TagInfo, int>> GetTopTagsAsync(
+    public async Task<Dictionary<TagData, int>> GetTopTagsAsync(
         ulong guildId,
         int topN,
         DateTimeOffset? sinceTime = null,
@@ -232,10 +232,10 @@ public partial class DatabaseService
         try
         {
             using var connection = GetConnection();
-            var results = await connection.QueryAsync<TagInfo>(SqlCommand, parameters);
+            var results = await connection.QueryAsync<TagData>(SqlCommand, parameters);
 
             // 转换为 Dictionary<TagInfo, int>
-            var dictionary = new Dictionary<TagInfo, int>();
+            var dictionary = new Dictionary<TagData, int>();
             foreach (var tag in results)
             {
                 dictionary[tag] = tag.UsageCount;

@@ -16,57 +16,9 @@ public class ChannelData
 }
 
 /// <summary>
-/// 消息数据
-/// </summary>
-public class MessageData
-{
-    public ulong MessageId { get; set; }
-    public ulong AuthorId { get; set; }
-    public DateTimeOffset CreatedAt { get; set; }
-    public ulong GuildId { get; set; }
-    public ulong ChannelId { get; set; }
-    public ulong? ThreadId { get; set; } = null;
-    public string MessageJumpUrl { get; set; } = "";
-    public bool IsCreateThread { get; set; }
-    public bool IsUpdate { get; set; }
-}
-
-/// <summary>
-/// 用户数据
-/// </summary>
-public class UserData
-{
-    public ulong UserId { get; set; }
-    public string UserName { get; set; } = "";
-    public int UserThreadCountDelta { get; set; }
-    public int UserMessageCountDelta { get; set; }
-    public int UserUpdateCountDelta { get; set; }
-    public int UserCreditLv1Delta { get; set; }
-    public int UserCreditLv2Delta { get; set; }
-    public int UserCreditLv3Delta { get; set; }
-}
-
-/// <summary>
-/// 帖子成员数据
-/// </summary>
-public class PostMemberData
-{
-    public ulong UserId { get; set; }
-    public ulong ThreadId { get; set; }
-    public bool IsThreadOwner { get; set; }
-    public DateTimeOffset FirstJoinAt { get; set; }
-    public DateTimeOffset LastJoinAt { get; set; }
-    public DateTimeOffset? LeaveAt { get; set; }
-    public bool IsLeave { get; set; }
-    public ulong MessageCount { get; set; } = 0;
-    public ulong? LastMessageId { get; set; } = null;
-    public DateTimeOffset? LastMessageAt { get; set; } = null;
-}
-
-/// <summary>
 /// 标签信息
 /// </summary>
-public class TagInfo
+public class TagData
 {
     public ulong TagId { get; set; }
     public ulong ChannelId { get; set; }

@@ -18,16 +18,12 @@ public class AuthUtil
 {
     private readonly ConfigLoader _configLoader;
     private readonly ILogger _logger;
-    private readonly HashSet<string> _scanCategories;
-    private readonly HashSet<ulong> _allScanChannelIds;
+    private readonly HashSet<ulong> _validChannelSet;
     public AuthUtil(ILogger logger, ConfigLoader configLoader)
     {
         _logger = logger.ForContext("CommandAuth");
         _configLoader = configLoader;
-        _scanCategories = _configLoader.Config.GuildsConfig.ScanChannelIDS.Keys.ToHashSet();
-        _allScanChannelIds = _configLoader.Config.GuildsConfig.ScanChannelIDS.Values
-            .SelectMany(ids => ids)
-            .ToHashSet();
+        _validChannelSet = _configLoader.ValidChannelSet;
     }
 
     public async Task<AuthorizationResult> Authorization(AuthorizationConditions requiredConditions, IInteractionContext context)
@@ -143,7 +139,7 @@ public class AuthUtil
 
     private bool InGuild(ulong guildId)
     {
-        return _configLoader.Config.GuildsConfig.DeployGuildIds.Contains(guildId);
+        return _configLoader.Config.DeployConfig.DeployGuildIds.Contains(guildId);
     }
     private bool IsChannelPermitted(IMessageChannel channel)
     {
@@ -170,45 +166,12 @@ public class AuthUtil
         if (ParentChannelId is not null)
         {
             // 检查帖子的父频道(论坛频道)是否在白名单
-            return _allScanChannelIds.Contains(ParentChannelId.Value);
+            return _validChannelSet.Contains(ParentChannelId.Value);
         }
         else
         {
             return false;
         }
-    }
-
-    /*
-    * =====================================================================================
-    *  [技术债警告 - Technical Debt Warning]
-    * =====================================================================================
-    *  当前方法: InPermittedChannel
-    *  问题:      实现逻辑完全错误，是一个临时的占位符实现。
-    *  上下文:    编写此代码时，ConfigLoader 部分对于 "ScanChannelIDS" (可扫描频道/分类ID)
-    *             的加载和解析逻辑尚未完成。为了让 AuthUtils 类能够先行编译通过，
-    *             临时复制了 InGuild() 方法的逻辑。
-    *
-    *  预期功能 (Intended Functionality):
-    *  ---------------------------------
-    *  此方法的正确功能应该是接收一个 `ulong` 类型的【频道ID】或【分类ID】，然后判断
-    *  该ID是否存在于从配置中加载的 `_allScanChannelIds` 或 `_scanCategories` 集合中。
-    *  它是实现 `AuthorizationConditions.IsInPermittedChannel` 鉴权的关键。
-    *
-    *  修复步骤 (Action Plan):
-    *  -----------------------
-    *  1.  在 `ConfigLoader` 中，完成对配置文件中 `GuildsConfig.ScanChannelIDS` 节点的
-    *      解析，并能提供一个扁平化的、包含所有可扫描频道ID的集合。
-    *  2.  确保 `AuthUtils` 的构造函数能够正确地从 `ConfigLoader` 获取这个ID集合，
-    *      并初始化 `_allScanChannelIds` 字段。
-    *  3.  重写此方法的主体逻辑，改为使用 `_allScanChannelIds.Contains(channelOrCategoryId)`。
-    *  4.  【重要】修改此方法的签名，将参数 `ulong guildId` 改为更具描述性的
-    *      `ulong channelOrCategoryId`。
-    *  5.  更新 `Authorization` 方法中对本方法的调用，确保传递的是正确的ID。
-    * =====================================================================================
-    */
-    private bool InPermittedChannel(ulong guildId)
-    {
-        return _configLoader.Config.GuildsConfig.DeployGuildIds.Contains(guildId);
     }
 
     private string GetInteractionIdentifier(IInteractionContext context)

@@ -8,7 +8,10 @@ public class SearchCacheService
 {
     // 弱引用对象缓存池
     private readonly ConcurrentDictionary<ulong, WeakReference<PostDisplayModel>> _cache = new();
-
+    public Dictionary<ulong, TagData> TagCache => new(_tagCache);
+    public Dictionary<ulong, ChannelData> ChannelCache => new(_channelCache);
+    private ConcurrentDictionary<ulong, TagData> _tagCache = new();
+    private ConcurrentDictionary<ulong, ChannelData> _channelCache = new();
     /// <summary>
     /// 将对象对象到缓存池
     /// </summary>
@@ -24,6 +27,24 @@ public class SearchCacheService
         }
 
         return results;
+    }
+
+    public void UpdateChannelData(List<ChannelData> channelDatas)
+    {
+        _channelCache = new();
+        foreach (var channel in channelDatas)
+        {
+            _channelCache[channel.ChannelId] = channel;
+        }
+    }
+
+    public void UpdateTagData(List<TagData> tagDatas)
+    {
+        _tagCache = new();
+        foreach (var tag in tagDatas)
+        {
+            _tagCache[tag.TagId] = tag;
+        }
     }
 
     /// <summary>

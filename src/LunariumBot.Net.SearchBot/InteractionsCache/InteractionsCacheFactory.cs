@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using LunariumBot.Net.SearchBot.Models;
+using LunariumBot.Net.SearchBot.Utils;
 
 namespace LunariumBot.Net.SearchBot.InteractionsCache;
 
@@ -15,6 +16,7 @@ public static class InteractionsCacheFactory
     {
         Register<FavoriteInteractionState>((data, exp, id) => new FavoriteInteractionCache(data, exp, id));
         Register<List<FavoriteTypeInfo>>((data, exp, id) => new RemoveFavoriteInteractionCache(data, exp, id));
+        Register<SearchConditionsBuilder>((data, exp, id) => new SearchInteractionCache(data, exp, id));
     }
 
     /// <summary>

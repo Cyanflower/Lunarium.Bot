@@ -47,20 +47,28 @@ public class FavoriteInteractionCache : BaseInteractionsCache<FavoriteInteractio
             }
 
             // --- 顶部 Section: 标题 ---
-            container.WithSection(section =>
+
+            if (!string.IsNullOrEmpty(_data.AuthorAvatarUrl))
             {
-                section.WithTextDisplay($"""
+                container.WithSection(section =>
+                {
+                    section.WithTextDisplay($"""
+                        ## 收藏订阅
+                        您正在收藏帖子: **{_data.ThreadName}**
+                        请选择目标收藏夹并配置推送选项。
+                        """, 1001);
+                    section.WithAccessory(new ThumbnailBuilder().WithMedia(_data.AuthorAvatarUrl));
+                });
+            }
+            else
+            {
+                container.WithTextDisplay($"""
                     ## 收藏订阅
                     您正在收藏帖子: **{_data.ThreadName}**
                     请选择目标收藏夹并配置推送选项。
                     """, 1001);
-
-                if (!string.IsNullOrEmpty(_data.AuthorAvatarUrl))
-                {
-                    section.WithAccessory(new ThumbnailBuilder().WithMedia(_data.AuthorAvatarUrl));
-                }
-            });
-
+            }
+            
             container.WithSeparator();
 
             // --- Row 1: 下拉菜单 (仅当有收藏夹时显示) ---

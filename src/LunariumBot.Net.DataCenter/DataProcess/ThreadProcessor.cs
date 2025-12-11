@@ -472,7 +472,7 @@ public partial class DataProcessService
     /// 更新论坛帖子首楼消息的反应（Reaction）计数。
     /// </summary>
     /// <param name="socketThreadChannel">Discord 帖子频道对象。</param>
-    public async Task UpdateTheradReactionProcessAsync(ulong threadId, NumericUpdateType reactionUpdateType)
+    public async Task UpdateTheradReactionProcessAsync(ulong threadId, SocketReaction reaction, NumericUpdateType reactionUpdateType)
     {
         _logger.Debug("开始更新帖子反应计数: 帖子 ID: ThreadId}", threadId);
 
@@ -487,6 +487,14 @@ public partial class DataProcessService
                 try
                 {
                     await _databaseService.UpdateThreadReactionAsync(transaction, threadId, reactionUpdateType);
+                    if (reactionUpdateType == NumericUpdateType.Increase)
+                    {
+                        await _databaseService.InsertThreadReactionAsync(transaction, reaction.UserId, threadId, reaction.Emote);
+                    }
+                    else
+                    {
+                        await _databaseService.DeleteThreadReactionAsync(transaction, reaction.UserId, threadId, reaction.Emote);
+                    }
                     await transaction.CommitAsync();
                 }
                 catch
@@ -554,11 +562,12 @@ public partial class DataProcessService
 
     public async Task ThreadMemberJoinedProcessAsync(SocketThreadUser socketThreadUser)
     {
+        var thread = (IThreadChannel)socketThreadUser;
         var postMemberData = new PostMemberData()
         {
             UserId = socketThreadUser.Id,
-            ThreadId = socketThreadUser.Thread.Id,
-            IsThreadOwner = socketThreadUser.Id == socketThreadUser.Thread.Owner.Id,
+            ThreadId = thread.Id,
+            IsThreadOwner = socketThreadUser.Id == thread.OwnerId,
             FirstJoinAt = socketThreadUser.ThreadJoinedAt,
             LastJoinAt = socketThreadUser.ThreadJoinedAt,
             LastMessageId = null,
@@ -589,7 +598,8 @@ public partial class DataProcessService
                 }
             });
 
-            _logger.Info("✅ 成功处理成员加入帖子: 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+            _logger.Info("✅ 成功处理成员加入帖子");
+            _logger.Info("用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
                 socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
         }
         catch (Exception ex)

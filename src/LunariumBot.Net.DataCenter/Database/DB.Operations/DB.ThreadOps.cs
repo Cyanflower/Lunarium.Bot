@@ -5,6 +5,7 @@ using Dapper;
 using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.Models.Database;
 using LunariumBot.Net.Extensions;
+using Discord;
 
 namespace LunariumBot.Net.DataCenter.Database;
 
@@ -290,7 +291,71 @@ public partial class DatabaseService
             throw;
         }
     }
-    
+
+    public async Task InsertThreadReactionAsync(NpgsqlTransaction transaction, ulong userId, ulong threadId, IEmote emote)
+    {
+        const string UpdateReactionCountSqlCommand = """
+            INSERT INTO post_reactions (
+                thread_id,
+                user_id,
+                emoji
+            )
+            VALUES (
+                @ThreadId,
+                @UserId,
+                @Emoji
+            )
+            ON CONFLICT (user_id, thread_id, emoji) DO NOTHING;
+            """;
+        try
+        {
+
+            var parameters = new
+            {
+                UserId = userId.ToDbId(),
+                ThreadId = threadId.ToDbId(),
+                Emoji = emote.ToString()
+            };
+
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(UpdateReactionCountSqlCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ InsertThreadReactionAsync: 插入帖子 {ThreadId} 反应信息时发生数据库错误。", threadId);
+            throw;
+        }
+    }
+
+    public async Task DeleteThreadReactionAsync(NpgsqlTransaction transaction, ulong userId, ulong threadId, IEmote emote)
+    {
+        const string UpdateReactionCountSqlCommand = """
+            DELETE FROM post_reactions 
+            WHERE 
+                thread_id = @ThreadId
+                AND user_id = @UserId
+                AND emoji = @Emoji;
+            """;
+        try
+        {
+
+            var parameters = new
+            {
+                UserId = userId.ToDbId(),
+                ThreadId = threadId.ToDbId(),
+                Emoji = emote.ToString()
+            };
+
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(UpdateReactionCountSqlCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ DeleteThreadReactionAsync: 删除帖子 {ThreadId} 反应信息时发生数据库错误。", threadId);
+            throw;
+        }
+    }
+
     public async Task UpsertPostMemberAsync(NpgsqlTransaction transaction, PostMemberData postMemberData)
     {
         const string SqlCommand = """

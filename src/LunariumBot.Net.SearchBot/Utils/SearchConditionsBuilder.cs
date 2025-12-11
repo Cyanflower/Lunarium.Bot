@@ -7,6 +7,14 @@ namespace LunariumBot.Net.SearchBot.Utils;
 
 public class SearchConditionsBuilder
 {
+    public List<string> IncludeKeywords => _includeKeywords;
+    public List<string> ExcludeKeywords => _excludeKeywords;
+    public SearchMode KeywordSearchMode => _keywordSearchMode;
+    public SearchMode TagSearchMode => _tagSearchMode;
+    public List<long> IncludeTagIds => _includeTagIds;
+    public List<long> ExcludeTagIds => _excludeTagIds;
+    public List<long> AuthorIds => _authorIds;
+    public List<long> ChannelIds => _channelIds;
 
     private SearchMode _keywordSearchMode = SearchMode.Fuzzy;
     private List<string> _includeKeywords = new();

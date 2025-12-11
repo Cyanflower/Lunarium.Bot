@@ -14,6 +14,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.DataCenter.Database;
 using LunariumBot.Net.DataCenter.Models;
 using LunariumBot.Net.DataCenter.DataProcess;
+using Discord.Rest;
 
 namespace LunariumBot.Net.DataCenter.DataFetcher;
 
@@ -340,7 +341,7 @@ public class Listener
             // 只在消息id和所在线程id相等时处理 (帖子首楼消息id=帖子id)
             if (socketMessage.Id == socketMessageChannel.Id)
             {
-                await _dataProcessService.ThreadFirstMessageUpdateProcess(socketMessage, socketMessageChannel.Id);
+                await _dataProcessService.ThreadFirstMessageUpdateProcess(socketMessage, socketMessageChannel);
             }
         }
         catch (Exception ex)
@@ -578,13 +579,13 @@ public class Listener
     /// <param name="cacheableMessage">可能缓存的消息对象</param>
     /// <param name="cacheableChannel">可能缓存的频道对象</param>
     /// <param name="_">添加的反应对象(未使用)</param>
-    public async Task ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction _)
+    public async Task ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction reaction)
     {
         try
         {
             _logger.Debug("➕ 检测到反应添加: 消息ID {MessageId}, 频道ID {ChannelId}", 
                 cacheableMessage.Id, cacheableChannel.Id);
-            await ReactionProcessAsync(cacheableMessage, cacheableChannel, NumericUpdateType.Increase);
+            await ReactionProcessAsync(cacheableMessage, cacheableChannel, reaction, NumericUpdateType.Increase);
         }
         catch (Exception ex)
         {
@@ -598,13 +599,13 @@ public class Listener
     /// <param name="cacheableMessage">可能缓存的消息对象</param>
     /// <param name="cacheableChannel">可能缓存的频道对象</param>
     /// <param name="_">移除的反应对象(未使用)</param>
-    public async Task ReactionRemovedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction _)
+    public async Task ReactionRemovedAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction reaction)
     {
         try
         {
             _logger.Debug("➖ 检测到反应移除: 消息ID {MessageId}, 频道ID {ChannelId}", 
                 cacheableMessage.Id, cacheableChannel.Id);
-            await ReactionProcessAsync(cacheableMessage, cacheableChannel, NumericUpdateType.Decrease);
+            await ReactionProcessAsync(cacheableMessage, cacheableChannel, reaction, NumericUpdateType.Decrease);
         }
         catch (Exception ex)
         {
@@ -620,7 +621,7 @@ public class Listener
     /// <param name="cacheableMessage">可能缓存的消息对象</param>
     /// <param name="cacheableChannel">可能缓存的频道对象</param>
     /// <param name="reactionUpdateType">反应更新类型(增加或减少)</param>
-    private async Task ReactionProcessAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, NumericUpdateType reactionUpdateType)
+    private async Task ReactionProcessAsync(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction reaction, NumericUpdateType reactionUpdateType)
     {
         try
         {
@@ -646,24 +647,25 @@ public class Listener
                 {
                     // 缓存中没有，需要下载频道信息
                     _logger.Debug("🔍 缓存未命中，下载频道信息: 频道ID {ChannelId}", cacheableChannel.Id);
+
+                    var restChannel = await _client.Rest.GetChannelAsync(cacheableChannel.Id);
+                    var restThread = (RestThreadChannel)restChannel;
                     
-                    var channel = cacheableChannel.HasValue ? cacheableChannel.Value : await cacheableChannel.DownloadAsync();
-                    
-                    if (channel is null)
+                    if (restThread is null)
                     {
                         _logger.Warning("⚠️ 无法获取频道信息: 频道ID {ChannelId}", cacheableChannel.Id);
                         return;
                     }
                     
                     // 将帖子ID和频道ID添加到缓存
-                    _forumThreadIds.TryAdd(cacheableChannel.Id, channel.Id);
+                    _forumThreadIds.TryAdd(cacheableChannel.Id, restThread.ParentChannelId);
                     _logger.Debug("💾 已缓存论坛关系: 帖子ID {ThreadId} -> 频道ID {ChannelId}", 
-                        cacheableChannel.Id, channel.Id);
+                        cacheableChannel.Id, restThread.ParentChannelId);
                     
                     // 检查频道ID是否在监控列表中
-                    if (!ChannelIds.Contains(channel.Id))
+                    if (!ChannelIds.Contains(restThread.ParentChannelId))
                     {
-                        _logger.Debug("⏭️ 频道ID {ChannelId} 不在监控列表中，跳过处理", channel.Id);
+                        _logger.Debug("⏭️ 频道ID {ChannelId} 不在监控列表中，跳过处理", restThread.ParentChannelId);
                         return;
                     }
                 }
@@ -671,7 +673,7 @@ public class Listener
                 // 执行反应更新处理
                 _logger.Debug("🔄 更新帖子反应计数: 帖子ID {ThreadId}, 更新类型 {UpdateType}", 
                     cacheableChannel.Id, reactionUpdateType);
-                await _dataProcessService.UpdateTheradReactionProcessAsync(cacheableChannel.Id, reactionUpdateType);
+                await _dataProcessService.UpdateTheradReactionProcessAsync(cacheableChannel.Id, reaction, reactionUpdateType);
                 _logger.Info("✅ 帖子反应更新完成: 帖子ID {ThreadId}, 更新类型 {UpdateType}", 
                     cacheableChannel.Id, reactionUpdateType);
             }
@@ -822,6 +824,36 @@ public class Listener
                 socketChannel.Id);
         }
     }
+    #endregion
+
+    #region 帖子成员事件
+
+    public async Task ThreadMemberJoinedAsync(SocketThreadUser socketThreadUser)
+    {
+        try
+        {
+            await _dataProcessService.ThreadMemberJoinedProcessAsync(socketThreadUser);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ <Task>: 处理帖子成员加入时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+    }
+    public async Task ThreadMemberLeftAsync(SocketThreadUser socketThreadUser)
+    {
+        try
+        {
+            await _dataProcessService.ThreadMemberLeftProcessAsync(socketThreadUser);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ <Task>: 处理帖子成员离开时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 曾加入于: {ThreadJoinedAt}",
+                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
+        }
+
+    }
+    
     #endregion
     #endregion
 
@@ -1005,36 +1037,5 @@ public class Listener
             return true; // 出错时默认忽略
         }
     }
-    #endregion
-    
-
-    #region 帖子成员事件
-
-    public async Task ThreadMemberJoinedAsync(SocketThreadUser socketThreadUser)
-    {
-        try
-        {
-            await _dataProcessService.ThreadMemberJoinedProcessAsync(socketThreadUser);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "❌ <Task>: 处理帖子成员加入时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 加入于: {ThreadJoinedAt}",
-                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
-        }
-    }
-    public async Task ThreadMemberLeftAsync(SocketThreadUser socketThreadUser)
-    {
-        try
-        {
-            await _dataProcessService.ThreadMemberLeftProcessAsync(socketThreadUser);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "❌ <Task>: 处理帖子成员离开时发生错误, 用户: {UserName}, 用户ID: {UserId}, 帖子: {ThreadName}, 帖子ID: {ThreadId}, 曾加入于: {ThreadJoinedAt}",
-                socketThreadUser.GlobalName, socketThreadUser.Id, socketThreadUser.Thread.Name ,socketThreadUser.Thread.Id, socketThreadUser.ThreadJoinedAt);
-        }
-
-    }
-    
     #endregion
 }

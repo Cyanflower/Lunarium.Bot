@@ -1043,7 +1043,7 @@ public class ThreadScanner
             RestMessage? firstMessage = null;
             RestMessage? lastMessage = null;
             List<string>? imageAttachment = null;
-            int highestReactionCount = 0;
+            int reactionCount = 0;
 
             // 获取帖子的首楼消息和最新消息
             await _httpRetryPolicy.ExecuteAsync(async () =>
@@ -1088,6 +1088,7 @@ public class ThreadScanner
             {
                 try
                 {
+
                     if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
                     {
                         _loggerForScan.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
@@ -1095,12 +1096,11 @@ public class ThreadScanner
                         {
                             // 控制速率
                             using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                            var iChannel = await _discordSocketClient.GetChannelAsync(restThreadChannel.Id);
-                        }
-                        {
+                            var restChannel = await _discordSocketClient.Rest.GetChannelAsync(restThreadChannel.Id);
+                            var restTextChannel = (RestTextChannel)restChannel;
                             // 控制速率
-                            using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                            firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id);
+                            using var tokenb = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+                            firstMessage = await restTextChannel.GetMessageAsync(restThreadChannel.Id);
                         }
                     }
                 }
@@ -1125,11 +1125,10 @@ public class ThreadScanner
                     .Select(embed => embed.Thumbnail!.Value.Url)
                     .ToList()
                 );
-                // 获取首楼消息的最高反应数
-                highestReactionCount = firstMessage.Reactions.Values
+                // 获取首楼消息的反应总数
+                reactionCount = firstMessage.Reactions.Values
                     .Select(r => r.ReactionCount)
-                    .DefaultIfEmpty(0)
-                    .Max();
+                    .Sum();
             }
             
             // 逻辑更改: 没有首楼消息仍然视为有效, 但注释掉以暂留代码, 或许需求还会改回去
@@ -1191,7 +1190,7 @@ public class ThreadScanner
                 GuildId = restThreadChannel.GuildId,
                 GuildName = parentChannel is not null ? parentChannel.Guild.Name : $"UnknownGuild:{restThreadChannel.GuildId}",
                 CreatedAt = restThreadChannel.CreatedAt,
-                ReactionCount = highestReactionCount,
+                ReactionCount = reactionCount,
                 ReplyCount = restThreadChannel.MessageCount,
                 LastActiveAt = lastMessage is not null ? lastMessage.CreatedAt : restThreadChannel.CreatedAt,
                 JumpUrl = $"https://discord.com/channels/{restThreadChannel.GuildId}/{restThreadChannel.Id}/0",

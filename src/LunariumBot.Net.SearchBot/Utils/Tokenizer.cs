@@ -2,7 +2,7 @@ using System.Text;
 // NuGet 包依赖
 using JiebaNet.Segmenter;
 
-namespace LunariumBot.Net.DataCenter.Utils;
+namespace LunariumBot.Net.SearchBot.Utils;
 
 public static class JiebaTokenizerService
 {

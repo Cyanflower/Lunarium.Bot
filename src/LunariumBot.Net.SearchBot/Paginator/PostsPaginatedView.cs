@@ -1,15 +1,13 @@
+using System.Text;
 using Discord;
-
+using LunariumBot.Net.Extensions;
 using LunariumBot.Net.SearchBot.Models;
 
 namespace LunariumBot.Net.SearchBot.Paginator;
 
-public class PostsPaginatedView : BasePaginatedView<ulong>, IPaginatedView
+public class PostsPaginatedView : BasePaginatedView<PostDisplayModel>, IPaginatedView
 {
-    const int PageSize = 9;
-    // 使用 : base() 将参数传递给父类的构造函数
-    // 构造函数体可以是空的，因为所有的初始化逻辑都在基类中完成了。
-    public PostsPaginatedView(IEnumerable<ulong> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 10) { }
+    public PostsPaginatedView(IEnumerable<PostDisplayModel> items, DateTimeOffset expiresAt, string id) : base(items, expiresAt, id, 8) { }
 
     public override MessageComponent Render()
     {
@@ -18,26 +16,53 @@ public class PostsPaginatedView : BasePaginatedView<ulong>, IPaginatedView
         // Container 本身占用一个组件
         messageComponent.WithContainer(c =>
             {
-                // 3 * 10, 30个组件
+                c.WithAccentColor(Color.Blue);
+                // 4 * 8, 30个组件
                 foreach (var item in _pages[_currentPageIndex].Items)
                 {
-                    c.WithSection(section => section
-                        .WithTextDisplay($"""
-                            ## 用户: <@{item.BlockedAuthorId}>
-                            添加于: <t:{item.AddedAt}:R> | <t:{item.AddedAt}:D>
-                            """)
-                        .WithAccessory(new ButtonBuilder("取消屏蔽", $"CancelBlock:{PaginatorId}.{i}", ButtonStyle.Danger))
+                    var sb = new StringBuilder();
+
+                    sb.AppendLine($"## {item.Title}({item.JumpUrl})");
+                    sb.AppendLine($"-# {item.ChannelName}丨作者: <@{item.AuthorId}>");
+                    sb.AppendLine($"-# 帖子信息: ❤️ {item.ReactionCount}丨💬 {item.ReplyCount}丨🏷 {item.Tags}");
+                    sb.AppendLine($"-# 发帖时间: <t:{item.CreatedAt}:D>丨最近活跃: <t:{item.LastActiveAt}:R>");
+                    
+                    if (item.UpdatedAt is not null)
+                    {
+                        sb.AppendLine($"-# 更新时间: <t:{item.UpdatedAt.Value.ToUnixTimeSeconds()}:R>");
+                        sb.AppendLine($"-# 更新链接: {item.UpdateMessageJumpUrl}");
+                    }
+                    sb.AppendLine("============");
+                    if (string.IsNullOrWhiteSpace(item.Content))
+                    {
+                        sb.AppendLine("无首楼");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{item.Content.Slice(150)}");
+                    }
+                    sb.AppendLine("============");
+                    // 1
+                    c.WithSection(section =>
+                    {
+                        // 2
+                        section.WithTextDisplay(sb.ToString());
+                        if (item.AttachmentUrls?.Count > 0)
+                        {
+                            // 3
+                            section.WithAccessory(new ThumbnailBuilder().WithMedia(item.AttachmentUrls[0]));
+                        }
+                    }
                     );
+                    // 4
+                    c.WithSeparator();
                     i++;
                 }
-                c.WithAccentColor(Color.Blue);
-                // 分隔线一个组件
-                c.WithSeparator();
-                // 翻页部分: 5 按钮 + 1 容器, 6组件
-                c.WithActionRow(PaginationControlsBuilder.Build(this));
             }
         );
-        // 30(每item行) + 6(翻页交互) + 1(Container) + 1(Separator) = 38
+        // 翻页部分: 5 按钮 + 1 容器, 6组件
+        messageComponent.WithActionRow(PaginationControlsBuilder.Build(this));
+        // 32(每item行) + 6(翻页交互) + 1(Container) + 1(Separator) = 40
         // 目前 discord 限制为 40 个组件
         return messageComponent.Build();
     }

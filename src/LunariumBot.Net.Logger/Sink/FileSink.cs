@@ -17,7 +17,7 @@ public abstract class FileSink
 public class RotatingFileSink : FileSink, ILogSink
 {
     // 锁，虽然 Emit 是串行的，但在轮转等复杂操作时加个保险总是好的
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     // 定时刷新缓冲区
     private readonly Timer _flushTimer;

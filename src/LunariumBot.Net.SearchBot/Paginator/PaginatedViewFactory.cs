@@ -14,6 +14,7 @@ public static class PaginatedViewFactory
         Register<SubscriptionData>((items, expires, id) => new SubscriptionPaginatedView(items, expires, id));
         Register<FavoriteTypeInfo>((items, expires, id) => new FavoriteTypePaginatedView(items, expires, id));
         Register<FavoriteDisplayItem>((items, expires, id) => new FavoriteDisplayPaginatedView(items, expires, id));
+        Register<PostDisplayModel>((items, expires, id) => new PostsPaginatedView(items, expires, id));
     }
 
     /// <summary>

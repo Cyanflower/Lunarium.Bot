@@ -84,12 +84,12 @@ public enum OptionType
 
 public class SearchConditions
 {
-    public KeywordConditions? KeywordConditions { get; init; } = null;
-    public TagConditions? TagConditions { get; init; } = null;
-    public List<long> AuthorIds { get; init; } = new();
-    public List<long> ChannelIds { get; init; } = new();
-    public PostSortOption PostSortOption { get; init; } = PostSortOption.CreatedTimeDesc;
-    public long? CurrentUserId { get; init; } 
+    public KeywordConditions? KeywordConditions { get; set; } = null;
+    public TagConditions? TagConditions { get; set; } = null;
+    public List<long> AuthorIds { get; set; } = new();
+    public List<long> ChannelIds { get; set; } = new();
+    public PostSortOption PostSortOption { get; set; } = PostSortOption.CreatedTimeDesc;
+    public long? CurrentUserId { get; set; } 
 }
 
 public class KeywordConditions
@@ -107,50 +107,48 @@ public class TagConditions
     public List<long> ExcludeTagIds { get; init; } = new();
 }
 
-    public static class SearchConditionsSerializationExtensions
+public static class SearchConditionsSerializationExtensions
+{
+    // 1. 创建一个私有的、静态只读的 options 实例。
+    //    这是性能和一致性的关键。
+    private static readonly JsonSerializerOptions _options = new()
     {
-        // 1. 创建一个私有的、静态只读的 options 实例。
-        //    这是性能和一致性的关键。
-        private static readonly JsonSerializerOptions _options = new()
-        {
-            // 将枚举序列化为字符串，可读性更高
-            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-            // 在序列化时忽略值为null的属性，让JSON更紧凑
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            // 允许JSON中的属性名不区分大小写，增加反序列化的健壮性
-            PropertyNameCaseInsensitive = true,
-            // 允许的 Unicode 范围
-            Encoder = JavaScriptEncoder.Create(
-                UnicodeRanges.BasicLatin,
-                UnicodeRanges.CjkUnifiedIdeographs,           // 中日韩统一表意文字
-                UnicodeRanges.CjkUnifiedIdeographsExtensionA, // CJK 扩展 A
-                UnicodeRanges.CjkCompatibilityIdeographs,     // CJK 兼容汉字
-                UnicodeRanges.CjkSymbolsandPunctuation        // CJK 符号和标点
-            )
-        };
+        // 将枚举序列化为字符串，可读性更高
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        // 在序列化时忽略值为null的属性，让JSON更紧凑
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // 允许JSON中的属性名不区分大小写，增加反序列化的健壮性
+        PropertyNameCaseInsensitive = true,
+        // 允许的 Unicode 范围
+        Encoder = JavaScriptEncoder.Create(
+            UnicodeRanges.BasicLatin,
+            UnicodeRanges.CjkUnifiedIdeographs,           // 中日韩统一表意文字
+            UnicodeRanges.CjkUnifiedIdeographsExtensionA, // CJK 扩展 A
+            UnicodeRanges.CjkCompatibilityIdeographs,     // CJK 兼容汉字
+            UnicodeRanges.CjkSymbolsandPunctuation        // CJK 符号和标点
+        )
+    };
 
-        /// <summary>
-        /// 将 SearchConditions 对象序列化为 JSON 字符串。
-        /// </summary>
-        public static string ToJson(this SearchConditions conditions)
-        {
-            return JsonSerializer.Serialize(conditions, _options);
-        }
-
-        /// <summary>
-        /// 将 JSON 字符串反序列化为 SearchConditions 对象。
-        /// 这个方法不能作为string的扩展方法，因为它太通用，会污染string类型。
-        /// 所以将其作为这个静态类的普通静态方法。
-        /// </summary>
-        public static SearchConditions? FromJson(string json)
-        {
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return null;
-            }
-            return JsonSerializer.Deserialize<SearchConditions>(json, _options);
-        }
+    /// <summary>
+    /// 将 SearchConditions 对象序列化为 JSON 字符串。
+    /// </summary>
+    public static string ToJson(this SearchConditions conditions)
+    {
+        return JsonSerializer.Serialize(conditions, _options);
     }
+
+    /// <summary>
+    /// 将 JSON 字符串反序列化为 SearchConditions 对象。
+    /// </summary>
+    public static SearchConditions? FromJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        return JsonSerializer.Deserialize<SearchConditions>(json, _options);
+    }
+}
 
 // public enum OptionType
 // {

@@ -43,7 +43,7 @@ public class UrlSignedInfoCacheService
     /// <param name="criticalHours">紧急窗口: 小于此时间的必须处理</param>
     /// <param name="lookAheadHours">前瞻窗口: 闲时提前处理的范围</param>
     /// <returns>待刷新的列表</returns>
-    public List<UrlSignedInfo> HourlyCheck(int batchSize = 800, int criticalHours = 2, int lookAheadHours = 24)
+    public List<UrlSignedInfo> HourlyCheck(int batchSize = 1200, int criticalHours = 2, int lookAheadHours = 12)
     {
         var itemsToRefresh = new List<UrlSignedInfo>();
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -148,7 +148,7 @@ public class UrlSignedInfoCacheService
         }
     }
 
-    public string GetCacheStatistics(int batchSize = 800, int criticalHours = 2, int lookAheadHours = 24)
+    public string GetCacheStatistics(int batchSize = 1200, int criticalHours = 2, int lookAheadHours = 12)
     {
         _lock.EnterReadLock();
         try

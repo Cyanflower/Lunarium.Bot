@@ -123,9 +123,23 @@ public partial class DataProcessService
                 LastMessageAt = message.CreatedAt,
             };
 
+
+            // ==========================================
+            // UserUsername 非空保护
+            // ==========================================
             string username = "Unknown User";
 
-            if (message.Author.Username is null)
+            // 优先使用 GlobalName (显示名称)，其次 Username，最后 Unknown
+            // 这种逻辑比原来的 if/else 更简洁且安全
+            if (!string.IsNullOrWhiteSpace(message.Author.GlobalName))
+            {
+                username = message.Author.GlobalName;
+            }
+            else if (!string.IsNullOrWhiteSpace(message.Author.Username))
+            {
+                username = message.Author.Username;
+            }
+            else 
             {
                 try
                 {
@@ -136,18 +150,21 @@ public partial class DataProcessService
                         return await _discordSocketClient.GetUserAsync(message.Author.Id);
                     });
                     
-                    if (user is not null) username = user.Username;
+                    if (user is not null) 
+                    {
+                        // 修复：这里使用 ?? 确保赋值不为 null
+                        username = user.GlobalName ?? user.Username ?? "Unknown User";
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex);
+                    _logger.Error(ex, "获取用户信息失败");
                 }
             }
-            else
-            {
-                username = message.Author.Username;
-            }
 
+            // 确保 username 绝对不为 null
+            username = username ?? "Unknown User";
+            
             var userData = new UserData();
             userData.UserId = message.Author.Id;
             userData.UserUsername = username;
@@ -286,10 +303,51 @@ public partial class DataProcessService
                 LastMessageAt = message.CreatedAt,
             };
 
+            // ==========================================
+            // UserUsername 非空保护
+            // ==========================================
+            string username = "Unknown User";
+
+            // 优先使用 GlobalName (显示名称)，其次 Username，最后 Unknown
+            // 这种逻辑比原来的 if/else 更简洁且安全
+            if (!string.IsNullOrWhiteSpace(message.Author.GlobalName))
+            {
+                username = message.Author.GlobalName;
+            }
+            else if (!string.IsNullOrWhiteSpace(message.Author.Username))
+            {
+                username = message.Author.Username;
+            }
+            else 
+            {
+                try
+                {
+                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+
+                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
+                    });
+                    
+                    if (user is not null) 
+                    {
+                        // 修复：这里使用 ?? 确保赋值不为 null
+                        username = user.GlobalName ?? user.Username ?? "Unknown User";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "获取用户信息失败");
+                }
+            }
+
+            // 确保 username 绝对不为 null
+            username = username ?? "Unknown User";
+
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserUsername = message.Author.GlobalName ?? message.Author.Username ?? "Unknown User",
+                UserUsername = username,
                 UserMessageCountDelta = 1,
                 UserCreditLv1Delta = Credit.ForMessage(CreditLevel.Level1, parentChannel.Id),
                 UserCreditLv2Delta = Credit.ForMessage(CreditLevel.Level2, parentChannel.Id),
@@ -382,10 +440,51 @@ public partial class DataProcessService
                 IsUpdate = false
             };
 
+            // ==========================================
+            // UserUsername 非空保护
+            // ==========================================
+            string username = "Unknown User";
+
+            // 优先使用 GlobalName (显示名称)，其次 Username，最后 Unknown
+            // 这种逻辑比原来的 if/else 更简洁且安全
+            if (!string.IsNullOrWhiteSpace(message.Author.GlobalName))
+            {
+                username = message.Author.GlobalName;
+            }
+            else if (!string.IsNullOrWhiteSpace(message.Author.Username))
+            {
+                username = message.Author.Username;
+            }
+            else 
+            {
+                try
+                {
+                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+
+                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
+                    });
+                    
+                    if (user is not null) 
+                    {
+                        // 修复：这里使用 ?? 确保赋值不为 null
+                        username = user.GlobalName ?? user.Username ?? "Unknown User";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "获取用户信息失败");
+                }
+            }
+
+            // 确保 username 绝对不为 null
+            username = username ?? "Unknown User";
+            
             var userData = new UserData()
             {
                 UserId = message.Author.Id,
-                UserUsername = message.Author.GlobalName ?? message.Author.Username ?? "Unknown User",
+                UserUsername = username,
                 UserMessageCountDelta = 1,
                 UserCreditLv1Delta = Credit.ForMessage(CreditLevel.Level1, parentChannel.Id),
                 UserCreditLv2Delta = Credit.ForMessage(CreditLevel.Level2, parentChannel.Id),
@@ -427,15 +526,54 @@ public partial class DataProcessService
     /// </summary>
     /// <param name="message">接收到的消息对象</param>
     /// <param name="channelId">消息所在频道的id</param>
-    public async Task ThreadFirstMessageUpdateProcess(SocketMessage message, ulong channelId)
+    public async Task ThreadFirstMessageUpdateProcess(SocketMessage message, ISocketMessageChannel socketMessageChannel)
     {
         try
         {
+            IMessage? refreshMessage = null;
+            // 等待 1 秒，因为 Discord API 的 MessageReceived 事件不会立即附带附件
+            // 附件是后续异步上传的，需要重新获取消息以获得完整的附件列表
+            await Task.Delay(1000);
+            try
+            {
+                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+
+                await _httpRetryPolicy.ExecuteAsync(async () =>
+                {
+                    refreshMessage = await socketMessageChannel.GetMessageAsync(message.Id);
+                });
+
+                if (refreshMessage is null)
+                {
+                    _logger.Warning("⚠️ 无法从频道缓存中获取到最新的消息对象 (ID: {MessageId})，将使用事件参数中的消息对象。", message.Id);
+                    refreshMessage = message; // 如果获取失败，回退到使用原始的 message 对象
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "❌ 刷新消息对象时发生错误: 消息ID {MessageId}", message.Id);
+            }
+            
+            List<string>? attachmentUrls = null;
+            if (refreshMessage is not null)
+            {
+                attachmentUrls = refreshMessage.Attachments
+                    .Where(a => IsImageAttachment(a))
+                    .Select(a => a.Url)
+                    .ToList();
+                // 外链图片以embed形式存在
+                attachmentUrls.AddRange(refreshMessage.Embeds
+                    .Where(embed => embed.Thumbnail is not null && embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv)
+                    .Select(embed => embed.Thumbnail!.Value.Url)
+                    .ToList()
+                );
+            }
 
             // 准备消息数据
             var threadData = new ThreadData()
             {
-                ThreadId = channelId,
+                ThreadId = socketMessageChannel.Id,
+                AttachmentUrls = attachmentUrls,
                 FirstMessageContent = message.Content,
                 ContentTokenized = message.Content is not null ? JiebaTokenizerService.CutForSearch(message.Content) : null
             };

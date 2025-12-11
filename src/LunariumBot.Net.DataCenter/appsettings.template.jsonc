@@ -1,18 +1,17 @@
 {
-  "DatabaseConnection": "Host=localhost;Port=52001;Username=LunariumBot.NET;Password=sk-LunariumDb-F7spNBPTjjH73NpjDBQfBb2G-mIasTHF;Database=LunariumBot.NET.DB",
+  "DatabaseConnection": "Host=...;Port=...;Username...;Password=...;Database=...;Include Error Detail=true;Client Encoding=UTF8;",
   // 管理员鉴权配置
   "AuthConfig": {
     "AdminRoleIds": [
-      123,
       123
     ],
-    "LogChannel": 123
+    "LogChannel": 123,
+    "LogThread": 123
   },
   // 服务器配置(支持多服务器部署)
   "DeployConfig": {
-    // 部署的服务器ID列表（用于数据采集和监听）
+    // 部署的服务器ID列表（用于数据采集）
     "DeployGuildIds": [
-      123,
       123
     ],
 
@@ -24,44 +23,63 @@
         "DashboardChannelId": 123,
         // 该服务器的频道分类映射
         "CategoryChannels": {
-          "男性向": [123],
-          "女性向": [123],
-          "全性向": [123],
-          "纯净区": [123],
-          "小众区": [123],
-          "工具区": [123],
-          "世界书": [123],
-          "深渊区": [123],
-          "预设-破限": [123],
-          "反向代理": [123],
-          "酒馆美化": [123]
+          "abc": 123
         }
       }
       // 如果有第二个服务器，可以这样添加：
       // "123": {
       //   "DashboardChannelId": 123,
       //   "CategoryChannels": {
-      //     "测试分类": [123]
+      //     "测试分类": 123
       //   }
       // }
     },
 
     "ExcludeChannelIds": [],
     "ExcludeCategoryIds": [],
-    // 只影响扫描和监听的数据获取，不影响命令鉴权
-    "ExcludeGuildIds": []
+    // 只影响扫描的数据获取，不影响命令鉴权
+    "ExcludeGuildIds": [],
+    // 扫描配置
+    "ScanConfigs":
+    {
+      // 服务器ID
+      "123": {
+        // 控制数据库 is_valid 字段的 true 和 false
+        // 在扫描时哪些频道的帖子视为 is_valid true
+        "ValidChannels":{
+          "abc": 123
+        }
+      }
+      // 如果有第二个服务器，可以这样添加：
+      // "123": {
+      //   "ValidChannel": {
+      //     "测试分类": 123
+      //   }
+      // }
+    }
+  },
+  "CreditConfig": {
+    // 任何消息
+    "ForMessage": {
+      "Level1": 0,
+      "Level2": 0,
+      "Level3": 0
+    },
+    // 作品帖子创建
+    "ForThread": {
+      "Level1": 0,
+      "Level2": 0,
+      "Level3": 0
+    },
+    // 作品更新
+    "ForUpdate": {
+      "Level1": 0,
+      "Level2": 0,
+      "Level3": 0
+    },
+    "ChannelFactor": {}
   },
   "ChannelOrder": {
-    "男性向": 1,
-    "女性向": 2,
-    "全性向": 3,
-    "纯净区": 4,
-    "小众区": 5,
-    "工具区": 6,
-    "世界书": 7,
-    "深渊区": 8,
-    "预设-破限": 9,
-    "反向代理": 10,
-    "酒馆美化": 11
+    "abc": 1
   }
 }

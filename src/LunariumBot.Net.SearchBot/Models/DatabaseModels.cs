@@ -6,6 +6,33 @@ using LunariumBot.Net.Extensions;
 namespace LunariumBot.Net.SearchBot.Models.Database;
 
 /// <summary>
+/// 频道数据 - 数据库模型
+/// </summary>
+internal class ChannelDataDb
+{
+    public long ChannelId { get; set; }
+    public string ChannelName { get; set; } = "";
+    public long GuildId { get; set; }
+    public string GuildName { get; set; } = "";
+
+    public static ChannelDataDb FromDomain(ChannelData domain) => new()
+    {
+        ChannelId = domain.ChannelId.ToDbId(),
+        ChannelName = domain.ChannelName,
+        GuildId = domain.GuildId.ToDbId(),
+        GuildName = domain.GuildName
+    };
+
+    public ChannelData ToDomain() => new()
+    {
+        ChannelId = ChannelId.ToDiscordId(),
+        ChannelName = ChannelName,
+        GuildId = GuildId.ToDiscordId(),
+        GuildName = GuildName
+    };
+}
+
+/// <summary>
 /// 标签信息 - 数据库模型
 /// </summary>
 internal class TagInfoDb
@@ -17,7 +44,7 @@ internal class TagInfoDb
     public string GuildName { get; set; } = "";
     public int UsageCount { get; set; }
 
-    public static TagInfoDb FromDomain(TagInfo domain) => new()
+    public static TagInfoDb FromDomain(TagData domain) => new()
     {
         TagId = domain.TagId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
@@ -27,7 +54,7 @@ internal class TagInfoDb
         UsageCount = domain.UsageCount
     };
 
-    public TagInfo ToDomain() => new()
+    public TagData ToDomain() => new()
     {
         TagId = TagId.ToDiscordId(),
         ChannelId = ChannelId.ToDiscordId(),

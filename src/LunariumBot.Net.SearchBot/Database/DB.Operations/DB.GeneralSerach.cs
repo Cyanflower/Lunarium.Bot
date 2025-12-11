@@ -23,7 +23,7 @@ public partial class DatabaseService
                 first_message_content AS Content,
                 jump_url AS JumpUrl,
                 updated_jump_url AS UpdateMessageJumpUrl,
-                attachment_url AS AttachmentUrl,
+                attachment_url::jsonb AS AttachmentUrl,
 
                 author_id AS AuthorId,
                 channel_id AS ChannelId,
@@ -256,7 +256,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "GeneralSearch Exception");
             throw;
         }
     }
@@ -272,7 +272,7 @@ public partial class DatabaseService
                 first_message_content AS Content,
                 jump_url AS JumpUrl,
                 updated_jump_url AS UpdateMessageJumpUrl,
-                attachment_url AS AttachmentUrl,
+                attachment_url::jsonb AS AttachmentUrl,
 
                 author_id AS AuthorId,
                 channel_id AS ChannelId,
@@ -309,7 +309,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "SearchForCache Exception");
             throw;
         }
     }

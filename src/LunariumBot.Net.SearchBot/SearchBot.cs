@@ -19,6 +19,7 @@ using LunariumBot.Net.Logger;
 using LunariumBot.Net.SearchBot.Database;
 using LunariumBot.Net.SearchBot.Scheduler;
 using LunariumBot.Net.SearchBot.Utils;
+using LunariumBot.Net.SearchBot.AuthUtils;
 using LunariumBot.Net.SearchBot.Models;
 using LunariumBot.Net.SearchBot.AppInteractionService;
 using System.Text;
@@ -38,7 +39,7 @@ public class SearchBotService : IHostedService, IDisposable
     private readonly ConfigLoader _configLoader;
     private readonly DatabaseService _databaseService;
     private bool _isFirstTime = true;
-    private readonly AuthUtils _authUtils;
+    private readonly AuthUtil _authUtil;
     private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "重新注册",
@@ -61,7 +62,7 @@ public class SearchBotService : IHostedService, IDisposable
         _client = _privateServices.GetRequiredService<DiscordSocketClient>();
         _interactions = _privateServices.GetRequiredService<InteractionService>();
         _databaseService = _privateServices.GetRequiredService<DatabaseService>();
-        _authUtils = _privateServices.GetRequiredService<AuthUtil>();
+        _authUtil = _privateServices.GetRequiredService<AuthUtil>();
         _logger.Info("✅ SearchBot 服务初始化完成。");
     }
 
@@ -97,11 +98,7 @@ public class SearchBotService : IHostedService, IDisposable
             })
 
             // 注册分页管理器
-            .AddSingleton<PaginatorManager>()
-            // 注册命令冷却管理器
-            .AddSingleton<UserCooldown>()
             // 注册搜索命令构建器
-            .AddSingleton<SearchCriteriaBuilder>()
 
             // 注册交互服务
             .AddSingleton<InteractionService>(provider =>
@@ -112,27 +109,13 @@ public class SearchBotService : IHostedService, IDisposable
             .AddSingleton<DatabaseService>()
             // 注册鉴权服务
             .AddSingleton<AuthUtil>()
-
-            .AddSingleton<AllTagsAutoCompletion>()
-
             // 注册分析器
             .AddSingleton<DataAnalysis>()
 
             // 定时任务和调度器
-            .AddSingleton<AnalysisJob>()
-            .AddSingleton<FullSyncJob>()
-            .AddScheduler()
-
+            
             // 注册分词器
-            .AddSingleton<ITokenizerService, JiebaTokenizerService>()
-
-            .AddSingleton<InteractionUtils>()
-            .AddSingleton<AdminCommands>()
-            .AddSingleton<Favorite>()
-            .AddSingleton<SearchCommands>()
-            .AddSingleton<SubscriptionCommands>()
-            .AddSingleton<UserCommands>()
-            .AddSingleton<AppMenus>()
+            
             .BuildServiceProvider();
 
         
@@ -178,9 +161,6 @@ public class SearchBotService : IHostedService, IDisposable
     {
         _logger.Info("正在停止 SearchBot 服务...");
         _client.MessageReceived -= HandleMessageCommandAsync;
-        _listener.RemoveEventHandlers();
-        await _listener.ProcessPendingThreadsAsync();
-        _databaseService.SaveDB();
         await _client.StopAsync();
     }
 
@@ -216,22 +196,7 @@ public class SearchBotService : IHostedService, IDisposable
             _logger.Info("🎉 Bot 已就绪！已连接为: {_client.CurrentUser.Username}#{_client.CurrentUser.Discriminator}",_client.CurrentUser.Username, _client.CurrentUser.Discriminator);
             if (_isFirstTime == true)
             {
-
-                // 现在 bot 完全就绪，可以安全地同步命令
                 await SyncCommandsAsync();
-
-
-                var needSync = _databaseService.NeedSync;
-                if (needSync)
-                {
-                    _logger.Info("⏳ 数据库时间戳过期，准备执行全量同步。");
-                    _scanner.FullSync();
-                }
-                else
-                {
-                    _logger.Info("✅ 数据库时间戳未过期，跳过全量同步。");
-                }
-                _listener.AddEventHandlers();
                 _isFirstTime = false;
             }
         }
@@ -274,7 +239,7 @@ public class SearchBotService : IHostedService, IDisposable
         // 5. 鉴权
         var guildUser = userMessage.Author as IGuildUser;
         if (guildUser == null) return;
-        if (!_authUtils.IsAdmin(guildUser.RoleIds))
+        if (!_authUtil.IsAdmin(guildUser.RoleIds))
         {
             _logger.Warning("鉴权失败: 用户 {userMessage.Author.Username} 尝试执行管理员命令失败。", userMessage.Author.Username);
             await userMessage.ReplyAsync("权限不足: 该命令为系统维护命令");
