@@ -116,7 +116,7 @@ public static class GlobalConfigurator
         /// <summary>
         /// 配置日志系统使用 UTC 时间
         /// </summary>
-        public ConfigurationBuilder UseUtcTimestamp()
+        public ConfigurationBuilder UseUtcTimeZone()
         {
             AddConfigOperation(() => LogTimestampConfig.UseUtcTime());
             return this;
@@ -125,7 +125,7 @@ public static class GlobalConfigurator
         /// <summary>
         /// 配置日志系统使用本地时间
         /// </summary>
-        public ConfigurationBuilder UseLocalTimestamp()
+        public ConfigurationBuilder UseLocalTimeZone()
         {
             AddConfigOperation(() => LogTimestampConfig.UseLocalTime());
             return this;
@@ -134,7 +134,7 @@ public static class GlobalConfigurator
         /// <summary>
         /// 配置日志系统使用自定义时区
         /// </summary>
-        public ConfigurationBuilder UseCustomTimestamp(TimeZoneInfo timeZone)
+        public ConfigurationBuilder UseCustomTimezone(TimeZoneInfo timeZone)
         {
             ArgumentNullException.ThrowIfNull(timeZone);
             AddConfigOperation(() => LogTimestampConfig.UseCustomTimeZone(timeZone));

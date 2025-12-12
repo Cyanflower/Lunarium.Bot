@@ -1,5 +1,5 @@
 // .NET 核心库
-using System.ComponentModel;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 // NuGet 包依赖
@@ -97,13 +97,13 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                     }
                 case "FreeAccess":
                     {
-                        cache.IsConsumeToken = false;
+                        cache.Data.IsConsumeToken = false;
                         await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
                         return;
                     }
                 case "ConsumeToken":
                     {
-                        cache.IsConsumeToken = true;
+                        cache.Data.IsConsumeToken = true;
                         await interactionComponent.UpdateAsync(msg => msg.Components = cache.Render());
                         return;
                     }
@@ -275,11 +275,11 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                                 container.WithTextDisplay($"""
                                     ### 🎈 作品发布处
                                     请在此处交互获取本帖作品
-                                    > 前置条件: {mode}
+                                    - 前置条件: **{mode}**
                                     > -# - 无限制: 可直接获取
                                     > -# - 点赞或评论: 对帖子首楼点赞(任意反应)或在贴内回复(任意回复)
                                     > -# - 提取码: 寻找作者在贴内贴出的的提取码
-                                    > 分享模式: {(cache.IsConsumeToken ? "每日限定" : "开放分享")}
+                                    - 分享模式: **{(cache.Data.IsConsumeToken ? "每日限定" : "开放分享")}**
                                     > -# - 每日限定: 每日获取作品次数耗尽后**无法**获取本作品
                                     > -# - 开放分享: 每日获取作品次数耗尽后**仍可**获取本作品
                                     """);
@@ -287,7 +287,7 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                                 container.WithTextDisplay("作者专属交互");
 
                                 var token = 0;
-                                if (cache.IsConsumeToken)
+                                if (cache.Data.IsConsumeToken)
                                 {
                                     token = 1;
                                 }
@@ -344,8 +344,18 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                             await _httpRetryPolicy.ExecuteAsync(async () =>
                             {
                                 await message!.ModifyAsync(msg => msg.Components = completeComponent.Build());
+                            });
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
                                 await interactionComponent.ModifyOriginalResponseAsync(msg => msg.Components = cache.Render());
                             });
+                            if (cache.IsFromMessageCommand && cache.SourceMessage is not null)
+                            {
+                                await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    await cache.SourceMessage.DeleteAsync();
+                                });
+                            }
                         }
 
                         _logger.Debug("步骤 8: 开始处理文件下载逻辑");
@@ -614,7 +624,7 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
     }
 
     [ComponentInteraction("RemoveReleaseCancel:*")]
-    public async Task HandleRemoveReleaseCancelAsync(ulong authorId, ulong message)
+    public async Task HandleRemoveReleaseCancelAsync(ulong authorId)
     {
         try
         {
@@ -637,10 +647,8 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
 
             await DeferAsync(ephemeral: true);
 
-            await interactionComponent.Channel.DeleteMessageAsync(message);
-
             var deletedComponent = new ComponentBuilderV2().WithContainer(c => c
-                .WithAccentColor(Color.Red)
+                .WithAccentColor(Color.LightGrey)
                 .WithTextDisplay("### ⚠️ 确认操作", 1000)
                 .WithSeparator()
                 .WithTextDisplay("### 操作已取消", 1001)
@@ -765,241 +773,9 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                 return;
             }
 
-            // 获取上下文信息
-            // 源服务器 ID (A服)
-            ulong sourceGuildId = Context.Guild.Id;
-            // 源父频道 ID (A服的具体板块，如"男性向"的频道ID)
-            ulong sourceParentChannelId = sourceThreadChannel.ParentChannel.Id;
-            // 获取配置快照
-            var deployConfig = _configLoader.Config.DeployConfig;
+            await DeferAsync();
 
-            // =======================================================
-            // 反向查找 (在 GuildConfigs 中找到 "Key/分类名")
-            // =======================================================
-            
-            // 检查源服务器是否有配置
-            if (!deployConfig.GuildConfigs.TryGetValue(sourceGuildId, out var sourceGuildConfig))
-            {
-                await RespondAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ 未在 GuildConfigs 中找到源服务器配置: {sourceGuildId}", sourceGuildId.ToString()), ephemeral: true);
-                return;
-            }
-
-            // 在源服务器配置中，查找哪个 Key (如 "男性向") 对应当前的 ParentChannelId
-            // KeyValuePair<string, ulong>
-            var categoryEntry = sourceGuildConfig.ValidChannels
-                .FirstOrDefault(x => x.Value == sourceParentChannelId);
-
-            // 如果 Key 为 null，说明当前帖子所在的父频道不在配置文件里
-            if (string.IsNullOrEmpty(categoryEntry.Key))
-            {
-                await RespondAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ 当前频道 {sourceParentChannelId} 未在配置文件的 ValidChannels 中定义", sourceParentChannelId.ToString()), ephemeral: true);
-                return;
-            }
-
-            string categoryName = categoryEntry.Key; // 例如: "男性向"
-            _logger.Debug($"路由匹配成功: 分类名为 [{categoryName}]");
-
-            // =======================================================
-            // 正向查找 (在 CacheLocations 中找到 "B服目标")
-            // =======================================================
-
-            // 使用源服务器 ID 作为 Key 去查找 CacheLocations
-            if (!deployConfig.CacheLocations.TryGetValue(sourceGuildId, out var targetLocationConfig))
-            {
-                await RespondAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ 未在 CacheLocations 中找到源服务器对应的路由配置 {sourceGuildId}", sourceGuildId.ToString()), ephemeral: true);
-                return;
-            }
-
-            // 获取目标服务器 ID (B服)
-            ulong targetGuildId = targetLocationConfig.Guild;
-
-            // 根据分类名 ("男性向") 获取目标频道 ID
-            if (!targetLocationConfig.Channels.TryGetValue(categoryName, out ulong targetChannelId))
-            {
-                await RespondAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ 在 CacheLocations 中未找到分类 [{categoryName}] 的目标频道映射", categoryName.ToString()), ephemeral: true);
-                return;
-            }
-
-            // ==============================================================================================================
-            // 网络部分
-            // 开始Defer
-            await DeferAsync(ephemeral: true);
-
-            // =======================================================
-            // 获取 Discord 实体对象并执行逻辑
-            // =======================================================
-
-            // 获取目标服务器的 SocketGuild 对象
-            var targetGuild = Context.Client.GetGuild(targetGuildId);
-            if (targetGuild == null)
-            {
-                // 可能是 Bot 没加 B 服，或者缓存没同步
-                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ Bot 无法获取目标服务器实例: {targetGuildId}", targetGuildId.ToString()), ephemeral: true);
-                return;
-            }
-
-            // 数据库查询
-
-            var cacheThreadId = await _applicationService.QueryCacheChannelAsync(Context.Channel.Id);
-
-            // [DEBUG]
-            // ulong? cacheThreadId = 1448173068706123879;
-            // [DEBUG]
-
-            IThreadChannel? cacheThread = null;
-
-            if (cacheThreadId is not null)
-            {
-                // 如果有缓存记录
-                // 获取目标帖子对象
-                cacheThread = targetGuild.GetChannel(cacheThreadId.Value) as IThreadChannel;
-                if (cacheThread == null)
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ Bot 无法获取目标频道实例: {parameters}", $"{cacheThreadId} @ Guild {targetGuildId}"), ephemeral: true);
-                    return;
-                }
-                cache.Data.IsUpdate = true;
-            }
-            else
-            {
-                // 如果没有源贴的缓存记录
-                // 获取目标频道对象 (通常是 IMessageChannel 或 ITextChannel)
-                var targetChannel = targetGuild.GetChannel(targetChannelId) as IForumChannel;
-                if (targetChannel == null)
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ Bot 无法获取目标频道实例: {parameters}", $"{targetChannelId} @ Guild {targetGuildId}"), ephemeral: true);
-                    return;
-                }
-
-                await _httpRetryPolicy.ExecuteAsync(async () =>
-                {
-                    cacheThread = await targetChannel.CreatePostAsync(Context.Channel.Name, text: $"""
-                        cache thread metadata:
-                        origin thread channel: {sourceThreadChannel.Name ?? "null"}
-                        origin thread channel id: {sourceThreadChannel.Id}
-                        origin thread created at: {sourceThreadChannel.CreatedAt:O}
-                        origin forum channel: {sourceThreadChannel.Name ?? "null"}
-                        origin forum channel id: {sourceThreadChannel.Id}
-                        origin author at created name: {sourceThreadChannel.Owner.DisplayName ?? "null"}
-                        origin author id: {sourceThreadChannel.Owner.Id}
-                        cache thread created at {DateTimeOffset.UtcNow:O}
-                        """);
-                });
-
-                string localMetadataDir = Path.Combine(_appPath, localCachePath, $"{Context.Guild.Id}", $"{sourceParentChannelId}", $"{Context.Channel.Id}");
-                if (!Directory.Exists(localMetadataDir))
-                {
-                    Directory.CreateDirectory(localMetadataDir);
-                }
-
-                var metadata = new
-                {
-                    // 外层属性
-                    Version = "1.0",
-                    GeneratedAt = DateTimeOffset.UtcNow,
-
-                    // 嵌套对象 (CacheThreadMetadata)
-                    CacheThreadMetadata = new
-                    {
-                        OriginThreadChannel = sourceThreadChannel.Name ?? "null",
-                        OriginThreadChannelId = sourceThreadChannel.Id,
-                        OriginThreadCreatedAt = sourceThreadChannel.CreatedAt.ToString("O"),
-                        OriginForumChannel = sourceThreadChannel.ParentChannel?.Name ?? "null",
-                        OriginForumChannelId = sourceThreadChannel.ParentChannel?.Id,
-                        OriginAuthorName = sourceThreadChannel.Owner.DisplayName ?? "null",
-                        OriginAuthorId = sourceThreadChannel.Owner.Id,
-                        CacheThreadCreated = DateTimeOffset.UtcNow.ToString("O")
-                    },
-                };
-
-                string metadataPath = Path.Combine(localMetadataDir, "metadata.json");
-
-                await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(metadata, JsonSerializerConfig.OptionsWithIndented));
-
-                if (cacheThread == null)
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ Bot 无法在目标频道创建帖子: {parameters}", $"{targetChannelId} @ Guild {targetGuildId}"), ephemeral: true);
-                    return;
-                }
-            }
-            
-            // =========================================================
-            // 附件分两部分处理:
-            // Discord CDN Url: 主要, 用于直接通过cdn url分发文件, 提升性能和响应速度, 同时节省带宽和流量
-            // 本地文件: 作为备份, 如果 Discord CDN 让 Discord 给毙了就回退到本地文件上传
-            // =========================================================
-            
-            var streams = new List<Stream>();
-            var fileAttachments = new List<FileAttachment>();
-
-            try
-            {
-                // 遍历用户上传的所有附件
-                var downloadTasks = attachments.Select(async attachment =>
-                {
-                    try
-                    {
-                        await _httpRetryPolicy.ExecuteAsync(async () =>
-                        {
-                            // 通过 URL 下载文件流
-                            var stream = await _httpClient.GetStreamAsync(attachment.Url);
-                            streams.Add(stream);
-
-                            var filename = attachment.Filename.Replace('_', '-');
-
-                            // 创建 FileAttachment 对象
-                            // 参数: 流, 文件名, 描述
-                            // fileAttachments.Add(new FileAttachment(stream, attachment.Filename, attachment.Description));
-                            fileAttachments.Add(new FileAttachment(stream, filename));
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error(ex);
-                    }
-                });
-
-                await Task.WhenAll(downloadTasks);
-
-                if (fileAttachments.Count > 0)
-                {
-                    // 发送转换后的 FileAttachment 列表
-                    IUserMessage? message = null;
-                    await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        message = await cacheThread.SendFilesAsync(fileAttachments, text: $"""
-                        release cache metadata:
-                        cache thread created at {DateTimeOffset.UtcNow:O}
-                        """);
-                    });
-                    List<string> attachmentUrls = new();
-                    if (message is not null)
-                    {
-                        attachmentUrls = message.Attachments
-                            .Select(a => a.Url)
-                            .ToList();
-                    }
-                    cache.CacheMessage = message;
-                    cache.Data.CacheAttachmentUrls = attachmentUrls;
-                    cache.Data.CacheChannelId = targetChannelId;
-                    cache.Data.CacheMessageId = message!.Id;
-                    cache.Data.CacheThreadId = cacheThread.Id;
-                    cache.Data.CacheGuildId = cacheThread.Guild.Id;
-                    cache.SetAttachment(message.Attachments.ToList());
-                }
-                else
-                {
-                    await FollowupAsync(components: _componentUtils.TextErrorComponente("❌ 未检测到附件。"), ephemeral: true);
-                    return;
-                }
-            }
-            finally
-            {
-                foreach (var stream in streams)
-                {
-                    await stream.DisposeAsync();
-                }
-            }
+            await TransferAttachmentsToCacheAsync(cache, sourceThreadChannel, attachments);
 
             await modalInteraction.ModifyOriginalResponseAsync(msg => msg.Components = cache.Render());
         }
@@ -1019,6 +795,77 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
     }
     #endregion
 
+    // =============================================
+    #region  AppMenu
+    // =============================================
+    [MessageCommand("发布此消息作品附件")]
+    public async Task HandleReleaseByMessageAsync(IMessage message)
+    {
+        try
+        {
+            var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
+            var authResult = await _authUtil.Authorization(requiredConditions, Context);
+            if (authResult.Status != AuthorizationStatus.Success)
+            {
+                var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
+                await RespondAsync(components: failedReasonComponent, ephemeral: true);
+                return;
+            }
+
+            if (Context.Channel is IThreadChannel threadChannel)
+            {
+                if (Context.User.Id != threadChannel.OwnerId)
+                {
+                    var component = new ComponentBuilderV2().WithContainer(c => c
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay("### ⛔️ 鉴权未通过", 1000)
+                        .WithTextDisplay("该命令仅供本帖作者使用", 1001)
+                        );
+                    await RespondAsync(components: component.Build(), ephemeral: true);
+                    return;
+                }
+
+                if (Context.User.Id != message.Author.Id)
+                {
+                    var component = new ComponentBuilderV2().WithContainer(c => c
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay("### ⛔️ 鉴权未通过", 1000)
+                        .WithTextDisplay("该命令只能对自己的消息使用", 1001)
+                        );
+                    await RespondAsync(components: component.Build(), ephemeral: true);
+                    return;
+                }
+
+                var cache = _interactionsCacheManager.RegisterView<WorkData>(Context.User.Id, new WorkData());
+                var releaseCache = (ReleaseCache)cache;
+                // 标记来源
+                releaseCache.IsFromMessageCommand = true;
+
+                await DeferAsync(ephemeral: true);
+
+                var sourceThreadChannel = (SocketThreadChannel)Context.Channel;
+
+                // 执行传输逻辑
+                bool success = await TransferAttachmentsToCacheAsync(releaseCache, sourceThreadChannel, message.Attachments);
+
+                // 只有成功才弹出面板, 且必须使用 FollowupAsync (因为已经 Defer 了)
+                if (success)
+                {
+                    await FollowupAsync(components: cache.Render(), ephemeral: true);
+                }
+                // 如果 success 为 false，TransferAttachmentsToCacheAsync 内部已经发过错误提示了，这里无需操作
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleReleaseByMessage Exception");
+            // 保底错误处理
+            if (!Context.Interaction.HasResponded)
+                await RespondAsync("❌ 发生内部错误", ephemeral: true);
+        }
+    }
+    #endregion
+    
     // =============================================
     #region  斜杠命令
     // =============================================
@@ -1079,7 +926,7 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
             // - TaskCanceledException: 处理 HttpClient 超时
             .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
             // - 处理 JSON 解析异常 (针对返回 HTML 错误页的情况)
-            .Or<Newtonsoft.Json.JsonReaderException>() 
+            .Or<Newtonsoft.Json.JsonReaderException>()
 
             // 定义重试逻辑：指数退避
             .WaitAndRetryAsync(
@@ -1097,6 +944,265 @@ public class Release : InteractionModuleBase<SocketInteractionContext>
                 }
             );
     }
+    
+    // =============================================
+    #region  私有核心逻辑 (提取出的公共方法)
+    // =============================================
+    /// <summary>
+    /// 核心逻辑：将附件列表(无论来自Modal还是Message)下载并转存到目标B服的Cache Thread，
+    /// 并更新 ReleaseCache 的状态。
+    /// </summary>
+    private async Task<bool> TransferAttachmentsToCacheAsync(
+        ReleaseCache cache, 
+        SocketThreadChannel sourceThreadChannel, 
+        IEnumerable<IAttachment> attachments)
+    {
+        try 
+        {
+            // 获取上下文信息
+            // 源服务器 ID (A服)
+            ulong sourceGuildId = Context.Guild.Id;
+            // 源父频道 ID (A服的具体板块，如"男性向"的频道ID)
+            ulong sourceParentChannelId = sourceThreadChannel.ParentChannel.Id;
+            // 获取配置快照
+            var deployConfig = _configLoader.Config.DeployConfig;
+
+            // =======================================================
+            // 反向查找 (在 GuildConfigs 中找到 "Key/分类名")
+            // =======================================================
+
+            // 1. 路由匹配 (源 -> 目标)
+            // 检查源服务器是否有配置
+            if (!deployConfig.GuildConfigs.TryGetValue(sourceGuildId, out var sourceGuildConfig))
+            {
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ 未在 GuildConfigs 中找到源服务器配置: {sourceGuildId}"), ephemeral: true);
+                return false;
+            }
+
+            // 在源服务器配置中，查找哪个 Key (如 "男性向") 对应当前的 ParentChannelId
+            // KeyValuePair<string, ulong>
+            var categoryEntry = sourceGuildConfig.ValidChannels.FirstOrDefault(x => x.Value == sourceParentChannelId);
+
+            // 如果 Key 为 null，说明当前帖子所在的父频道不在配置文件里
+            if (string.IsNullOrEmpty(categoryEntry.Key))
+            {
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ 当前频道 {sourceParentChannelId} 未在配置文件的 ValidChannels 中定义"), ephemeral: true);
+                return false;
+            }
+            
+            // 例如: "男性向"
+            string categoryName = categoryEntry.Key;
+            _logger.Debug($"路由匹配成功: 分类名为 [{categoryName}]");
+
+            // =======================================================
+            // 正向查找 (在 CacheLocations 中找到 "B服目标")
+            // =======================================================
+            
+            // 使用源服务器 ID 作为 Key 去查找 CacheLocations
+            if (!deployConfig.CacheLocations.TryGetValue(sourceGuildId, out var targetLocationConfig))
+            {
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ 未在 CacheLocations 中找到源服务器对应的路由配置 {sourceGuildId}"), ephemeral: true);
+                return false;
+            }
+
+            // 获取目标服务器 ID (B服)
+            ulong targetGuildId = targetLocationConfig.Guild;
+
+            // 根据分类名 ("男性向") 获取目标频道 ID
+            if (!targetLocationConfig.Channels.TryGetValue(categoryName, out ulong targetChannelId))
+            {
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ 在 CacheLocations 中未找到分类 [{categoryName}] 的目标频道映射"), ephemeral: true);
+                return false;
+            }
+
+            // =======================================================
+            // 网络部分
+            // =======================================================
+
+            // =======================================================
+            // 获取 Discord 实体对象并执行逻辑
+            // =======================================================
+            
+            // 获取目标服务器的 SocketGuild 对象
+            var targetGuild = Context.Client.GetGuild(targetGuildId);
+            if (targetGuild == null)
+            {
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ Bot 无法获取目标服务器实例: {targetGuildId}"), ephemeral: true);
+                return false;
+            }
+
+            // 确定目标帖子 (Cache Thread)
+            // 这一步逻辑：先查库，库里没有就新建
+            var cacheThreadId = await _applicationService.QueryCacheChannelAsync(sourceThreadChannel.Id);
+            
+            // [DEBUG]
+            // ulong? cacheThreadId = 1448173068706123879;
+            // [DEBUG]
+
+            IThreadChannel? cacheThread = null;
+
+            // 如果有缓存记录
+            // 获取目标帖子对象
+            if (cacheThreadId is not null)
+            {
+                cacheThread = targetGuild.GetChannel(cacheThreadId.Value) as IThreadChannel;
+                if (cacheThread == null)
+                {
+                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ 数据库有记录但无法获取目标频道实例: {cacheThreadId}"), ephemeral: true);
+                    return false;
+                }
+                cache.Data.IsUpdate = true;
+            }
+            // 如果没有源贴的缓存记录
+            // 获取目标频道对象 (通常是 IMessageChannel 或 ITextChannel)
+            else
+            {
+                // 新建 Cache Thread 逻辑
+                var targetChannel = targetGuild.GetChannel(targetChannelId) as IForumChannel;
+                if (targetChannel == null)
+                {
+                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", $"❌ Bot 无法获取目标频道实例(Forum): {targetChannelId}"), ephemeral: true);
+                    return false;
+                }
+
+                await _httpRetryPolicy.ExecuteAsync(async () =>
+                {
+                    cacheThread = await targetChannel.CreatePostAsync(Context.Channel.Name, text: $"""
+                        cache thread metadata:
+                        origin thread channel likn: https://discord.com/channels/{sourceThreadChannel.ParentChannel.Id}/{sourceThreadChannel.Id}
+                        origin thread channel: {sourceThreadChannel.Name ?? "null"}
+                        origin thread channel id: {sourceThreadChannel.Id}
+                        origin thread created at: {sourceThreadChannel.CreatedAt.ToUniversalTime():O}
+                        origin forum channel: {sourceThreadChannel.ParentChannel.Name ?? "null"}
+                        origin forum channel id: {sourceThreadChannel.ParentChannel.Id}
+                        origin author at created name: {sourceThreadChannel.Owner.DisplayName ?? "null"}
+                        origin author id: {sourceThreadChannel.Owner.Id}
+                        cache thread created at {DateTimeOffset.UtcNow:O}
+                        """);
+                });
+
+                // ============
+                // 本地缓存 Json 元数据处理
+                // ============
+                string localMetadataDir = Path.Combine(_appPath, localCachePath, $"{Context.Guild.Id}", $"{sourceParentChannelId}", $"{Context.Channel.Id}");
+                if (!Directory.Exists(localMetadataDir))
+                {
+                    Directory.CreateDirectory(localMetadataDir);
+                }
+
+                var metadata = new
+                {
+                    // 外层属性
+                    Version = "1.0",
+                    GeneratedAt = DateTimeOffset.UtcNow,
+
+                    // 嵌套对象 (CacheThreadMetadata)
+                    CacheThreadMetadata = new
+                    {
+                        OriginThreadChannelLink = $"https://discord.com/channels/{sourceThreadChannel.ParentChannel.Id}/{sourceThreadChannel.Id}",
+                        OriginThreadChannel = sourceThreadChannel.Name ?? "null",
+                        OriginThreadChannelId = sourceThreadChannel.Id,
+                        OriginThreadCreatedAt = sourceThreadChannel.CreatedAt.ToUniversalTime().ToString("O"),
+                        OriginForumChannel = sourceThreadChannel.ParentChannel?.Name ?? "null",
+                        OriginForumChannelId = sourceThreadChannel.ParentChannel?.Id,
+                        OriginAuthorName = sourceThreadChannel.Owner.DisplayName ?? "null",
+                        OriginAuthorId = sourceThreadChannel.Owner.Id,
+                        CacheThreadCreated = DateTimeOffset.UtcNow.ToString("O")
+                    },
+                };
+
+                string metadataPath = Path.Combine(localMetadataDir, "metadata.json");
+
+                await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(metadata, JsonSerializerConfig.OptionsWithIndented));
+
+                if (cacheThread == null)
+                {
+                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("上传失败", "❌ Bot 无法在目标频道创建帖子"), ephemeral: true);
+                    return false;
+                }
+            }
+
+            // =========================================================
+            // 附件分两部分处理:
+            // Discord CDN Url: 主要, 用于直接通过cdn url分发文件, 提升性能和响应速度, 同时节省带宽和流量
+            // 本地文件: 作为备份, 如果 Discord CDN 让 Discord 给毙了就回退到本地文件上传
+            // =========================================================
+            
+            // 下载并转存附件
+            var streams = new List<Stream>(); // 仅用于 finally 释放
+
+            try
+            {
+                // 遍历用户上传的所有附件
+                var downloadTasks = attachments.Select(async attachment =>
+                {
+                    try
+                    {
+                        return await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            var stream = await _httpClient.GetStreamAsync(attachment.Url);
+                            var filename = attachment.Filename.Replace('_', '-');
+                            return (Stream: stream, Attachment: new FileAttachment(stream, filename));
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error(ex, "下载附件失败: {FileName}", attachment.Filename);
+                        return default; // 返回 (null, null)
+                    }
+                });
+
+                var results = await Task.WhenAll(downloadTasks);
+
+                var validResults = results.Where(r => r.Stream != null).ToList();
+
+                streams.AddRange(validResults.Select(r => r.Stream));
+
+                var fileAttachments = validResults.Select(r => r.Attachment).ToList();
+
+                if (fileAttachments.Count > 0)
+                {
+                    IUserMessage? message = null;
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        message = await cacheThread.SendFilesAsync(fileAttachments, text: $"cache update {DateTimeOffset.UtcNow:O}");
+                    });
+
+                    if (message is not null)
+                    {
+                        // 发送转换后的 FileAttachment 列表
+                        cache.CacheMessage = message;
+                        cache.Data.CacheAttachmentUrls = message.Attachments.Select(a => a.Url).ToList();
+                        cache.Data.CacheChannelId = targetChannelId;
+                        cache.Data.CacheMessageId = message.Id;
+                        cache.Data.CacheThreadId = cacheThread.Id;
+                        cache.Data.CacheGuildId = cacheThread.Guild.Id;
+                        cache.SetAttachment(message.Attachments.ToList());
+                        
+                        return true; // 成功
+                    }
+                }
+                else
+                {
+                    await FollowupAsync(components: _componentUtils.TextErrorComponente("❌ 附件处理失败，可能是下载超时或文件为空。"), ephemeral: true);
+                    return false;
+                }
+            }
+            finally
+            {
+                foreach (var stream in streams) await stream.DisposeAsync();
+            }
+
+            return false; // 如果走到这里通常是失败
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "TransferAttachmentsToCacheAsync 内部异常");
+            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("内部错误", "处理附件传输时发生异常"), ephemeral: true);
+            return false;
+        }
+    }
+    #endregion
 }
 
 public class UploadModal : IModal
@@ -1122,7 +1228,6 @@ public class SetPasswordInputModal : IModal
     [ModalTextInput("SetPassword")]
     public string SetPassword { get; set; } = string.Empty;
 }
-
 
 public class PasswordInputModal : IModal
 {

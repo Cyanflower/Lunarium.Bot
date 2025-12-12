@@ -153,9 +153,9 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             
             await reporter.ReportStartAsync("🚀 开始执行同步扫描任务...", Color.Blue);
 
-            _listener.RemoveEventHandlers();
+            // _listener.RemoveEventHandlers();
 
-            await reporter.ReportProgressAsync("✅ 暂停事件处理: 监听器事件处理方法已移除。");
+            // await reporter.ReportProgressAsync("✅ 暂停事件处理: 监听器事件处理方法已移除。");
 
             // 回复 Slash Command 避免超时 (Followup已经在reporter初始化中隐式处理，这里主要作为确认)
             await FollowupAsync(embed: EmbedUtils.SuccessEmbed("✅ 任务已调度", "正在后台执行同步操作，请查看进度卡片。"));
@@ -174,9 +174,9 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         }
         finally
         {
-            _listener.AddEventHandlers();
+            // _listener.AddEventHandlers();
 
-            await reporter.ReportProgressAsync("✅ 恢复事件处理: 监听器事件处理方法已添加。");
+            // await reporter.ReportProgressAsync("✅ 恢复事件处理: 监听器事件处理方法已添加。");
 
             if (success)
             {

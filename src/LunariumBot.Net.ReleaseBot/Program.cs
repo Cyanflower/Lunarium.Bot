@@ -37,7 +37,7 @@ public class Program
                 consoleLogLevel = parsedConsoleLevel;
             }
             GlobalConfigurator.Configure()
-                .UseLocalTimestamp()
+                .UseCustomTimezone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai"))
                 .UseJsonISO8601Timestamp()
                 .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
                 .EnableAutoDestructuring()

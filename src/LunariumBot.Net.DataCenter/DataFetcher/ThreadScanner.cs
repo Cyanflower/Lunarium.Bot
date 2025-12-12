@@ -1084,15 +1084,14 @@ public class ThreadScanner
                 }
             });
 
-            await _httpRetryPolicy.ExecuteAsync(async () =>
+            if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
             {
-                try
+                await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
-
-                    if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
+                    try
                     {
                         _loggerForScan.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
-                            restThreadChannel.Name, restThreadChannel.Id);
+                        restThreadChannel.Name, restThreadChannel.Id);
                         {
                             // 控制速率
                             using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
@@ -1103,13 +1102,13 @@ public class ThreadScanner
                             firstMessage = await restTextChannel.GetMessageAsync(restThreadChannel.Id);
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
-                    throw;
-                }
-            });
+                    catch (Exception ex)
+                    {
+                        _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
+                        throw;
+                    }
+                });
+            }
 
             // 验证首楼消息是否有效
             if (firstMessage is not null)

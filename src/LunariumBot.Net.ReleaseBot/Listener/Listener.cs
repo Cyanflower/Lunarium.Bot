@@ -114,6 +114,15 @@ public class ListenerService
 
     private Task ThreadCreatedHandler(SocketThreadChannel socketThreadChannel)
     {
+        
+        var timeDifference = DateTimeOffset.UtcNow - socketThreadChannel.CreatedAt;
+
+        if (timeDifference.TotalSeconds > 120)
+        {
+            _logger.Debug($"[ThreadCreatedAsync] 忽略旧帖子: {socketThreadChannel.Id} " +
+                        $"(创建于: {socketThreadChannel.CreatedAt}, 距今: {timeDifference.TotalSeconds:F2}秒)");
+            return Task.CompletedTask;
+        }
         if (_processedThreads.TryAdd(socketThreadChannel.Id, 0))
         {     // [DEBUG] 记录原始事件触发
             _logger.Debug($"收到 ThreadCreated 事件: {socketThreadChannel.Name} (ID: {socketThreadChannel.Id})");
@@ -153,11 +162,11 @@ public class ListenerService
             }
 
             // [DEBUG] 硬编码过滤
-            if (ownerId != 867658156510150716)
-            {
-                _logger.Debug($"[ThreadCreatedAsync] 未命中硬编码屏蔽用户 ID (867658156510150716)，停止处理。");
-                return;
-            }
+            // if (ownerId != 867658156510150716)
+            // {
+            //     _logger.Debug($"[ThreadCreatedAsync] 未命中硬编码屏蔽用户 ID (867658156510150716)，停止处理。");
+            //     return;
+            // }
 
             _logger.Debug($"[ThreadCreatedAsync] 通过所有检查，准备发送交互消息...");
 
@@ -173,7 +182,7 @@ public class ListenerService
                         > -# - 无限制: 用户通过点击按钮即可下载作品, 无任何限制
                         > -# - 点赞或评论: 用户对首楼进行反应或发送回复后可下载作品
                         > -# - 提取码: 作者在楼内布置提取码, 用户输入提取码后可下载作品
-                        -# 如使用中有任何问题请前往: [防盗卡BOT开发意见征集](https://discord.com/channels/1291925535324110879/1447557807401340928)
+                        -# 如使用中有任何问题请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)
                         """)
 
                     .WithSeparator()

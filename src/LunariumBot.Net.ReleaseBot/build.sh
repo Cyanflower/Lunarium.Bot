@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ==============================================================================
-# LunariumBot.Net.SearchBot 编译脚本
+# LunariumBot.Net.ReleaseBot 编译脚本
 # ==============================================================================
 
-echo "正在编译 LunariumBot.Net.SearchBot..."
+echo "正在编译 LunariumBot.Net.ReleaseBot..."
 
 dotnet publish -c Release
 

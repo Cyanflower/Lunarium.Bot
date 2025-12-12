@@ -4,6 +4,7 @@ using System.Net;
 
 // NuGet 包依赖
 using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
@@ -42,6 +43,7 @@ public partial class DataProcessService
         // 使用重试策略从 Discord API 获取首楼消息内容
         try
         {
+            await Task.Delay(1000);
             using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
@@ -62,6 +64,33 @@ public partial class DataProcessService
                 socketThreadChannel.Name, socketThreadChannel.Id);
         }
 
+        // 如果第一次请求后 firstMessage 为 null
+        if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
+        {
+            await _httpRetryPolicy.ExecuteAsync(async () =>
+            {
+                try
+                {
+                    _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
+                    socketThreadChannel.Name, socketThreadChannel.Id);
+                    {
+                        // 控制速率
+                        using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+                        var restChannel = await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id);
+                        var restTextChannel = (RestTextChannel)restChannel;
+                        // 控制速率
+                        using var tokenb = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+                        firstMessage = await restTextChannel.GetMessageAsync(restTextChannel.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
+                    throw;
+                }
+            });
+        }
+        
         // 验证首楼消息是否有效, 有效则尝试获取附件
         List<string>? attachmentUrls = null;
         if (firstMessage is not null)
@@ -562,14 +591,14 @@ public partial class DataProcessService
 
     public async Task ThreadMemberJoinedProcessAsync(SocketThreadUser socketThreadUser)
     {
-        var thread = (IThreadChannel)socketThreadUser;
+        var thread = (IThreadChannel)socketThreadUser.Thread;
         var postMemberData = new PostMemberData()
         {
             UserId = socketThreadUser.Id,
             ThreadId = thread.Id,
             IsThreadOwner = socketThreadUser.Id == thread.OwnerId,
-            FirstJoinAt = socketThreadUser.ThreadJoinedAt,
-            LastJoinAt = socketThreadUser.ThreadJoinedAt,
+            FirstJoinAt = DateTimeOffset.UtcNow,
+            LastJoinAt = DateTimeOffset.UtcNow,
             LastMessageId = null,
             LastMessageAt = null
         };

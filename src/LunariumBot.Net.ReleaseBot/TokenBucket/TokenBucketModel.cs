@@ -21,7 +21,7 @@ public class TokenBucket
 {
     private int _tokenLimit;
     private int _token;
-    private HashSet<ulong> hasTokenThreads = new();
+    // private HashSet<ulong> hasTokenThreads = new();
     private Lock _lock = new();
 
     public TokenBucket(int tokenLimit, int? currentToken = null)
@@ -31,43 +31,56 @@ public class TokenBucket
         _token = currentToken ?? tokenLimit;
     }
 
-    public bool GetToken(ulong threadId, int token)
+    public (bool allowable, bool isConsumed) GetToken(ulong threadId, int token)
     {
         lock (_lock)
         {
-            if (hasTokenThreads.Contains(threadId))
-            {
-                return true;
-            }
+            // if (hasTokenThreads.Contains(threadId))
+            // {
+            //     return (true, false);
+            // }
             if (token == 0)
             {
-                return true;
+                return (true, false);
             }
             if (_token > 0)
             {
                 _token = _token - token;
-                hasTokenThreads.Add(threadId);
-                return true;
+                // hasTokenThreads.Add(threadId);
+                return (true, true);
             }
             else
             {
-                return false;
+                return (false, false);
             }
         }
     }
 
-    public void UndoGetToken(ulong threadId)
+    public void UndoGetToken(ulong threadId, int token)
     {
         lock (_lock)
         {
-            if (hasTokenThreads.Contains(threadId))
+            // if (hasTokenThreads.Contains(threadId))
+            // {
+            //     hasTokenThreads.Remove(threadId);
+            //     if (_token < _tokenLimit)
+            //     {
+            //         _token = _token + token;
+            //         if (_token > _tokenLimit)
+            //         {
+            //             _token = _tokenLimit;
+            //         }
+            //     }
+            // }
+            if (_token < _tokenLimit)
             {
-                hasTokenThreads.Remove(threadId);
-                if (_token < _tokenLimit)
+                _token = _token + token;
+                if (_token > _tokenLimit)
                 {
-                    _token++;
+                    _token = _tokenLimit;
                 }
             }
+            
         }
     }
 

@@ -24,8 +24,9 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
     public const string ActionCancel = "Release:Cancel";
 
     public WorkData Data => _data;
-    public IMessage? CacheMessage;
-    public bool IsConsumeToken = false;
+    public IMessage? CacheMessage { get; set; }
+    public bool IsFromMessageCommand { get; set; } = false; 
+    public IMessage? SourceMessage { get; set; }
 
     private List<IAttachment>? _attachments;
     private bool _isCancel = false;
@@ -96,7 +97,7 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
             container.WithTextDisplay($"""
                 ### 获取次数设置
                 可以设置当用户**当日获取作品次数耗尽**时, 是否依然允许其获取本作品?
-                当前设置: **{(IsConsumeToken ? "开放分享: 每日获取作品次数耗尽后**仍可**获取本作品" : "每日限定: 每日获取作品次数耗尽后**无法**获取本作品")}**
+                当前设置: **{(_data.IsConsumeToken ? "开放分享: 每日获取作品次数耗尽后**仍可**获取本作品" : "每日限定: 每日获取作品次数耗尽后**无法**获取本作品")}**
                 """);
             // 10
             container.WithActionRow(row =>
@@ -105,7 +106,7 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
                 row.WithButton(
                     label: "开放分享",
                     customId: $"{ActionFreeAccess}:{CacheId}",
-                    style: IsConsumeToken ? ButtonStyle.Secondary : ButtonStyle.Success,
+                    style: _data.IsConsumeToken ? ButtonStyle.Secondary : ButtonStyle.Success,
                     emote: new Emoji("🎀"),
                     disabled: IsFinished
                 );
@@ -113,7 +114,7 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
                 row.WithButton(
                     label: "每日限定",
                     customId: $"{ActionConsumeToken}:{CacheId}",
-                    style: !IsConsumeToken ? ButtonStyle.Secondary : ButtonStyle.Success,
+                    style: !_data.IsConsumeToken ? ButtonStyle.Secondary : ButtonStyle.Success,
                     emote: new Emoji("🎫"),
                     disabled: IsFinished
                 );
@@ -200,13 +201,18 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
             {
                 // 26
                 row.WithButton(
-                    label: "添加作品",
+                    label: IsFromMessageCommand ? "作品已导入" : "添加作品",
                     customId: $"{ActionAddWorks}:{CacheId}",
-                    style: ButtonStyle.Primary,
+                    style: IsFromMessageCommand ? ButtonStyle.Success : ButtonStyle.Primary,
                     emote: new Emoji("➕"),
-                    disabled: IsFinished
+                    disabled: IsFromMessageCommand || IsFinished
                 );
             });
+            if (IsFromMessageCommand)
+            {
+                // 27
+                container.WithTextDisplay("-# 在从消息导入消息附件后附件内容将固定为当时的原消息附件, 无法修改\n如需修改请发起新的交互面板");
+            }
             // 总计最多3个
             if (_data.CacheAttachmentUrls.Count > 0)
             {
@@ -240,25 +246,25 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
                 }
             }
 
-            // 29
+            // 30
             container.WithSeparator();
 
             if (_isComplete)
             {
-                // 30
+                // 31
                 container.WithTextDisplay("### 操作已完成");
             }
             else if (_isCancel)
             {
-                // 31
+                // 32
                 container.WithTextDisplay("### 操作已取消");
             }
             else
             {
-                // 32
+                // 33
                 container.WithActionRow(row =>
                 {
-                    // 33
+                    // 34
                     row.WithButton(
                         label: "发布",
                         customId: $"{ActionConfirm}:{CacheId}",
@@ -266,7 +272,7 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
                         emote: new Emoji("📨"),
                         disabled: IsFinished
                     );
-                    // 34
+                    // 35
                     row.WithButton(
                         label: "取消",
                         customId: $"{ActionCancel}:{CacheId}",
@@ -276,6 +282,10 @@ public class ReleaseCache : BaseInteractionsCache<WorkData>
                     );
                 });
             }
+            // 36
+            container.WithSeparator();
+            // 37
+            container.WithTextDisplay("-# 如使用中有任何问题或建议请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)");
         });
 
         return component.Build();

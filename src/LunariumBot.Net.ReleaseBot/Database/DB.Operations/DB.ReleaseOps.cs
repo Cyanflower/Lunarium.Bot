@@ -40,7 +40,7 @@ public partial class DatabaseService
             INSERT INTO release_main (
                 release_message_id, thread_id, author_id,
                 release_at, guild_id, channel_id,
-                message_jump_url, release_model, release_password,
+                message_jump_url, release_model, release_password, is_consume_token, 
                 cache_message_url, cache_message_id, cache_thread_id,
                 cache_channel_id, cache_guild_id, cache_attachment_urls, alerts,
                 enabled_alerts, is_update, is_deleted,
@@ -49,7 +49,7 @@ public partial class DatabaseService
             VALUES (
                 @ReleaseMessageId, @ThreadId, @AuthorId,
                 @ReleaseAt, @GuildId, @ChannelId,
-                @MessageJumpUrl, @ReleaseModel, @ReleasePassword,
+                @MessageJumpUrl, @ReleaseModel, @ReleasePassword, @IsConsumeToken, 
                 @CacheMessageUrl, @CacheMessageId, @CacheThreadId,
                 @CacheChannelId, @CacheGuildId, @CacheAttachmentUrls, @Alerts,
                 @EnableAlerts, @IsUpdate, FALSE,
@@ -69,11 +69,12 @@ public partial class DatabaseService
             MessageJumpUrl = workDataDb.MessageJumpUrl,
             ReleaseModel = workDataDb.ReleaseModel,
             ReleasePassword = workDataDb.ReleasePassword,
+            IsConsumeToken = workDataDb.IsConsumeToken,
             CacheMessageUrl = workDataDb.CacheMessageUrl,
             CacheMessageId = workDataDb.CacheMessageId,
             CacheThreadId = workDataDb.CacheThreadId,
             CacheChannelId = workDataDb.CacheChannelId,
-            CacheGuildId = workDataDb.CacheGuildId, 
+            CacheGuildId = workDataDb.CacheGuildId,
             CacheAttachmentUrls = workDataDb.CacheAttachmentUrls,
             Alerts = workDataDb.Alerts,
             EnableAlerts = workDataDb.EnableAlerts,
@@ -93,6 +94,42 @@ public partial class DatabaseService
         }
     }
 
+    public async Task<int?> InsertDownloadLogAsync(NpgsqlTransaction transaction, DownloadLog downloadLog)
+    {
+        const string SqlCommand = """
+            INSERT INTO work_download_logs (
+                user_id,
+                thread_id,
+                release_message_id
+            )
+            VALUES (
+                @UserId,
+                @ThreadId,
+                @ReleaseMessageId
+            );
+            """;
+
+        var downloadLogDb = DownloadLogDb.FromDomain(downloadLog);
+        var parameters = new
+        {
+            UserId = downloadLogDb.UserId,
+            ThreadId = downloadLogDb.ThreadId,
+            ReleaseMessageId = downloadLogDb.ReleaseMessageId,
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var result = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ InsertDownloadLogAsync: 写入作品信息 {@downloadLog} 失败！", downloadLog);
+            throw;
+        }
+    }
+
     /// 根据 release_message_id 查询对应的完整 WorkData
     public async Task<WorkDataDb?> QueryWorkDataByMessageIdAsync(ulong releaseMessageId)
     {
@@ -107,6 +144,7 @@ public partial class DatabaseService
                 message_jump_url AS MessageJumpUrl, 
                 release_model AS ReleaseModel, 
                 release_password AS ReleasePassword,
+                is_consume_token AS IsConsumeToken,
                 cache_message_url AS CacheMessageUrl, 
                 cache_message_id AS CacheMessageId, 
                 cache_thread_id AS CacheThreadId,
@@ -138,6 +176,56 @@ public partial class DatabaseService
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ QueryWorkDataByMessageIdAsync: 查询 Message {ReleaseMessageId} 的 WorkData 失败！", releaseMessageId);
+            throw;
+        }
+    }
+    
+    public async Task<WorkDataDb?> QueryLatestWorkDataByThreadIdAsync(ulong threadId)
+    {
+        const string SqlCommand = """
+            SELECT 
+                release_message_id AS ReleaseMessageId, 
+                thread_id AS ThreadId, 
+                author_id AS AuthorId,
+                release_at AS ReleaseAt, 
+                guild_id AS GuildId, 
+                channel_id AS ChannelId,
+                message_jump_url AS MessageJumpUrl, 
+                release_model AS ReleaseModel, 
+                release_password AS ReleasePassword,
+                is_consume_token AS IsConsumeToken,
+                cache_message_url AS CacheMessageUrl, 
+                cache_message_id AS CacheMessageId, 
+                cache_thread_id AS CacheThreadId,
+                cache_channel_id AS CacheChannelId, 
+                cache_guild_id AS CacheGuildId, 
+                cache_attachment_urls AS CacheAttachmentUrls, 
+                alerts AS Alerts,
+                enabled_alerts AS EnableAlerts, 
+                is_update AS IsUpdate, 
+                is_deleted AS IsDeleted,
+                delete_at AS DeleteAt
+            FROM release_main
+            WHERE thread_id = @ThreadId 
+              AND is_deleted = FALSE
+            ORDER BY release_at DESC
+            LIMIT 1;
+            """;
+
+        var parameters = new
+        {
+            ThreadId = threadId.ToDbId()
+        };
+
+        try
+        {
+            await using var connection = GetConnection();
+            var result = await connection.QuerySingleOrDefaultAsync<WorkDataDb>(SqlCommand, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ QueryLatestWorkDataByThreadIdAsync: 查询 Thread {ThreadId} 的最新 WorkData 失败！", threadId);
             throw;
         }
     }
@@ -266,7 +354,7 @@ public partial class DatabaseService
             throw;
         }
     }
-    
+
 
     // 检查 post_reactions 表中是否存在指定 thread_id 和 user_id 的记录
     // 只要该用户对该帖子有任何 Emoji 反应，即返回 true
@@ -296,6 +384,41 @@ public partial class DatabaseService
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ CheckReactionExistsAsync: 检查 User {UserId} 在 Thread {ThreadId} 的反应记录失败！", userId, threadId);
+            throw;
+        }
+    }
+    
+    // 检查 work_download_logs 表中是否存在指定 user_id 和 release_message_id 的记录。
+    // 不返回实际数据，仅检查存在性。
+    public async Task<bool> CheckDownloadLogExistsAsync(ulong userId, ulong releaseMessageId)
+    {
+        const string SqlCommand = """
+            SELECT 1
+            FROM work_download_logs
+            WHERE user_id = @UserId 
+              AND release_message_id = @ReleaseMessageId
+            LIMIT 1;
+            """;
+
+        var parameters = new
+        {
+            UserId = userId.ToDbId(),
+            ReleaseMessageId = releaseMessageId.ToDbId()
+        };
+
+        try
+        {
+            // 此处只需要读操作，使用 GetConnection() 获取新连接即可
+            await using var connection = GetConnection();
+
+            // ExecuteScalarAsync 获取第一行第一列，如果没有匹配行则返回 null
+            var result = await connection.ExecuteScalarAsync<int?>(SqlCommand, parameters);
+
+            return result.HasValue;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ CheckDownloadLogExistsAsync: 检查 User {UserId} 对 Message {ReleaseMessageId} 的下载记录失败！", userId, releaseMessageId);
             throw;
         }
     }

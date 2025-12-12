@@ -16,6 +16,7 @@ public class WorkData
 
     public ReleaseModel ReleaseModel { get; set; } = ReleaseModel.NoLimit;
     public string ReleasePassword { get; set; } = "";
+    public bool IsConsumeToken { get; set; } = false;
 
     public string CacheMessageUrl { get; set; } = "";
     public ulong CacheMessageId { get; set; }
@@ -44,6 +45,8 @@ public class WorkDataDb
 
     public ReleaseModel ReleaseModel { get; set; } = ReleaseModel.NoLimit;
     public string ReleasePassword { get; set; } = "";
+    public bool IsConsumeToken { get; set; } = false;
+    
 
     public string CacheMessageUrl { get; set; } = "";
     public long CacheMessageId { get; set; }
@@ -78,6 +81,7 @@ public class WorkDataDb
         EnableAlerts = workData.EnableAlerts,
         ReleaseModel = workData.ReleaseModel,
         ReleasePassword = workData.ReleasePassword,
+        IsConsumeToken = workData.IsConsumeToken,
         IsUpdate = workData.IsUpdate,
         IsDeleted = workData.IsDeleted,
         DeleteAt = workData.DeleteAt
@@ -97,13 +101,14 @@ public class WorkDataDb
         CacheThreadId = CacheThreadId.ToDiscordId(),
         CacheChannelId = CacheChannelId.ToDiscordId(),
         CacheGuildId = CacheGuildId.ToDiscordId(),
-        CacheAttachmentUrls = (CacheAttachmentUrls.Length > 0 
-            ? JsonSerializer.Deserialize<List<string>>(CacheAttachmentUrls) 
+        CacheAttachmentUrls = (CacheAttachmentUrls.Length > 0
+            ? JsonSerializer.Deserialize<List<string>>(CacheAttachmentUrls)
             : null) ?? new(),
         Alerts = Alerts,
         EnableAlerts = EnableAlerts,
         ReleaseModel = ReleaseModel,
         ReleasePassword = ReleasePassword,
+        IsConsumeToken = IsConsumeToken,
         IsUpdate = IsUpdate,
         IsDeleted = IsDeleted,
         DeleteAt = DeleteAt

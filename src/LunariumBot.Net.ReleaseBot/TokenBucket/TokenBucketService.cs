@@ -31,7 +31,7 @@ public class TokenBucketService : IDisposable
     /// 允许多个线程同时进入 (持有读锁)
     /// 但如果有 WriteLock(ResumeAllToken) 正在运行, 这里会阻塞
     /// </summary>
-    public (bool allowable, int remainingToken, int tokenLimit) GetToken(ulong userId, ulong threadId, int token)
+    public (bool allowable, bool isConsumed, int remainingToken, int tokenLimit) GetToken(ulong userId, ulong threadId, int token)
     {
         // 进入读锁模式
         _globalLock.EnterReadLock();
@@ -39,7 +39,9 @@ public class TokenBucketService : IDisposable
         {
             var bucket = _tokenBuckets.GetOrAdd(userId, _ => new TokenBucket(_tokenLimit));
 
-            return (bucket.GetToken(threadId, token), bucket.CurrentToken, _tokenLimit);
+            (var allowable, var isConsumed) = bucket.GetToken(threadId, token);
+
+            return (allowable, isConsumed, bucket.CurrentToken, _tokenLimit);
         }
         catch (Exception ex)
         {
@@ -53,15 +55,17 @@ public class TokenBucketService : IDisposable
         }
     }
 
-    public void UndoGetToken(ulong userId, ulong threadId)
+    public void UndoGetToken(ulong userId, ulong threadId, int token, bool isConsumed)
     {
+        if (!isConsumed) return;
+        if (token == 0) return;
         // 进入读锁模式
         _globalLock.EnterReadLock();
         try
         {
             if (_tokenBuckets.TryGetValue(userId, out var tokenBucket))
             {
-                tokenBucket.UndoGetToken(threadId);
+                tokenBucket.UndoGetToken(threadId, token);
             }
         }
         catch (Exception ex)

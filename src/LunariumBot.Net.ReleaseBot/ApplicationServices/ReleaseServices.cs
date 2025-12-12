@@ -63,6 +63,37 @@ public partial class ApplicationService
         }
     }
 
+    public async Task<int?> InsertDownloadLogAsync(DownloadLog downloadLog)
+    {
+        try
+        {
+            await using var connection = _databaseService.GetConnection();
+            await connection.OpenAsync();
+            await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+            int? result = null;
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                try
+                {
+                    result = await _databaseService.InsertDownloadLogAsync(transaction, downloadLog);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+            return result;
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ InsertDownloadLogAsync: 写入作品信息 {@workData} 失败", errorId, downloadLog);
+            return null;
+        }
+    }
 
     /// 根据发布消息ID获取完整的 WorkData 对象
     public async Task<WorkData?> GetWorkDataAsync(ulong releaseMessageId)
@@ -80,6 +111,26 @@ public partial class ApplicationService
         {
             string errorId = CorrelationIdGenerator.Generate();
             _logger.Error(ex, "[{errorId}] ❌ GetWorkDataAsync: 获取 Message {ReleaseMessageId} 数据失败", errorId, releaseMessageId);
+            return null;
+        }
+    }
+
+    // 获取指定帖子内最新的作品数据
+    public async Task<WorkData?> GetLatestWorkDataByThreadIdAsync(ulong threadId)
+    {
+        try
+        {
+            var dbResult = await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                return await _databaseService.QueryLatestWorkDataByThreadIdAsync(threadId);
+            });
+
+            return dbResult?.ToDomain();
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ GetLatestWorkDataByThreadIdAsync: 获取 Thread {ThreadId} 数据失败", errorId, threadId);
             return null;
         }
     }
@@ -192,7 +243,7 @@ public partial class ApplicationService
             return false;
         }
     }
-    
+
     // 检查指定用户在指定帖子中是否进行过反应 (Reaction)
     public async Task<bool> HasReactionRecordAsync(ulong userId, ulong threadId)
     {
@@ -208,6 +259,26 @@ public partial class ApplicationService
         {
             string errorId = CorrelationIdGenerator.Generate();
             _logger.Error(ex, "[{errorId}] ❌ HasReactionRecordAsync: 检查 User {UserId} 在 Thread {ThreadId} 的反应记录失败", errorId, userId, threadId);
+            return false;
+        }
+    }
+    
+    /// 检查指定用户是否已经下载过该发布消息 (通过查询日志记录)。
+    public async Task<bool> HasDownloadRecordAsync(ulong userId, ulong releaseMessageId)
+    {
+        try
+        {
+            var result = await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                return await _databaseService.CheckDownloadLogExistsAsync(userId, releaseMessageId);
+            });
+            return result;
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ HasDownloadRecordAsync: 检查 User {UserId} 对 Message {ReleaseMessageId} 的下载记录失败", errorId, userId, releaseMessageId);
+            // 发生数据库异常时保守返回 false，即假定未下载，允许重试或记录新日志（视业务需求而定）
             return false;
         }
     }

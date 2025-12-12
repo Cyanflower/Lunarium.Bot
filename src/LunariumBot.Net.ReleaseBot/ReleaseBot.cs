@@ -132,13 +132,18 @@ public class ReleaseBotService : IHostedService
                     var config = new DiscordSocketConfig
                     {
                         RestClientProvider = DefaultRestClientProvider.Create(useProxy: true, webProxy: proxy),
-                        WebSocketProvider = DefaultWebSocketProvider.Create(proxy)
+                        WebSocketProvider = DefaultWebSocketProvider.Create(proxy),
+                        GatewayIntents = GatewayIntents.All
                     };
                     return new DiscordSocketClient(config);
                 }
                 else
                 {
-                    return new DiscordSocketClient();
+                    var config = new DiscordSocketConfig
+                    {
+                        GatewayIntents = GatewayIntents.All
+                    };
+                    return new DiscordSocketClient(config);
                 }
             })
 
