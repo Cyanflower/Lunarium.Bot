@@ -157,12 +157,16 @@ public class UserDashboard : InteractionModuleBase<SocketInteractionContext>
             // 调用数据库查询通知情况
     
             var component = new ComponentBuilderV2()
+                // 1
                 .WithContainer(container =>
                 {
+                    // 2
                     container.WithAccentColor(Color.Blue);
 
                     // 概览
+                    // 3
                     container.WithSection(section => section
+                        // 4
                         .WithTextDisplay($"""
                             ## 星图助手（旅程卡区助手）
                             👋 欢迎回来, <@{Context.User.Id}>
@@ -171,38 +175,54 @@ public class UserDashboard : InteractionModuleBase<SocketInteractionContext>
                             > -# 订阅作者通知: 
                             请选择您想要进行的操作:
                             """)
+                        // 5
                         .WithAccessory(new ThumbnailBuilder().WithMedia(Context.User.GetAvatarUrl())));
-                        
+                    // 6
+                    container.WithSeparator();
+                    // 7
+                    container.WithSection(section => section
+                        // 8
+                        .WithTextDisplay($"""✨ 前往星图ΣΤΑΘΜΗ""")
+                        // 9
+                        .WithAccessory(new ButtonBuilder("前往星图", style: ButtonStyle.Link, url:"https://opizontas.org/")));
+                    // 10
                     container.WithSeparator();
 
-                    container.WithSection(section => section
-                        .WithTextDisplay($"""✨ 前往星图ΣΤΑΘΜΗ""")
-                        .WithAccessory(new ButtonBuilder("前往星图", style: ButtonStyle.Link, url:"https://opizontas.org/")));
-    
-                    container.WithSeparator();
-    
                     // 搜索
                     // container.WithTextDisplay("🔍 搜索与发现\n-# 使用搜索面板设置条件查找帖子，或使用保存过的预设快捷指令。");
+                    // 11
                     container.WithTextDisplay("🔍 搜索与发现\n-# 使用搜索面板设置条件查找帖子");
+                    // 12
                     container.WithActionRow(actionRow => actionRow
+                        // 13
                         .WithButton(new ButtonBuilder("搜索面板", "Dash:Search", ButtonStyle.Primary, emote: new Emoji("🔎")))
+                        // 14
                         // .WithButton(new ButtonBuilder("快捷搜索", "Dash:QuickSearch", ButtonStyle.Primary, emote: new Emoji("🗃")))
                     );
-    
+                    // 15
                     container.WithSeparator();
-    
+
                     // 收藏与关注
+                    // 16
                     container.WithTextDisplay("🌟 收藏与关注\n-# 查看或管理您的收藏夹和关注的作者。");
+                    // 17
                     container.WithActionRow(actionRow => actionRow
+                        // 18
                         .WithButton(new ButtonBuilder("管理收藏", "Dash:ViewFav", ButtonStyle.Primary, emote: new Emoji("⭐")))
+                        // 19
                         .WithButton(new ButtonBuilder("快捷搜索", "Dash:ViewSub", ButtonStyle.Primary, emote: new Emoji("❤️")))
                     );
+                    // 20
                     container.WithSeparator();
-    
+
                     // 更新通知
+                    // 21
                     container.WithTextDisplay("🔔 消息通知\n-# 查看您收藏与订阅内容的最新更新推送。");
+                    // 22
                     container.WithActionRow(actionRow => actionRow
+                        // 23
                         .WithButton(new ButtonBuilder("收藏更新", "Dash:ViewFavNotify", ButtonStyle.Primary, emote: new Emoji("📨")))
+                        // 24
                         .WithButton(new ButtonBuilder("订阅更新", "Dash:ViewSubNotify", ButtonStyle.Primary, emote: new Emoji("💌")))
                     );
                     // container.WithSeparator();

@@ -20,15 +20,20 @@ public class Program
 
         try
         {
-            // === 配置日志 ===
-            // 读取环境变量
+            // ====================================================================
+            // 配置部分开始
+            // ====================================================================
+
+            // === 读取日志等级环境变量 ==============================================
+            // 文件日志级别
             var envFileLogLevel = Environment.GetEnvironmentVariable("FILE_LOG_LEVEL");
             var fileLogLevel = LogLevel.Info;
-            if (!string.IsNullOrEmpty(envFileLogLevel) && 
+            if (!string.IsNullOrEmpty(envFileLogLevel) &&
                 Enum.TryParse<LogLevel>(envFileLogLevel, true, out var parsedFileLevel))
             {
                 fileLogLevel = parsedFileLevel;
             }
+            // 控制台日志级别
             var envConsoleLogLevel = Environment.GetEnvironmentVariable("CONSOLE_LOG_LEVEL");
             var consoleLogLevel = LogLevel.Info;
             if (!string.IsNullOrEmpty(envConsoleLogLevel) &&
@@ -36,13 +41,17 @@ public class Program
             {
                 consoleLogLevel = parsedConsoleLevel;
             }
+            // ====================================================================
+
+            // === 构建日志 ========================================================
+            // 日志全局配置
             GlobalConfigurator.Configure()
                 .UseCustomTimezone(TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai"))
                 .UseJsonISO8601Timestamp()
                 .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
                 .EnableAutoDestructuring()
                 .Apply();
-            // === 构建日志 ===
+            // 配置日志实例
             _rootLogger = new LoggerBuilder()
                 .LoggerName("Runtime")
                 .AddSizedRotatingFileSink(
@@ -61,15 +70,6 @@ public class Program
                     sinkConfiguration: new SinkConfiguration
                     {
                         ContextFilterIncludes = ["ReleaseBotService.CommandAuth"],
-                        LogMinLevel = fileLogLevel
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/Scan/Scan.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 10,
-                    sinkConfiguration: new SinkConfiguration
-                    {
-                        ContextFilterIncludes = ["ReleaseBotService.Scan"],
                         LogMinLevel = fileLogLevel
                     })
                 .AddSizedRotatingFileSink(
@@ -97,8 +97,9 @@ public class Program
                 .Build();
             // Main 上下文包装器
             ILogger _mainLogger = _rootLogger.ForContext("Main");
+            // ====================================================================
 
-            // === 代理 ===
+            // === 代理 ===========================================================
             // 从环境变量中获取代理
             var proxyUrl = Environment.GetEnvironmentVariable("http_proxy") ?? Environment.GetEnvironmentVariable("HTTP_PROXY");
             var proxyConfig = new ProxyConfig { };
@@ -112,8 +113,10 @@ public class Program
                 proxyConfig.Enable = false;
                 proxyConfig.ProxyUrl = "";
             }
+            // ====================================================================
 
             // === Token 读取 ===
+            // 从环境变量中读取 Token
             var mainBotToken = Environment.GetEnvironmentVariable("RELEASE_BOT_TOKEN");
             if (string.IsNullOrWhiteSpace(mainBotToken))
             {
@@ -121,6 +124,20 @@ public class Program
                 _mainLogger.Critical("💥 环境变量 RELEASE_BOT_TOKEN 未设置！");
                 throw ex;
             }
+            // 从环境变量中读取 Token
+            var assistBotToken = Environment.GetEnvironmentVariable("RELEASE_BOT_ASSIST_TOKEN");
+            if (string.IsNullOrWhiteSpace(assistBotToken))
+            {
+                assistBotToken = null;
+                var ex = new InvalidOperationException();
+                _mainLogger.Warning("💥 环境变量 RELEASE_BOT_ASSIST_TOKEN 未设置！将禁用私聊发送作品功能");
+            }
+            // ====================================================================
+            var botTokens = new BotTokens
+            { 
+                MainToken = mainBotToken,
+                AssistToken = assistBotToken
+            };
 
             // 配置主机服务
             var host = Host.CreateDefaultBuilder(args)
@@ -131,26 +148,61 @@ public class Program
                 })
                 .ConfigureServices((services) =>
                 {
-                    
-                    services
-                        // 配置 Host 选项
-                        .Configure<HostOptions>(opts =>
+
+                    // 配置 Host 选项
+                    services.Configure<HostOptions>(opts =>
                         {
                             opts.ShutdownTimeout = TimeSpan.FromSeconds(120);
                         })
+                        // 添加 token 配置
+                        .AddSingleton(botTokens)
                         // 添加代理配置到容器
                         .AddSingleton(proxyConfig)
                         // 添加日志实例到容器
-                        .AddSingleton(_rootLogger)
-                        // 添加 Bot 服务
-                        .AddHostedService<ReleaseBotService>(provider =>
-                        {
-                            var logger = provider.GetRequiredService<ILogger>();
-                            var proxy = provider.GetRequiredService<ProxyConfig>();
-                            return new ReleaseBotService(mainBotToken, logger, proxy);
-                        });
+                        .AddSingleton(_rootLogger);
+
+                    // 添加辅助 Bot 服务
+                    if (botTokens.AssistToken is not null)
+                    {
+                        services.AddSingleton<ReleaseBotAssistService>();
+                        services.AddHostedService<ReleaseBotAssistService>(p => p.GetRequiredService<ReleaseBotAssistService>());
+                    }
+
+                    // 添加 Bot 服务
+                    services.AddHostedService<ReleaseBotService>(provider =>
+                    {
+                        var tokens = provider.GetRequiredService<BotTokens>();
+                        var logger = provider.GetRequiredService<ILogger>();
+                        var proxy = provider.GetRequiredService<ProxyConfig>();
+
+                        // 关键点：使用 GetService。如果 AssistService 没注册，这里返回 null，不会崩。
+                        var assistBotPayload = new AssistBotPayload();
+                        assistBotPayload.assistBot = provider.GetService<ReleaseBotAssistService>();
+                        if (assistBotToken is null) assistBotPayload.assistBot = null;
+                        _mainLogger.Debug("assistBotPayload's paylod is null? : {status}", assistBotPayload.assistBot is null ? true : false);
+
+                        return new ReleaseBotService(tokens, logger, proxy, assistBotPayload);
+                    });
                 })
                 .Build();
+            
+            // ====================================================================
+
+            // 注册全局未捕获异常处理器
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                _mainLogger.Error("💥 发生未捕获的致命异常", e.ExceptionObject as Exception);
+            };
+            // 捕获全局并行任务异常
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                _mainLogger.Error("⚠️ 检测到未观察的任务异常", e.Exception);
+                e.SetObserved(); // 标记为已处理, 防止程序崩溃
+            };
+            
+            // ====================================================================
+            // 配置部分结束
+            // ====================================================================
 
             _mainLogger.Info("🚀 服务启动中...");
 
@@ -163,26 +215,15 @@ public class Program
                 _mainLogger.Info("🔗 代理未启用");
             }
 
-            // 注册全局未捕获异常处理器
-            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
-            {
-                _mainLogger.Error("💥 发生未捕获的致命异常", e.ExceptionObject as Exception);
-            };
-            // 捕获全局并行任务异常
-            TaskScheduler.UnobservedTaskException += (sender, e) =>
-            {
-                _mainLogger.Error("⚠️ 检测到未观察的任务异常", e.Exception);
-                e.SetObserved(); // 标记为已处理，防止程序崩溃
-            };
-
+            // 运行主机服务
             await host.RunAsync();
 
             Environment.ExitCode = 0;
         }
         catch (Exception ex)
         {
-            // 如果日志系统初始化成功，就用它来记录启动失败的错误
-            // 否则，退回到用 Console.Write
+            // 如果日志系统初始化成功, 就用它来记录启动失败的错误
+            // 否则, 退回到用 Console.Write
             if (_rootLogger is not null)
             {
                 _rootLogger.ForContext("Program").Critical("💥 服务启动失败", ex);

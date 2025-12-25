@@ -30,20 +30,20 @@ public partial class ApplicationService
         }
     }
 
-    public async Task<int?> InsertWorkDataAsync(WorkData workData)
+    public async Task<long?> InsertWorkDataAsync(WorkData workData)
     {
         try
         {
             await using var connection = _databaseService.GetConnection();
             await connection.OpenAsync();
-            await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
 
-            int? result = null;
+            long? resultId = null; 
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
+                await using var transaction = (Npgsql.NpgsqlTransaction)await connection.BeginTransactionAsync();
                 try
                 {
-                    result = await _databaseService.InsertWorkDataAsync(transaction, workData);
+                    resultId = await _databaseService.InsertWorkDataAsync(transaction, workData);
                     await transaction.CommitAsync();
                 }
                 catch
@@ -53,7 +53,7 @@ public partial class ApplicationService
                 }
 
             });
-            return result;
+            return resultId;
         }
         catch (Exception ex)
         {
@@ -135,6 +135,26 @@ public partial class ApplicationService
         }
     }
 
+    // 获取指定帖子内指定 ID 的作品数据
+    public async Task<WorkData?> GetWorkDataByWorkIdAsync(ulong threadId, long workId)
+    {
+        try
+        {
+            var dbResult = await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                return await _databaseService.QueryWorkDataByWorkIdAsync(threadId, workId);
+            });
+
+            return dbResult?.ToDomain();
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ GetLatestWorkDataByThreadIdAsync: 获取 Thread {ThreadId} 数据失败", errorId, threadId);
+            return null;
+        }
+    }
+
     /// 根据发布消息ID获取发布密码
     public async Task<string?> GetReleasePasswordAsync(ulong releaseMessageId)
     {
@@ -162,11 +182,11 @@ public partial class ApplicationService
         {
             await using var connection = _databaseService.GetConnection();
             await connection.OpenAsync();
-            await using var transaction = await connection.BeginTransactionAsync();
 
             int rowsAffected = 0;
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
+                await using var transaction = await connection.BeginTransactionAsync();
                 try
                 {
                     rowsAffected = await _databaseService.SoftDeleteWorkDataAsync(transaction, releaseMessageId);
@@ -196,11 +216,11 @@ public partial class ApplicationService
             // 写操作：服务层负责连接和事务生命周期
             await using var connection = _databaseService.GetConnection();
             await connection.OpenAsync();
-            await using var transaction = await connection.BeginTransactionAsync();
 
             var rowsAffected = 0;
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
+                await using var transaction = await connection.BeginTransactionAsync();
                 try
                 {
                     rowsAffected = await _databaseService.HardDeleteWorkDataByThreadIdAsync(transaction, threadId);
@@ -262,7 +282,7 @@ public partial class ApplicationService
             return false;
         }
     }
-    
+
     /// 检查指定用户是否已经下载过该发布消息 (通过查询日志记录)。
     public async Task<bool> HasDownloadRecordAsync(ulong userId, ulong releaseMessageId)
     {
@@ -279,6 +299,92 @@ public partial class ApplicationService
             string errorId = CorrelationIdGenerator.Generate();
             _logger.Error(ex, "[{errorId}] ❌ HasDownloadRecordAsync: 检查 User {UserId} 对 Message {ReleaseMessageId} 的下载记录失败", errorId, userId, releaseMessageId);
             // 发生数据库异常时保守返回 false，即假定未下载，允许重试或记录新日志（视业务需求而定）
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateWorkCacheAsync(WorkData updateModel)
+    {
+        try
+        {
+            await using var connection = _databaseService.GetConnection();
+            await connection.OpenAsync();
+
+            int rowsAffected = 0;
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await connection.BeginTransactionAsync();
+                try
+                {
+                    rowsAffected = await _databaseService.UpdateWorkCacheAsync(transaction, updateModel);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+            if (rowsAffected > 0)
+            {
+                _logger.Debug("✅ UpdateWorkCacheAsync: 成功更新 Message {ReleaseMessageId} 的缓存信息。", updateModel.ReleaseMessageId);
+                return true;
+            }
+            else
+            {
+                _logger.Warning("⚠️ UpdateWorkCacheAsync: 未找到 Message {ReleaseMessageId}，更新未生效。", updateModel.ReleaseMessageId);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ UpdateWorkCacheAsync: 更新 Message {ReleaseMessageId} 缓存失败",
+                errorId, updateModel.ReleaseMessageId);
+            return false;
+        }
+    }
+    
+    public async Task<bool> UpdatePostUpdateInfoAsync(ulong threadId, DateTimeOffset updatedAt, string updatedJumpUrl)
+    {
+        try
+        {
+            int rowsAffected = 0;
+            await using var connection = _databaseService.GetConnection();
+            await connection.OpenAsync();
+            
+            // 使用 Polly 重试策略执行数据库操作
+            await _dbRetryPolicy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await connection.BeginTransactionAsync();
+                try
+                {
+                    rowsAffected = await _databaseService.UpdatePostUpdateInfoAsync(transaction, threadId, updatedAt, updatedJumpUrl);
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+
+            if (rowsAffected > 0)
+            {
+                // _logger.Debug("✅ 成功更新 Thread {ThreadId} 的最后更新时间为 {UpdatedAt}", threadId, updatedAt);
+                return true;
+            }
+            else
+            {
+                _logger.Warning("⚠️ UpdatePostUpdateInfoAsync: 未找到 Thread {ThreadId}，更新未生效。", threadId);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // 生成错误追踪ID
+            string errorId = CorrelationIdGenerator.Generate();
+            _logger.Error(ex, "[{errorId}] ❌ UpdatePostUpdateInfoAsync: 更新 Thread {ThreadId} 信息失败", errorId, threadId);
             return false;
         }
     }

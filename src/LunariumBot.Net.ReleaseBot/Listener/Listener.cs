@@ -140,7 +140,7 @@ public class ListenerService
     {
         try
         {
-            await Task.Delay(1000);
+            await Task.Delay(5000);
             var parentId = socketThreadChannel.ParentChannel?.Id ?? 0;
             var ownerId = socketThreadChannel.Owner?.Id ?? 0;
 
@@ -180,9 +180,11 @@ public class ListenerService
                         > 如果选择不使用本BOT, 也建议首楼尽量放置图片, 贴内放置作品, 以避免简易爬虫批量盗取首楼作品
                         作者可选获取作品方式:
                         > -# - 无限制: 用户通过点击按钮即可下载作品, 无任何限制
+                        > -# - 点赞: 用户对首楼进行反应后可下载作品
                         > -# - 点赞或评论: 用户对首楼进行反应或发送回复后可下载作品
                         > -# - 提取码: 作者在楼内布置提取码, 用户输入提取码后可下载作品
-                        -# 如使用中有任何问题请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)
+                        -# - 注：Bot 会缓存作品文件，由于需要实现在贴内隐藏作品的情况下 Bot 向用户发送作品，Bot 需要先实现缓存作品相关文件才能实现再向用户发送，并且缓存会在删除发布处时同步删除，无法找回。
+                        -# - 如使用中有任何问题请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)
                         """)
 
                     .WithSeparator()

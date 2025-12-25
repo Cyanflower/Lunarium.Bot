@@ -34,13 +34,13 @@ public partial class DatabaseService
         }
     }
 
-    public async Task<int?> InsertWorkDataAsync(NpgsqlTransaction transaction, WorkData workData)
+    public async Task<long> InsertWorkDataAsync(NpgsqlTransaction transaction, WorkData workData)
     {
         const string SqlCommand = """
             INSERT INTO release_main (
                 release_message_id, thread_id, author_id,
-                release_at, guild_id, channel_id,
-                message_jump_url, release_model, release_password, is_consume_token, 
+                release_at, guild_id, channel_id, message_jump_url, 
+                release_model, release_password, need_password, is_consume_token, 
                 cache_message_url, cache_message_id, cache_thread_id,
                 cache_channel_id, cache_guild_id, cache_attachment_urls, alerts,
                 enabled_alerts, is_update, is_deleted,
@@ -48,13 +48,14 @@ public partial class DatabaseService
             )
             VALUES (
                 @ReleaseMessageId, @ThreadId, @AuthorId,
-                @ReleaseAt, @GuildId, @ChannelId,
-                @MessageJumpUrl, @ReleaseModel, @ReleasePassword, @IsConsumeToken, 
+                @ReleaseAt, @GuildId, @ChannelId, @MessageJumpUrl, 
+                @ReleaseModel, @ReleasePassword, @NeedPassword, @IsConsumeToken, 
                 @CacheMessageUrl, @CacheMessageId, @CacheThreadId,
                 @CacheChannelId, @CacheGuildId, @CacheAttachmentUrls, @Alerts,
                 @EnableAlerts, @IsUpdate, FALSE,
                 NULL
-            );
+            )
+            RETURNING id;
             """;
 
         var workDataDb = WorkDataDb.FromDomain(workData);
@@ -69,6 +70,7 @@ public partial class DatabaseService
             MessageJumpUrl = workDataDb.MessageJumpUrl,
             ReleaseModel = workDataDb.ReleaseModel,
             ReleasePassword = workDataDb.ReleasePassword,
+            NeedPassword = workDataDb.NeedPassword,
             IsConsumeToken = workDataDb.IsConsumeToken,
             CacheMessageUrl = workDataDb.CacheMessageUrl,
             CacheMessageId = workDataDb.CacheMessageId,
@@ -84,8 +86,9 @@ public partial class DatabaseService
         try
         {
             if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
-            var result = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
-            return result;
+            var newId = await transaction.Connection.ExecuteScalarAsync<long>(SqlCommand, parameters, transaction);
+
+            return newId;
         }
         catch (Exception ex)
         {
@@ -144,6 +147,7 @@ public partial class DatabaseService
                 message_jump_url AS MessageJumpUrl, 
                 release_model AS ReleaseModel, 
                 release_password AS ReleasePassword,
+                need_password AS NeedPassword,
                 is_consume_token AS IsConsumeToken,
                 cache_message_url AS CacheMessageUrl, 
                 cache_message_id AS CacheMessageId, 
@@ -179,7 +183,7 @@ public partial class DatabaseService
             throw;
         }
     }
-    
+
     public async Task<WorkDataDb?> QueryLatestWorkDataByThreadIdAsync(ulong threadId)
     {
         const string SqlCommand = """
@@ -193,6 +197,7 @@ public partial class DatabaseService
                 message_jump_url AS MessageJumpUrl, 
                 release_model AS ReleaseModel, 
                 release_password AS ReleasePassword,
+                need_password AS NeedPassword,
                 is_consume_token AS IsConsumeToken,
                 cache_message_url AS CacheMessageUrl, 
                 cache_message_id AS CacheMessageId, 
@@ -229,6 +234,58 @@ public partial class DatabaseService
             throw;
         }
     }
+    
+    public async Task<WorkDataDb?> QueryWorkDataByWorkIdAsync(ulong threadId, long workId)
+    {
+        const string SqlCommand = """
+            SELECT 
+                release_message_id AS ReleaseMessageId, 
+                thread_id AS ThreadId, 
+                author_id AS AuthorId,
+                release_at AS ReleaseAt, 
+                guild_id AS GuildId, 
+                channel_id AS ChannelId,
+                message_jump_url AS MessageJumpUrl, 
+                release_model AS ReleaseModel, 
+                release_password AS ReleasePassword,
+                need_password AS NeedPassword,
+                is_consume_token AS IsConsumeToken,
+                cache_message_url AS CacheMessageUrl, 
+                cache_message_id AS CacheMessageId, 
+                cache_thread_id AS CacheThreadId,
+                cache_channel_id AS CacheChannelId, 
+                cache_guild_id AS CacheGuildId, 
+                cache_attachment_urls AS CacheAttachmentUrls, 
+                alerts AS Alerts,
+                enabled_alerts AS EnableAlerts, 
+                is_update AS IsUpdate, 
+                is_deleted AS IsDeleted,
+                delete_at AS DeleteAt
+            FROM release_main
+            WHERE id = @Id 
+                AND thread_id = @ThreadId
+                AND is_deleted = FALSE;
+            """;
+
+        var parameters = new
+        {
+            Id = workId,
+            ThreadId = threadId.ToDbId()
+        };
+
+        try
+        {
+            await using var connection = GetConnection();
+            var result = await connection.QuerySingleOrDefaultAsync<WorkDataDb>(SqlCommand, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ QueryLatestWorkDataByThreadIdAsync: 根据 ID {workId} 查询 WorkData 失败！", workId);
+            throw;
+        }
+    }
+
 
     /// 根据 release_message_id 软删除 (IsDeleted=true, DeleteAt=NOW())
     public async Task<int> SoftDeleteWorkDataAsync(NpgsqlTransaction transaction, ulong releaseMessageId)
@@ -387,7 +444,7 @@ public partial class DatabaseService
             throw;
         }
     }
-    
+
     // 检查 work_download_logs 表中是否存在指定 user_id 和 release_message_id 的记录。
     // 不返回实际数据，仅检查存在性。
     public async Task<bool> CheckDownloadLogExistsAsync(ulong userId, ulong releaseMessageId)
@@ -419,6 +476,79 @@ public partial class DatabaseService
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ CheckDownloadLogExistsAsync: 检查 User {UserId} 对 Message {ReleaseMessageId} 的下载记录失败！", userId, releaseMessageId);
+            throw;
+        }
+    }
+    public async Task<int> UpdateWorkCacheAsync(NpgsqlTransaction transaction, WorkData updateModel)
+    {
+        const string SqlCommand = """
+            UPDATE release_main
+            SET 
+                cache_message_url = @CacheMessageUrl,
+                cache_message_id = @CacheMessageId,
+                cache_thread_id = @CacheThreadId,
+                cache_channel_id = @CacheChannelId,
+                cache_guild_id = @CacheGuildId,
+                cache_attachment_urls = @CacheAttachmentUrls
+            WHERE release_message_id = @ReleaseMessageId;
+            """;
+
+        var updateModelDb = WorkDataDb.FromDomain(updateModel);
+
+        var parameters = new
+        {
+            ReleaseMessageId = updateModel.ReleaseMessageId,
+            CacheMessageUrl = updateModel.CacheMessageUrl,
+            CacheMessageId = updateModel.CacheMessageId,
+            CacheThreadId = updateModel.CacheThreadId,
+            CacheChannelId = updateModel.CacheChannelId,
+            CacheGuildId = updateModel.CacheGuildId,
+            CacheAttachmentUrls = updateModel.CacheAttachmentUrls
+        };
+
+        try
+        {
+            // 获取连接并执行
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var rowsAffected = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
+            return rowsAffected;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpdateWorkCacheAsync: 更新 Message {ReleaseMessageId} 的缓存数据失败！参数: {@parameters}",
+                updateModel.ReleaseMessageId, parameters);
+            throw;
+        }
+    }
+    
+    // 更新 posts_main 表的更新时间和跳转链接，并自增 update_count
+    public async Task<int> UpdatePostUpdateInfoAsync(NpgsqlTransaction transaction, ulong threadId, DateTimeOffset updatedAt, string updatedJumpUrl)
+    {
+        const string SqlCommand = """
+            UPDATE posts_main
+            SET 
+                updated_at = @UpdatedAt,
+                updated_jump_url = @UpdatedJumpUrl,
+                update_count = update_count + 1
+            WHERE thread_id = @ThreadId;
+            """;
+
+        var parameters = new
+        {
+            ThreadId = threadId.ToDbId(),
+            UpdatedAt = updatedAt,
+            UpdatedJumpUrl = updatedJumpUrl
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            var rowsAffected = await transaction.Connection.ExecuteAsync(SqlCommand, parameters, transaction);
+            return rowsAffected;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpdatePostUpdateInfoAsync: 更新 Thread {ThreadId} 的 updated_at 信息失败！", threadId);
             throw;
         }
     }

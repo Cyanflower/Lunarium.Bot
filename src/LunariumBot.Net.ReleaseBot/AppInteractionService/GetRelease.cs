@@ -25,6 +25,7 @@ using LunariumBot.Net.ReleaseBot.ApplicationServices;
 using LunariumBot.Net.ReleaseBot.Utils;
 using LunariumBot.Net.ReleaseBot.TokenBucketServices;
 using LunariumBot.Net.ReleaseBot.CacheServices;
+using LunariumBot.Net.Extensions;
 
 namespace LunariumBot.Net.ReleaseBot.AppInteractionService;
 
@@ -40,6 +41,7 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
     private readonly ApplicationService _applicationService;
     private readonly TokenBucketService _tokenBucketService;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
+    private readonly ReleaseBotAssistService? _assistService;
     public GetRelease(
         ILogger logger,
         AuthUtil authUtil,
@@ -47,9 +49,10 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
         CacheService cacheService,
         ApplicationService applicationService,
         TokenBucketService tokenBucketService,
+        AssistBotPayload assistBotPayload,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy)
     {
-        _logger = logger.ForContext("Release");
+        _logger = logger.ForContext("GetRelease");
         _authUtil = authUtil;
         _httpClient = httpClient;
         _cacheService = cacheService;
@@ -57,12 +60,13 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
         _componentUtils = new(_logger);
         _tokenBucketService = tokenBucketService;
         _httpRetryPolicy = httpRetryPolicy;
+        _assistService = assistBotPayload.assistBot;
     }
 
     // =============================================
     #region 业务方法
     // =============================================
-    public async Task<MessageComponent> GetWorkAsync(WorkData data, int remainingToken, int tokenLimit, bool isConsumed)
+    public async Task<(MessageComponent? Component, MessageComponent? DMComponent, bool Allowable)> GetWorkAsync(WorkData data, bool noConsume)
     {
         try
         {
@@ -75,21 +79,38 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
             }
             catch
             {
-                _logger.Warning("无法获取远程缓存消息，尝试回退到本地缓存。CacheId: {CacheMessageId}", data.CacheMessageId);
+                _logger.Warning("无法获取远程缓存消息，尝试重建远程缓存。CacheId: {CacheMessageId}", data.CacheMessageId);
                 message = null;
             }
 
-            // 如果远程获取成功，返回标准的图库/下载组件
-            if (message is not null)
+            // 重建远程缓存
+            if (message is null)
             {
-                var _attachments = message.Attachments;
-                return new ComponentBuilderV2()
+                // 重建远程缓存
+                message = await RebuildRemoteCacheAsync(data);
+                // 更新数据库记录
+                await _applicationService.UpdateWorkCacheAsync(data);
+                _logger.Warning("重建远程缓存成功。CacheId: {CacheMessageId}", data.CacheMessageId);
+            }
+
+            if (message is null)
+            {
+                _logger.Error("重建远程缓存失败。CacheId: {CacheMessageId}", data.CacheMessageId);
+                return (null, null, false);
+            }
+
+            // 如果远程获取或远程缓存重建成功，返回标准的图库/下载组件
+            var _attachments = message.Attachments;
+            var tokenResult = _tokenBucketService.ConsumeToken(Context.User.Id, noConsume ? 0 : 1);
+            if (tokenResult.Allowable)
+            {
+                var component = new ComponentBuilderV2()
                     .WithContainer(container =>
                     {
                         container.WithAccentColor(Color.Green); // 远程获取成功用绿色
                         container.WithTextDisplay($"""
                             ### 🎈 获取作品
-                            > -# 今日剩余可获取作品量: {remainingToken}/{tokenLimit}
+                            > -# 今日剩余可获取作品量: {tokenResult.RemainingToken}/{tokenResult.TokenLimit}
                             """);
                         container.WithSeparator();
 
@@ -98,11 +119,13 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
                             // 优先显示图片
                             List<IAttachment>? imageAttachment = _attachments?
                                 .Where(a => IsImageAttachment(a))
+                                .OrderBy(a => a.Filename, StringComparer.OrdinalIgnoreCase)
                                 .ToList();
 
                             // 其他文件显示下载链接
                             List<IAttachment>? otherAttachment = _attachments?
                                 .Where(a => !IsImageAttachment(a))
+                                .OrderBy(a => a.Filename, StringComparer.OrdinalIgnoreCase)
                                 .ToList();
 
                             if (imageAttachment?.Count > 0)
@@ -123,7 +146,7 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
                                 container.WithMediaGallery(media);
                                 container.WithTextDisplay(sb.ToString());
                             }
-                            
+
                             container.WithSeparator();
                             if (otherAttachment?.Count > 0)
                             {
@@ -144,95 +167,109 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
                             container.WithSeparator();
                             container.WithTextDisplay("-# 如使用中有任何问题或建议请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)");
                         }
-                    }).Build();
-            }
+                    });
 
-            // 远程获取失败，进入本地回退逻辑
-            else
-            {
-                // 构建本地存储路径 (需与 Release.cs 中的保存逻辑一致)
-                // Path: Base / localCache / GuildId / ChannelId(Parent) / ThreadId / ReleaseMessageId
-                string localSaveDir = Path.Combine(
-                    _appPath,
-                    localCachePath,
-                    $"{data.GuildId}",
-                    $"{data.ChannelId}",
-                    $"{data.ThreadId}",
-                    $"{data.ReleaseMessageId}");
-
-                if (Directory.Exists(localSaveDir))
-                {
-                    // 获取所有文件，排除 metadata.json
-                    var filePaths = Directory.GetFiles(localSaveDir)
-                        .Where(f => !Path.GetFileName(f).Equals("metadata.json", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    if (filePaths.Count > 0)
+                var dmComponent = new ComponentBuilderV2()
+                    .WithContainer(container =>
                     {
-                        // 准备文件附件
-                        var attachments = new List<FileAttachment>();
-                        var streams = new List<FileStream>(); // 用于后续释放资源
+                        container.WithAccentColor(Color.Green);
+                        container.WithTextDisplay($"""
+                            ### 🎈 成功获取作品
+                            """);
+                        container.WithSeparator();
 
-                        try
+                        container.WithTextDisplay($"""
+                            作品发布于: <t:{data.ReleaseAt.ToUnixTimeSeconds()}:f>丨<t:{data.ReleaseAt.ToUnixTimeSeconds()}:R>
+                            作品发布在: {data.MessageJumpUrl} [点击跳转]({data.MessageJumpUrl})
+                            作者: <@{data.AuthorId}>
+                            """);
+                            
+                        container.WithSeparator();
+
+                        if (data.CacheAttachmentUrls.Count > 0)
                         {
-                            foreach (var filePath in filePaths)
+                            // 优先显示图片
+                            List<IAttachment>? imageAttachment = _attachments?
+                                .Where(a => IsImageAttachment(a))
+                                .OrderBy(a => a.Filename, StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+
+                            // 其他文件显示下载链接
+                            List<IAttachment>? otherAttachment = _attachments?
+                                .Where(a => !IsImageAttachment(a))
+                                .OrderBy(a => a.Filename, StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+
+                            if (imageAttachment?.Count > 0)
                             {
-                                // 使用 FileShare.Read 允许并发读取
-                                var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                streams.Add(fs);
-                                attachments.Add(new FileAttachment(fs, Path.GetFileName(filePath)));
+                                container.WithTextDisplay($"""
+                                    **以下为图片附件:**
+                                    > -# 右键或长按图片下载, 或点击超链接下载
+                                    """);
+                                MediaGalleryBuilder media = new();
+                                StringBuilder sb = new();
+                                foreach (var attachment in imageAttachment)
+                                {
+                                    media.AddItem(attachment.Url);
+                                    sb.AppendLine($"🖼 {attachment.Filename}");
+                                    sb.AppendLine($"大小: {attachment.Size / 1024.0:F2} KB");
+                                    sb.AppendLine($"[>>点击下载<<]({attachment.Url})");
+                                }
+                                container.WithMediaGallery(media);
+                                container.WithTextDisplay(sb.ToString());
                             }
 
-                            // 直接发送文件 (Followup)
-                            // 注意：因为 GetWorkAsync 返回的是 Component，而 Component 不能带文件，
-                            // 所以这里必须直接调用 Interaction 发送文件。
-                            await Context.Interaction.FollowupWithFilesAsync(
-                                attachments,
-                                text: $"> ⚠️ **远程缓存不可用, 已自动从本地备份提取 {filePaths.Count} 个文件**",
-                                ephemeral: true
+                            container.WithSeparator();
+                            if (otherAttachment?.Count > 0)
+                            {
+                                container.WithTextDisplay($"""
+                                    **以下为非图片附件:**
+                                    > -# 点击超链接下载
+                                    """);
+                                StringBuilder sb = new();
+                                foreach (var attachment in otherAttachment)
+                                {
+                                    sb.AppendLine($"📄 {attachment.Filename}");
+                                    sb.AppendLine($"大小: {attachment.Size / 1024.0:F2} KB");
+                                    sb.AppendLine($"[>>点击下载<<]({attachment.Url})");
+                                }
+                                container.WithTextDisplay(sb.ToString());
+                            }
+                            container.WithSeparator();
+                            container.WithSection(section => section
+                                .WithTextDisplay(
+                                    content: """
+                                    ### 备注
+                                    > -# 为本条消息创建搜索用备注, 可在右上角搜索备注中的内容进行快速索引本条消息
+                                    """,
+                                    id: 1200)
+                                .WithAccessory(new ButtonBuilder(
+                                    label: "创建备注",
+                                    customId: "CreateRemark",
+                                    style: ButtonStyle.Success,
+                                    emote: new Emoji("🏷")
+                                ))
                             );
 
-                            // 返回一个提示性的组件，告知调用者已处理完毕
-                            return new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Orange) // 本地回退用橙色警告色
-                                    .WithTextDisplay($"""
-                                    ### 📂 本地备份已上传
-                                    由于远程缓存的 Discord CDN 资源失效, Bot 已尝试从服务器本地缓存上传文件。
-                                    > -# 今日剩余状态: {remainingToken}/{tokenLimit}
-                                    """)
-                                    .WithSeparator()
-                                    .WithTextDisplay("-# 如使用中有任何问题或建议请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)")
-                            ).Build();
+                            container.WithSeparator();
+                            container.WithTextDisplay("-# 如使用中有任何问题或建议请前往: [反馈频道](https://discord.com/channels/1291925535324110879/1447557807401340928)");
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.Error(ex, "从本地缓存上传文件时发生错误");
-                            // 如果上传出错，流转到下方的错误返回
-                        }
-                        finally
-                        {
-                            // 清理流资源
-                            foreach (var fs in streams)
-                            {
-                                await fs.DisposeAsync();
-                            }
-                        }
-                    }
-                }
+                    });
 
-                // 远程和本地都失败
-                _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, 1, isConsumed);
-                return new ComponentBuilderV2()
+                return (component.Build(), dmComponent.Build(), true);
+            }
+            else
+            {
+                var component = new ComponentBuilderV2()
                     .WithContainer(container => container
                         .WithAccentColor(Color.Red)
                         .WithTextDisplay($"""
-                        ### ❌ 获取失败
-                        无法获取作品：远程缓存消息不存在或已被删除，且本地未找到备份文件。
-                        > -# 今日剩余状态: {_tokenBucketService.GetRemainingToken(Context.User.Id)}/{tokenLimit}
+                        ### 🎈 到达限制
+                        您今日通过本 BOT 获取的作品数量已到达本日上限, 限制将在 0 点恢复
+                        > -# 当前状态: {tokenResult.RemainingToken}/{tokenResult.TokenLimit}
                         """)
-                        .WithSeparator()
-                ).Build();
+                );
+                return (component.Build(), null, false);
             }
         }
         catch (Exception ex)
@@ -241,490 +278,829 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
             throw;
         }
     }
+
+    // 从本地文件重建远程 Discord 缓存消息
+    private async Task<IMessage?> RebuildRemoteCacheAsync(WorkData data)
+    {
+        try
+        {
+            // 定位本地文件目录
+            // Path: Base / localCache / GuildId / ChannelId(Parent) / ThreadId / ReleaseMessageId
+            string localSaveDir = Path.Combine(
+                _appPath,
+                localCachePath,
+                $"{data.GuildId}",
+                $"{data.ChannelId}",
+                $"{data.ThreadId}",
+                $"{data.ReleaseMessageId}");
+
+            if (!Directory.Exists(localSaveDir))
+            {
+                _logger.Warning("重建失败: 本地缓存目录不存在: {Path}", localSaveDir);
+                return null;
+            }
+
+            var filePaths = Directory.GetFiles(localSaveDir)
+                .Where(f => !Path.GetFileName(f).Equals("metadata.json", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f) // 保持文件名排序，确保图片顺序一致
+                .ToList();
+
+            if (filePaths.Count == 0)
+            {
+                _logger.Warning("重建失败: 本地目录为空");
+                return null;
+            }
+
+            // 确定目标频道 (Thread)
+            IThreadChannel? targetThread = null;
+
+            try
+            {
+                // 尝试获取原有的 Cache Thread
+                // 注意：GetChannelAsync 可能返回 null (如果 Bot 没有权限或频道已删除)
+                var channel = await Context.Client.Rest.GetChannelAsync(data.CacheThreadId);
+                targetThread = channel as IThreadChannel;
+
+                // 如果原有 Thread 不存在，尝试在 Parent Channel (Forum/Text) 重建 Thread
+                if (targetThread == null)
+                {
+                    _logger.Info("原 CacheThread ({ThreadId}) 不存在，尝试在 Parent ({ParentId}) 重建...", data.CacheThreadId, data.CacheChannelId);
+
+                    var parentChannel = await Context.Client.GetChannelAsync(data.CacheChannelId);
+
+                    if (parentChannel is IForumChannel forumChannel)
+                    {
+                        // 重建 Forum Post
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            // 使用原标题或默认标题
+                            string title = $"[Restored] {data.ReleaseMessageId}";
+                            targetThread = await forumChannel.CreatePostAsync(title, text: $"Restored from local backup at {DateTimeOffset.UtcNow:O}");
+                        });
+                    }
+                    // 几乎不可能进入该分支, 除非配置文件写错了
+                    else if (parentChannel is ITextChannel textChannel)
+                    {
+                        // 在普通文字频道重建 Thread
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            // 需要先发一条消息才能开贴，或者直接 CreateThreadAsync
+                            var startMsg = await textChannel.SendMessageAsync($"Restoring cache for {data.ReleaseMessageId}...");
+                            targetThread = await textChannel.CreateThreadAsync($"[Restored] {data.ReleaseMessageId}", message: startMsg);
+                        });
+                    }
+
+                    if (targetThread != null)
+                    {
+                        // 更新 data 中的 Thread ID，因为我们创建了新的
+                        data.CacheThreadId = targetThread.Id;
+                        data.IsUpdate = true; // 标记数据已变更
+                        _logger.Info("✅ 已创建新的 Cache Thread: {NewThreadId}", targetThread.Id);
+                    }
+                    else
+                    {
+                        _logger.Error("❌ 无法创建新的 Cache Thread (找不到父频道或权限不足)。ParentId: {ParentId}", data.CacheChannelId);
+                        return null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "定位或创建目标 Thread 时发生异常");
+                return null;
+            }
+
+            // 上传文件
+            var streams = new List<FileStream>();
+            try
+            {
+                var attachments = new List<FileAttachment>();
+                foreach (var path in filePaths)
+                {
+                    var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    streams.Add(fs);
+                    attachments.Add(new FileAttachment(fs, Path.GetFileName(path)));
+                }
+
+                IUserMessage? newMessage = null;
+
+                await _httpRetryPolicy.ExecuteAsync(async () =>
+                {
+                    newMessage = await targetThread.SendFilesAsync(
+                        attachments,
+                        text: $"Auto-restored cache at {DateTimeOffset.UtcNow:O}"
+                    );
+                });
+
+                if (newMessage == null) return null;
+
+                // 更新 Data 对象的内存状态
+                // 这一步至关重要，让上层调用者拿到的 data 是新的
+                data.CacheMessageUrl = newMessage.GetJumpUrl();
+                data.CacheMessageId = newMessage.Id;
+                data.CacheGuildId = targetThread.Guild.Id;
+                data.CacheAttachmentUrls = newMessage.Attachments.Select(a => a.Url).ToList();
+
+                return newMessage;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "上传文件到 Cache Thread 失败");
+                return null;
+            }
+            finally
+            {
+                // 确保释放文件流
+                foreach (var fs in streams)
+                {
+                    await fs.DisposeAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "RebuildRemoteCacheAsync Exception");
+            return null;
+        }
+    }
+
+    // 私聊状态组件
+    public MessageComponent GetDMJumpComponent(IUserMessage message)
+    {
+        return new ComponentBuilderV2()
+            .WithContainer(container => container
+                .WithAccentColor(Color.Green)
+                .WithTextDisplay($"""
+                    ### 同步发送私信成功:
+                    {message.GetJumpUrl()} [点击跳转]({message.GetJumpUrl()})
+                    """)
+            )
+            .Build();
+    }
+    
+    public MessageComponent GetDMFailedComponent()
+    {
+        return new ComponentBuilderV2()
+            .WithContainer(container => container
+                .WithAccentColor(Color.Green)
+                .WithTextDisplay($"""
+                    ### 同步发送私信失败:
+                    可能由于您已设置拒收BOT私信等问题, 同步发送至私信失败
+                    """)
+            )
+            .Build();
+    }
     #endregion
 
     // =============================================
     #region  交互回调
     // =============================================
-    [ComponentInteraction("Alerts:*:*")]
-    public async Task HandleAlertsGetWorkAsync(string mode, int token)
+
+    // 兼容旧交互
+    // Alerts
+    [ComponentInteraction("Alerts:GetWork:0")]
+    public async Task HandleOldInteractionAG0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("Alerts:GetWork:1")]
+    public async Task HandleOldInteractionAG1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+
+    [ComponentInteraction("Alerts:GetWorkByRoR:0")]
+    public async Task HandleOldInteractionARoR0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("Alerts:GetWorkByRoR:1")]
+    public async Task HandleOldInteractionARoR1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("Alerts:GetWorkByPwd:0")]
+    public async Task HandleOldInteractionAPwd0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("Alerts:GetWorkByPwd:1")]
+    public async Task HandleOldInteractionAPwd1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    // No Alerts
+    [ComponentInteraction("GetWork:0:0")]
+    public async Task HandleOldInteractionG0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("GetWork:0:1")]
+    public async Task HandleOldInteractionG1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("GetWorkByRoR:0:0")]
+    public async Task HandleOldInteractionRoR0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("GetWorkByRoR:0:1")]
+    public async Task HandleOldInteractionRoR1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("GetWorkByPwd:0:0")]
+    public async Task HandleOldInteractionPwd0Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+    [ComponentInteraction("GetWorkByPwd:0:1")]
+    public async Task HandleOldInteractionPwd1Async() => await HandleGetWorkAsync(((IThreadChannel)Context.Channel).OwnerId);
+
+
+    [ComponentInteraction("GetWork:*")]
+    public async Task HandleGetWorkAsync(ulong authorId)
     {
         if (Context.Interaction is not SocketMessageComponent interactionComponent)
         {
-            _logger.Warning("交互回调: [GetWork] Context.Interaction is Not SocketMessageComponent");
+            _logger.Warning("交互回调: [GetWork] 失败 - Context.Interaction 不是 SocketMessageComponent。User: {UserId}", Context.User.Id);
             return;
         }
+
+        var messageId = interactionComponent.Message.Id;
+        var userId = Context.User.Id;
+        var threadId = Context.Channel.Id;
+
+
+        _logger.Debug("交互开始: [GetWork] User: {UserId}, Thread: {ThreadId}, Message: {MessageId}", userId, threadId, messageId);
+
+    
         try
         {
             await DeferAsync(ephemeral: true);
 
-            // 2. 获取数据以读取 Alerts 内容
-            var data = await _applicationService.GetWorkDataAsync(interactionComponent.Message.Id);
-
-            // 如果数据丢失，返回错误
+            //================
+            // 获取作品信息
+            //================
+            _logger.Debug("[GetWork] 正在从数据库获取 WorkData...");
+            var data = await _applicationService.GetWorkDataAsync(messageId);
             if (data is null)
             {
+                _logger.Error("[GetWork] 获取失败 - 数据库返回 WorkData 为空。MessageId: {MessageId}", messageId);
                 await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null inside HandleAlerts"), ephemeral: true);
                 return;
             }
 
-            var component = new ComponentBuilderV2()
-                .WithContainer(container =>
-                {
-                    container.WithAccentColor(Color.Blue);
-                    container.WithTextDisplay("""
-                        ### 🎈 稍等一下!
-                        这是作者的声明
-                        请仔细阅读一下作者声明的内容，确认后方可获取作品哦：
-                        """);
-                    
-                    // 核心：展示数据库中的 Alert 内容
-                    container.WithTextDisplay($"> {data.Alerts ?? "(作者未设置具体内容)"}", 1000); 
-                    
-                    container.WithSeparator();
-                    
-                    // 根据传入的 mode 参数，生成对应的下一步按钮
-                    // 这些按钮的 CustomId 不带 "Alerts:" 前缀，因此点击后会直接触发原本的获取逻辑
-                    switch (mode)
-                    {
-                        case "GetWork":
-                            container.WithActionRow(action => action
-                                .WithButton("我已阅读并确认", $"GetWork:{interactionComponent.Message.Id}:{token}", ButtonStyle.Success, emote: new Emoji("✅"))
-                            );
-                            break;
-                            
-                        case "GetWorkByRoR":
-                             container.WithActionRow(action => action
-                                .WithButton("我已阅读并确认", $"GetWorkByRoR:{interactionComponent.Message.Id}:{token}", ButtonStyle.Success, emote: new Emoji("✅"))
-                            );
-                            break;
-                            
-                        case "GetWorkByPwd":
-                            container.WithActionRow(action => action
-                                .WithButton("我已阅读并确认", $"GetWorkByPwd:{interactionComponent.Message.Id}:{token}", ButtonStyle.Success, emote: new Emoji("✅"))
-                            );
-                            break;
-                            
-                        default:
-                            // 防止意外的 mode
-                            container.WithTextDisplay("⚠️ 内部错误：未知的获取模式");
-                            break;
-                    }
-                });
-
-            await FollowupAsync(components: component.Build(), ephemeral: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "HandleGetWorkAsync Exception");
-        }
-    }
-    
-    [ComponentInteraction("GetWork:*:*")]
-    public async Task HandleGetWorkAsync(ulong messageId, int token)
-    {
-        if (Context.Interaction is not SocketMessageComponent interactionComponent)
-        {
-            _logger.Warning("交互回调: [GetWork] Context.Interaction is Not SocketMessageComponent");
-            return;
-        }
-        try
-        {
-            // 如果是作者自己
-            var threadChannel = (IThreadChannel)interactionComponent.Channel;
-            if (Context.User.Id == threadChannel.OwnerId)
+            //================
+            // 检查 如果是作者
+            //================
+            if (userId == authorId)
             {
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, 0);
-                await DeferAsync(ephemeral: true);
-
-                var data = await _applicationService.GetWorkDataAsync(messageId == 0 ? interactionComponent.Message.Id : messageId);
-
-                if (data is not null)
-                {
-                    var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                    await FollowupAsync(components: component, ephemeral: true);
-                }
-                else
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
-                }
-                return;
-            }
-            else
-            {
-                var tokenCost = 1;
-                if(await _applicationService.HasDownloadRecordAsync(Context.User.Id, messageId == 0 ? interactionComponent.Message.Id : messageId))
-                {
-                    tokenCost = 0;
-                }
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, tokenCost);
-
+                _logger.Debug("[GetWork] 鉴权: 用户是本帖作者，跳过所有限制检查。");
+                var result = await GetWorkAsync(data, true);
                 try
                 {
-                    if (token == 0)
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
                     {
-                        allowable = true;
-                    }
+                        await FollowupAsync(components: result.Component, ephemeral: true);
+                    });
+                    _logger.Info("[GetWork] 作者获取作品成功。User: {UserId}", userId);
                     
-                    if (!allowable)
+                    _logger.Debug("[GetWork] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                        result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                    if (result.DMComponent is not null && _assistService is not null)
                     {
-                        var component = new ComponentBuilderV2()
-                            .WithContainer(container => container
-                                .WithAccentColor(Color.Red)
-                                .WithTextDisplay($"""
-                                ### 🎈 到达限制
-                                您今日通过本BOT获取的作品数量已到达本日上限, 限制将在 0 点恢复
-                                > -# 当前状态: {remainingToken}/{tokenLimit}
-                                """)
-                        );
-                        await RespondAsync(components: component.Build(), ephemeral: true);
-                        return;
-                    }
-    
-                    await DeferAsync(ephemeral: true);
-    
-                    var data = await _applicationService.GetWorkDataAsync(messageId == 0 ? interactionComponent.Message.Id : messageId);
-    
-                    if (data is not null)
-                    {
-    
-                        var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                        await FollowupAsync(components: component, ephemeral: true);
-    
-                        var downloadLog = new DownloadLog()
+                        var message = await _httpRetryPolicy.ExecuteAsync(async () =>
                         {
-                            UserId = Context.User.Id,
-                            ThreadId = Context.Channel.Id,
-                            ReleaseMessageId = interactionComponent.Message.Id
-                        };
-                        await _applicationService.InsertDownloadLogAsync(downloadLog);
-                    }
-                    else
-                    {
-                        _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                        await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
-                    }
-                }
-                catch
-                {
-                    _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                    throw;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "HandleGetWorkAsync Exception");
-        }
-    }
-
-    [ComponentInteraction("GetWorkByRoR:*:*")]
-    public async Task HandleGetWorkByRoRAsync(ulong messageId, int token)
-    {
-        if (Context.Interaction is not SocketMessageComponent interactionComponent)
-        {
-            _logger.Warning("交互回调: [GetWorkByRoR] Context.Interaction is Not SocketMessageComponent");
-            return;
-        }
-        // [DEBUG] 1. 进入方法
-        _logger.Debug("[GetWorkByRoR] 收到交互请求。MessageId 参数: {ParamMessageId}, 交互 MessageId: {InteractionMessageId}", 
-            messageId, interactionComponent.Message.Id);
-        try
-        {
-
-            // 如果是作者自己
-            var threadChannel = (IThreadChannel)interactionComponent.Channel;
-            if (Context.User.Id == threadChannel.OwnerId)
-            {
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, 0);
-                await DeferAsync(ephemeral: true);
-
-                var data = await _applicationService.GetWorkDataAsync(messageId == 0 ? interactionComponent.Message.Id : messageId);
-
-                if (data is not null)
-                {
-                    var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                    await FollowupAsync(components: component, ephemeral: true);
-                }
-                else
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
-                }
-                return;
-            }
-            else
-            {
-                // [DEBUG] 2. 尝试获取 Token
-                _logger.Debug("[GetWorkByRoR] 用户 {UserId} 尝试获取 Token...", Context.User.Id);
-
-                var tokenCost = 1;
-                if(await _applicationService.HasDownloadRecordAsync(Context.User.Id, messageId == 0 ? interactionComponent.Message.Id : messageId))
-                {
-                    tokenCost = 0;
-                }
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, tokenCost);
-
-                try
-                {
-                    if (token == 0)
-                    {
-                        allowable = true;
-                    }
-    
-                    // [DEBUG] 3. Token 结果
-                    _logger.Debug("[GetWorkByRoR] Token 获取结果: Allowable={Allowable}, Remaining={Remaining}/{Limit}", 
-                        allowable, remainingToken, tokenLimit);
-    
-                    if (!allowable)
-                    {
-                        var component = new ComponentBuilderV2()
-                            .WithContainer(container => container
-                                .WithAccentColor(Color.Red)
-                                .WithTextDisplay($"""
-                                ### 🎈 到达限制
-                                您今日通过本BOT获取的作品数量已到达本日上限, 限制将在 0 点恢复
-                                > -# 当前状态: {remainingToken}/{tokenLimit}
-                                """)
-                        );
-                        await RespondAsync(components: component.Build(), ephemeral: true);
-                        return;
-                    }
-    
-                    await DeferAsync(ephemeral: true);
-                    // [DEBUG] 4. Defer 完成
-                    _logger.Debug("[GetWorkByRoR] DeferAsync 完成，开始检查前置条件...");
-    
-                    // [DEBUG] 5. 检查反应和回复记录
-                    var checkChannelId = interactionComponent.Channel.Id;
-                    var checkUserId = Context.User.Id;
-                    _logger.Debug("[GetWorkByRoR] 正在检查 ChannelId: {ChannelId}, UserId: {UserId} 的反应/回复记录", checkChannelId, checkUserId);
-    
-                    var hasReaction = await _applicationService.HasReactionRecordAsync(checkUserId, checkChannelId);
-                    var hasReply = await _applicationService.HasMessageRecordAsync(checkUserId,checkChannelId);
-    
-                    // [DEBUG] 6. 检查结果
-                    _logger.Debug("[GetWorkByRoR] 前置条件检查结果: HasReaction={HasReaction}, HasReply={HasReply}", hasReaction, hasReply);
-    
-                    if (hasReaction || hasReply)
-                    {
-                        // [DEBUG] 7. 准备获取 WorkData
-                        var targetMessageId = messageId == 0 ? interactionComponent.Message.Id : messageId;
-                        _logger.Debug("[GetWorkByRoR] 前置条件满足，正在获取 MessageId: {TargetMessageId} 的 WorkData...", targetMessageId);
-    
-                        var data = await _applicationService.GetWorkDataAsync(targetMessageId);
-    
-                        // [DEBUG] 8. 获取数据结果
-                        if (data is not null)
+                            return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                        });
+                        if (message is not null)
                         {
-                            _logger.Debug("[GetWorkByRoR] WorkData 获取成功，准备调用 GetWorkAsync...");
-                            
-                            var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                            
-                            _logger.Debug("[GetWorkByRoR] GetWorkAsync 完成，正在发送 Followup...");
-                            await FollowupAsync(components: component, ephemeral: true);
-    
-                            var downloadLog = new DownloadLog()
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
                             {
-                                UserId = Context.User.Id,
-                                ThreadId = Context.Channel.Id,
-                                ReleaseMessageId = interactionComponent.Message.Id
-                            };
-                            await _applicationService.InsertDownloadLogAsync(downloadLog);
+                                await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                            });
                         }
                         else
                         {
-                            _logger.Error("[GetWorkByRoR] ❌ WorkData 获取失败 (data is null). TargetMessageId: {TargetMessageId}", targetMessageId);
-                            
-                            _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                            });
                         }
                     }
-                    else
-                    {
-                        _logger.Debug("[GetWorkByRoR] ❌ 前置条件未满足，回滚 Token 并返回提示。");
-    
-                        _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                        var component = new ComponentBuilderV2()
-                            .WithContainer(container => container
-                                .WithAccentColor(Color.Red)
-                                .WithTextDisplay($"""
-                                ### ⚠️ 前置条件未满足
-                                至少先对帖子点一个赞或发送一条回复哦
-                                """)
-                        );
-                        await FollowupAsync(components: component.Build(), ephemeral: true);
-                        return;
-                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                    throw;
+                    _logger.Error(ex, "[GetWork] 作者获取作品流程发生异常。User: {UserId}", userId);
+                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
                 }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "[GetWorkByRoR] 发生异常，回滚 Token。");
-        }
-    }
-
-    [ComponentInteraction("GetWorkByPwd:*:*")]
-    public async Task HandleGetWorkByPwdAsync(ulong messageId, int token)
-    {
-        try
-        {
-            if (Context.Interaction is not SocketMessageComponent interactionComponent)
-            {
-                _logger.Warning("交互回调: [Release:*:*] Context.Interaction is Not SocketMessageComponent");
                 return;
             }
 
-            var threadChannel = (IThreadChannel)interactionComponent.Channel;
-            if (Context.User.Id == threadChannel.OwnerId)
+            //================
+            // 检查 每日获取次数限制
+            //================
+            _logger.Debug("[GetWork] 开始检查配额限制...");
+            // 检查令牌桶
+            var tokenResult = _tokenBucketService.CheckToken(userId, 1);
+            // 如果有过下载记录, 视为通过
+            var hasDownloaded = await _applicationService.HasDownloadRecordAsync(userId, messageId);
+
+            _logger.Debug("[GetWork] 配额检查详情: BucketAllow={BucketAllow}, Remaining={Remaining}, HasRecord={HasRecord}, ConsumeTokenConfig={IsConsumeToken}",
+
+                tokenResult.Allowable, tokenResult.RemainingToken, hasDownloaded, data.IsConsumeToken);
+            if (hasDownloaded)
             {
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, 0);
-                await DeferAsync(ephemeral: true);
+                tokenResult.Allowable = true;
+                _logger.Debug("[GetWork] 用户已下载过该作品，允许获取，且不再扣除Token。");
+            }
+            // 如果是开放分享, 视为通过
+            if (!data.IsConsumeToken)
+            {
+                tokenResult.Allowable = true;
+                _logger.Debug("[GetWork] 作品配置为开放分享(不消耗Token)，允许获取。");
+            } 
 
-                var data = await _applicationService.GetWorkDataAsync(messageId == 0 ? interactionComponent.Message.Id : messageId);
+            if (tokenResult.Allowable == false)
+            {
+                _logger.Info("[GetWork] 拒绝访问: 用户今日配额已用尽。User: {UserId}, Remaining: {Remaining}/{Limit}", 
+                    userId, tokenResult.RemainingToken, tokenResult.TokenLimit);
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"""
+                        ### 🎈 到达限制
+                        您今日通过本 BOT 获取的作品数量已到达本日上限, 限制将在 0 点恢复
+                        > -# 当前状态: {tokenResult.RemainingToken}/{tokenResult.TokenLimit}
+                        """)
+                );
+                await _httpRetryPolicy.ExecuteAsync(async () =>
+                {
+                    await FollowupAsync(components: component.Build(), ephemeral: true);
+                });
+                return;
+            }
 
-                if (data is not null)
+            //================
+            // 检查 是否满足可以提前检查的条件
+            //================
+            _logger.Debug("[GetWork] 开始检查前置条件 (Model: {Model})...", data.ReleaseModel);
+            switch (data.ReleaseModel)
+            {
+                // 需要 点赞
+                case ReleaseModel.Reaction:
+                    {
+                        var hasReaction = await _applicationService.HasReactionRecordAsync(userId, threadId);
+                        if (hasReaction)
+                        {
+                            _logger.Debug("[GetWork] 前置条件通过: 检测到点赞。");
+                            break;
+                        }
+                        else
+                        {
+                            _logger.Info("[GetWork] 拒绝访问: 未满足点赞条件。User: {UserId}, Thread: {ThreadId}", userId, threadId);
+                            var component = new ComponentBuilderV2()
+                                .WithContainer(container => container
+                                    .WithAccentColor(Color.Red)
+                                    .WithTextDisplay($"""
+                                    ### ⚠️ 前置条件未满足
+                                    至少先对帖子首楼点一个赞哦
+                                    """)
+                            );
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: component.Build(), ephemeral: true);
+                            });
+                            return;
+                        }
+                    }
+                // 需要 点赞或回复
+                case ReleaseModel.ReactionOrReply:
+                    {
+                        var hasReaction = await _applicationService.HasReactionRecordAsync(userId, threadId);
+                        var hasReply = await _applicationService.HasMessageRecordAsync(userId, threadId);
+                        if (hasReaction || hasReply)
+                        {
+                            _logger.Debug("[GetWork] 前置条件通过: 检测到点赞({HasReaction})或回复({HasReply})。", hasReaction, hasReply);
+                            break;
+                        }
+                        else
+                        {
+                            _logger.Info("[GetWork] 拒绝访问: 未满足点赞或回复条件。User: {UserId}, Thread: {ThreadId}", userId, threadId);
+                            var component = new ComponentBuilderV2()
+                                .WithContainer(container => container
+                                    .WithAccentColor(Color.Red)
+                                    .WithTextDisplay($"""
+                                    ### ⚠️ 前置条件未满足
+                                    至少先对帖子首楼点一个赞或发送一条回复哦
+                                    """)
+                            );
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: component.Build(), ephemeral: true);
+                            });
+                            return;
+                        }
+                    }
+                // 不需要 点赞 or 点赞或回复
+                default:
+                    _logger.Debug("[GetWork] 无需特殊前置条件。");
+                    break;
+            }
+
+            // 根据作品模式选择回复什么
+            if (data.EnableAlerts)
+            {
+                _logger.Debug("[GetWork] 流程中断: 需要用户确认作者声明。");
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Green)
+                        .WithTextDisplay($"""
+                            ### 🎈 稍等一下!
+                            这是作者的声明
+                            请仔细阅读一下作者声明的内容，确认后方可获取作品哦：
+                            {(string.IsNullOrWhiteSpace(data.Alerts) ? "作者未设置具体内容" : data.Alerts.Slice(503, "..."))}
+                            """)
+                        .WithActionRow(action => action
+                            .WithButton("我已阅读并确认", $"Alerts:{data.ReleaseMessageId}", ButtonStyle.Success, emote: new Emoji("✅"))
+                        )
+                );
+                await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
-                    var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                    await FollowupAsync(components: component, ephemeral: true);
-                }
-                else
-                {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
-                }
+                    await FollowupAsync(components: component.Build(), ephemeral: true);
+                });
                 return;
             }
             else
             {
-                var tokenCost = 1;
-                if(await _applicationService.HasDownloadRecordAsync(Context.User.Id, messageId == 0 ? interactionComponent.Message.Id : messageId))
+                if (data.NeedPassword)
                 {
-                    tokenCost = 0;
+                    _logger.Debug("[GetWork] 流程中断: 需要用户输入提取码。");
+                    // 需要提取码
+                    var pwdComponent = new ComponentBuilderV2()
+                        .WithContainer(container => container
+                            .WithAccentColor(Color.Blue)
+                            .WithTextDisplay("### 🔒 需要提取码", 1000)
+                            .WithTextDisplay("获取该作品需要输入提取码。", 1001)
+                            .WithActionRow(row => row
+                                .WithButton(
+                                    label: "输入提取码",
+                                    customId: $"GetWorkByPwd:{data.ReleaseMessageId}",
+                                    style: ButtonStyle.Primary,
+                                    emote: new Emoji("🔑"))
+                            )
+                        );
+                    await FollowupAsync(components: pwdComponent.Build(), ephemeral: true);
+                    return;
                 }
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, tokenCost);
+                else
+                {
+                    _logger.Debug("[GetWork] 流程继续: 尝试执行最终获取逻辑...");
+                    // 不需要需要提取码
+                    var result = await GetWorkAsync(data, hasDownloaded);
+                    try
+                    {
+                        if (result.Component is not null)
+                        {
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: result.Component, ephemeral: true);
+                            });
+                            _logger.Info("[GetWork] 作品获取成功，正在写入日志。User: {UserId}, Work: {MessageId}", userId, messageId);
+                            // 记录 log
+                            var downloadLog = new DownloadLog()
+                            {
+                                UserId = userId,
+                                ThreadId = threadId,
+                                ReleaseMessageId = messageId
+                            };
 
-                try
-                {
-                    if (token == 0)
-                    {
-                        allowable = true;
+                            await _applicationService.InsertDownloadLogAsync(downloadLog);
+                            
+                            _logger.Debug("[GetWork] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                                result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                            if (result.DMComponent is not null && _assistService is not null)
+                            {
+                                var message = await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                                });
+                                if (message is not null)
+                                {
+                                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                                    {
+                                        await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                                    });
+                                }
+                                else
+                                {
+                                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                                    {
+                                        await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                                    });
+                                }
+                            }
+                        }
+                        else
+                        {
+                            _logger.Error("[GetWork] 严重错误: GetWorkAsync 返回了 null Component。User: {UserId}", userId);
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: result.Component is not null"), ephemeral: true);
+                            });
+                        }
                     }
-    
-                    if (!allowable)
+                    catch (Exception ex)
                     {
-                        var component = new ComponentBuilderV2()
-                            .WithContainer(container => container
-                                .WithAccentColor(Color.Red)
-                                .WithTextDisplay($"""
-                                ### 🎈 到达限制
-                                您今日通过本BOT获取的作品数量已到达本日上限, 限制将在 0 点恢复
-                                > -# 当前状态: {remainingToken}/{tokenLimit}
-                                """)
-                        );
-                        await RespondAsync(components: component.Build(), ephemeral: true);
-                        return;
+                        _logger.Error(ex, "[GetWork] 最终获取阶段发生异常，正在执行 Token 回滚。User: {UserId}", userId);
+                        if (result.Allowable)
+                        {
+                            _tokenBucketService.UndoConsumeToken(userId, 1);
+                            _logger.Debug("[GetWork] Token 已回滚。");
+                        }
+                        _logger.Error(ex);
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
+                        });
                     }
-    
-                    var modal = new ModalBuilder()
-                        .WithTitle("输入提取码")
-                        .WithCustomId($"Release:Modal:EnterPassword:{(messageId == 0 ? interactionComponent.Message.Id : messageId)}:{(isConsumed ? "true" : "false")}:{tokenCost}")
-                        .AddTextInput(
-                            label: "设置提取码 (1 到 50 字)",
-                            customId: "Password",
-                            placeholder: "填写贴内的提取码...",
-                            maxLength: 50,
-                            minLength: 1,
-                            required: true,
-                            style: TextInputStyle.Short
-                        );
-    
-                    await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        await RespondWithModalAsync(modal.Build());
-                    });
-                }
-                catch
-                {
-                    _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, 1, isConsumed);
-                    throw;
+                    return;
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "HandleGetWorkByPwdAsync Exception");
+            _logger.Error(ex, "HandleGetWorkAsync Exception");
         }
     }
-
-    [ModalInteraction("Release:Modal:EnterPassword:*:*:*")]
-    public async Task HandleGetWorkByPwdModalAsync(ulong messageId, string isConsumed, int tokenCost, PasswordInputModal modal)
+    
+    [ComponentInteraction("Alerts:*")]
+    public async Task HandleAlertsCommandAsync(ulong messageId)
     {
-        if (Context.Interaction is not IModalInteraction modalInteraction)
+        var userId = Context.User.Id;
+        if (Context.Interaction is not SocketMessageComponent interactionComponent)
         {
-            _logger.Warning("交互回调: [Release:Modal:Alerts:*] Context.Interaction is Not modalInteraction");
+            _logger.Warning("交互回调: [Alerts] 失败 - Context.Interaction 不是 SocketMessageComponent。User: {UserId}", userId);
             return;
         }
         try
         {
             await DeferAsync(ephemeral: true);
+            _logger.Debug("交互开始: [Alerts] (用户已确认声明) User: {UserId}, Message: {MessageId}", userId, messageId);
+            //================
+            // 获取作品信息
+            //================
+            _logger.Debug("[Alerts] 正在从数据库获取 WorkData...");
+            var data = await _applicationService.GetWorkDataAsync(messageId);
+            if (data is null)
+            {
+                _logger.Error("[Alerts] 获取失败 - 数据库返回 WorkData 为空。MessageId: {MessageId}", messageId);
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null inside HandleAlerts"), ephemeral: true);
+                return;
+            }
+
+            // 如果有过下载记录, 视为通过
+            var hasDownloaded = await _applicationService.HasDownloadRecordAsync(userId, messageId);
+            if (hasDownloaded)
+            {
+                _logger.Debug("[GetWork] 用户已下载过该作品，不再扣除Token。");
+            }
+
+            if (data.NeedPassword)
+            {
+                _logger.Debug("[Alerts] 流程流转: 用户确认声明 -> 检测到 NeedPassword=true -> 跳转至提取码输入。");
+                // 需要提取码
+                var pwdComponent = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Blue)
+                        .WithTextDisplay("### 🔒 需要提取码", 1000)
+                        .WithTextDisplay("获取该作品需要输入提取码。", 1001)
+                        .WithActionRow(row => row
+                            .WithButton(
+                                label: "输入提取码",
+                                customId: $"GetWorkByPwd:{data.ReleaseMessageId}",
+                                style: ButtonStyle.Primary,
+                                emote: new Emoji("🔑"))
+                        )
+                    );
+                await FollowupAsync(components: pwdComponent.Build(), ephemeral: true);
+                return;
+            }
+            else
+            {
+                _logger.Debug("[Alerts] 流程流转: 用户确认声明 -> 无提取码需求 -> 尝试执行最终获取逻辑。");
+                // 不需要需要提取码
+                var result = await GetWorkAsync(data, hasDownloaded);
+                try
+                {
+                    if (result.Component is not null)
+                    {
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: result.Component, ephemeral: true);
+                        });
+                        _logger.Info("[Alerts] 作品获取成功 (声明确认后直连)。User: {UserId}, Work: {MessageId}", userId, messageId);
+                        // 记录 log
+                        var downloadLog = new DownloadLog()
+                        {
+                            UserId = userId,
+                            ThreadId = Context.Channel.Id,
+                            ReleaseMessageId = interactionComponent.Message.Id
+                        };
+
+                        await _applicationService.InsertDownloadLogAsync(downloadLog);
+
+                        _logger.Debug("[Alerts] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                            result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                        if (result.DMComponent is not null && _assistService is not null)
+                        {
+                            var message = await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                            });
+                            if (message is not null)
+                            {
+                                await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                                });
+                            }
+                            else
+                            {
+                                await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                                });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _logger.Error("[Alerts] 严重错误: GetWorkAsync 返回了 null Component。User: {UserId}", userId);
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: result.Component is not null"), ephemeral: true);
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "[Alerts] 最终获取阶段发生异常，正在执行 Token 回滚。User: {UserId}", userId);
+                    if (result.Allowable)
+                    {
+                        _logger.Debug("[Alerts] Token 已回滚。");
+                        _tokenBucketService.UndoConsumeToken(userId, 1);
+                    }
+                    _logger.Error(ex);
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
+                    });
+                }
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "HandleAlertsCommandAsync Exception");
+        }
+    }
+
+    [ComponentInteraction("GetWorkByPwd:*")]
+    public async Task HandleGetWorkByPwdAsync(ulong messageId)
+    {
+        if (Context.Interaction is not SocketMessageComponent interactionComponent)
+        {
+            _logger.Warning("交互回调: [GetWorkByPwd] Context.Interaction is Not SocketMessageComponent");
+            return;
+        }
+        try
+        {
+            var modal = new ModalBuilder()
+                .WithTitle("输入提取码")
+                .WithCustomId($"GetWorkByPwd:Modal:{messageId}")
+                .AddTextInput(
+                    label: "设置提取码 (1 到 50 字)",
+                    customId: "Password",
+                    placeholder: "填写贴内的提取码...",
+                    maxLength: 50,
+                    minLength: 1,
+                    required: true,
+                    style: TextInputStyle.Short
+                );
+
+            await _httpRetryPolicy.ExecuteAsync(async () =>
+            {
+                await RespondWithModalAsync(modal.Build());
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "[GetWorkByPwd] HandleGetWorkByPwdAsync 发生未处理异常。");
+        }
+    }
+    
+    [ModalInteraction("GetWorkByPwd:Modal:*")]
+    public async Task HandleGetWorkByPwdModalAsync(ulong messageId, PasswordInputModal modal)
+    {
+        var userId = Context.User.Id;
+        if (Context.Interaction is not IModalInteraction modalInteraction)
+        {
+            _logger.Warning("交互回调: [Modal:Pwd] 失败 - Context.Interaction 不是 IModalInteraction。User: {UserId}, Type: {Type}", userId, Context.Interaction?.GetType().Name);
+            return;
+        }
+
+        try
+        {
+            _logger.Debug("交互开始: [Modal:Pwd] (用户提交提取码) User: {UserId}, Message: {MessageId}", userId, messageId);
+
+            await DeferAsync(ephemeral: true);
+
 
             var password = modal.Password.Trim();
 
             if (string.IsNullOrWhiteSpace(password))
             {
+                _logger.Debug("[Modal:Pwd] 验证失败: 用户提交了空密码或纯空格。");
                 await RespondAsync(components: _componentUtils.TextErrorComponente("### ⚠️ 密码格式错误\n密码不能为空或只有空格"), ephemeral: true);
                 return;
             }
 
-            var data = await _applicationService.GetWorkDataAsync(messageId == 0 ? modalInteraction.Message.Id : messageId);
+            _logger.Debug("[Modal:Pwd] 正在从数据库获取 WorkData 以验证密码...");
+            var data = await _applicationService.GetWorkDataAsync(messageId);
 
-            if (data is not null)
+            if (data is null)
             {
+                _logger.Error("[Modal:Pwd] 获取失败 - 数据库返回 WorkData 为空。MessageId: {MessageId}", messageId);
+                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null inside HandleGetWorkByPwdModalAsync"), ephemeral: true);
+                return;
+            }
 
-                if (password != data.ReleasePassword)
+            var hasDownloaded = await _applicationService.HasDownloadRecordAsync(userId, messageId);
+            if (hasDownloaded)
+            {
+                _logger.Debug("[GetWork] 用户已下载过该作品，不再扣除Token。");
+            }
+
+            if (password == data.ReleasePassword)
+            {
+                _logger.Debug("[Modal:Pwd] 密码验证成功。准备获取资源...");
+                var result = await GetWorkAsync(data, hasDownloaded);
+                try
                 {
-                    _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed == "true");
-                    var pwdErrorComponent = new ComponentBuilderV2()
-                        .WithContainer(container => container
-                            .WithAccentColor(Color.Red)
-                            .WithTextDisplay($"""
-                            ### ⚠️ 提取码错误
-                            请检查作者发布的提取码和输入的提取码
-                            """)
-                    );
-                    await FollowupAsync(components: pwdErrorComponent.Build(), ephemeral: true);
-                    return;
+                    if (result.Component is not null)
+                    {
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: result.Component, ephemeral: true);
+                        });
+                        _logger.Info("[Modal:Pwd] 作品获取成功 (密码验证通过)。User: {UserId}, Work: {MessageId}", userId, messageId);
+                        // 记录 log
+                        var downloadLog = new DownloadLog()
+                        {
+                            UserId = userId,
+                            ThreadId = Context.Channel.Id,
+                            ReleaseMessageId = data.ReleaseMessageId
+                        };
+
+                        await _applicationService.InsertDownloadLogAsync(downloadLog);
+
+                        _logger.Debug("[Alerts] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                            result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                        if (result.DMComponent is not null && _assistService is not null)
+                        {
+                            var message = await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                            });
+                            if (message is not null)
+                            {
+                                await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                                });
+                            }
+                            else
+                            {
+                                await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                                });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _logger.Error("[Modal:Pwd] 严重错误: GetWorkAsync 返回了 null Component。User: {UserId}", userId);
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: result.Component is not null"), ephemeral: true);
+                        });
+                    }
                 }
-                var component = await GetWorkAsync(data, _tokenBucketService.GetRemainingToken(Context.User.Id), _tokenBucketService.TokenLimit, isConsumed == "true");
-                await FollowupAsync(components: component, ephemeral: true);
-
-                var downloadLog = new DownloadLog()
+                catch (Exception ex)
                 {
-                    UserId = Context.User.Id,
-                    ThreadId = Context.Channel.Id,
-                    ReleaseMessageId = messageId
-                };
-                await _applicationService.InsertDownloadLogAsync(downloadLog);
+                    _logger.Error(ex, "[Modal:Pwd] 最终获取阶段发生异常，正在执行 Token 回滚。User: {UserId}", userId);
+                    if (result.Allowable)
+                    {
+                        _tokenBucketService.UndoConsumeToken(userId, 1);
+                        _logger.Debug("[Modal:Pwd] Token 已回滚。");
+                    }
+                    _logger.Error(ex);
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
+                    });
+                }
             }
             else
             {
-                _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed == "true" ? true : false);
-                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("⚠️ 获取失败", "data is not null"), ephemeral: true);
+                _logger.Info("[Modal:Pwd] 密码验证失败。User: {UserId}", userId);
+
+                var pwdErrorComponent = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"""
+                        ### ⚠️ 提取码错误
+                        请检查作者发布的提取码和输入的提取码
+                        """)
+                );
+                await FollowupAsync(components: pwdErrorComponent.Build(), ephemeral: true);
+                return;
             }
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "HandleTestUploadModal Exception");
-            if (!Context.Interaction.HasResponded)
-            {
-                _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed == "true" ? true : false);
-                await RespondAsync("❌ 处理文件上传时发生错误。", ephemeral: true);
-            }
+            _logger.Error(ex, "[Modal:Pwd] HandleGetWorkByPwdModalAsync 发生异常。User: {UserId}", Context.User.Id);
         }
     }
     #endregion
@@ -737,146 +1113,368 @@ public class GetRelease : InteractionModuleBase<SocketInteractionContext>
     {
         try
         {
+            await GetWorkByCommand(null);
+        }
+
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "[Slash:GetWork] 命令执行发生异常。User: {UserId}", Context.User.Id);
+        }
+    }
+
+    [SlashCommand("获取编号作品", "通过指定的作品ID编号获取本帖贴内发布的作品")]
+    public async Task GetWorkCommandAsync([Summary("作品编号", "该作品的编号 (位于作品发布处的消息内)")] long workId)
+    {
+        try
+        {
+            await GetWorkByCommand(workId);
+        }
+        
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "[Slash:GetWork] 命令执行发生异常。User: {UserId}", Context.User.Id);
+        }
+    }
+    #endregion
+    
+    private async Task GetWorkByCommand(long? workId)
+    {
+        var userId = Context.User.Id;
+        var channelId = Context.Channel.Id;
+        try
+        {
+            _logger.Debug("命令开始: [Slash:GetWork] User: {UserId}, Channel: {ChannelId}, TargetWorkId: {WorkId}",
+                userId, channelId, workId?.ToString() ?? "Latest");
+                
             // 基础鉴权
             var requiredConditions = AuthorizationConditions.IsInAuthorizedGuild | AuthorizationConditions.IsInPermittedChannel;
             var authResult = await _authUtil.Authorization(requiredConditions, Context);
             if (authResult.Status != AuthorizationStatus.Success)
             {
+                _logger.Info("[Slash:GetWork] 鉴权失败: {Status}", authResult.Status);
                 var failedReasonComponent = AuthUtil.GetFailedReason(authResult);
                 await RespondAsync(components: failedReasonComponent, ephemeral: true);
                 return;
             }
-
-            // 检查是否在帖子内
             if (Context.Channel is not IThreadChannel threadChannel)
             {
+                _logger.Warning("[Slash:GetWork] 环境错误: 当前频道不是 ThreadChannel。Id: {ChannelId}", channelId);
                 await RespondAsync(components: _componentUtils.TextErrorComponente("### ⚠️ 错误\n请在帖子内使用此命令"), ephemeral: true);
                 return;
             }
 
             await DeferAsync(ephemeral: true);
 
-            var data = await _applicationService.GetLatestWorkDataByThreadIdAsync(threadChannel.Id);
+            WorkData? data;
 
-            if (data is null)
+            if (workId == null)
             {
-                await FollowupAsync(components: _componentUtils.TextErrorComponente("### ⚠️ 未找到作品\n本帖似乎还没有发布过作品，或者作品已被移除。"), ephemeral: true);
+                _logger.Debug("[Slash:GetWork] 模式: 获取本帖最新作品。ThreadId: {ThreadId}", channelId);
+                data = await _applicationService.GetLatestWorkDataByThreadIdAsync(Context.Channel.Id);
+                if (data is null)
+                {
+                    _logger.Info("[Slash:GetWork] 查询无果: 本帖内未查询到作品数据。");
+                    await FollowupAsync(components: _componentUtils.TextErrorComponente("### 获取失败\n本帖内未查询到使用本BOT发布的作品"), ephemeral: true);
+                    return;
+                }
+            }
+            else
+            {
+                _logger.Debug("[Slash:GetWork] 模式: 获取指定ID作品。ThreadId: {ThreadId}, WorkId: {WorkId}", channelId, workId);
+                data = await _applicationService.GetWorkDataByWorkIdAsync(Context.Channel.Id, workId.Value);
+                
+                if (data is null)
+                {
+                    _logger.Info("[Slash:GetWork] 查询无果: 指定ID的作品不在本帖内或不存在或已删除。WorkId: {WorkId}", workId);
+                    await FollowupAsync(components: _componentUtils.TextErrorComponente("### 获取作品失败\n请检查输入的作品ID, 确保是这个帖子的作品, 且发布处仍然存在"), ephemeral: true);
+                    return;
+                }
+            }
+
+            //================
+            // 检查 如果是作者
+            //================
+            if (userId == threadChannel.OwnerId)
+            {
+                var result = await GetWorkAsync(data, true);
+                try
+                {
+                    _logger.Debug("[Slash:GetWork] 鉴权: 用户是本帖作者，跳过所有限制检查。");
+                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                    {
+                        await FollowupAsync(components: result.Component, ephemeral: true);
+                    });
+                    _logger.Info("[Slash:GetWork] 作者获取作品成功。");
+
+                    _logger.Debug("[Alerts] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                        result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                    if (result.DMComponent is not null && _assistService is not null)
+                    {
+                        var message = await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                        });
+                        if (message is not null)
+                        {
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                            });
+                        }
+                        else
+                        {
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "[Slash:GetWork] 作者获取流程发生异常。");
+                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
+                }
                 return;
             }
 
-            if (Context.User.Id == threadChannel.OwnerId)
-            {
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, 0);
+            //================
+            // 检查 每日获取次数限制
+            //================
+            _logger.Debug("[Slash:GetWork] 开始检查配额限制...");
+            // 检查令牌桶
+            var tokenResult = _tokenBucketService.CheckToken(userId, 1);
+            // 如果有过下载记录, 视为通过
+            var hasDownloaded = await _applicationService.HasDownloadRecordAsync(userId, data.ReleaseMessageId);
 
-                if (data is not null)
+            _logger.Debug("[Slash:GetWork] 配额详情: BucketAllow={BucketAllow}, Remaining={Remaining}, HasRecord={HasRecord}, ConsumeTokenConfig={IsConsumeToken}",
+             tokenResult.Allowable, tokenResult.RemainingToken, hasDownloaded, data.IsConsumeToken);
+            if (hasDownloaded)
+            {
+                tokenResult.Allowable = true;
+                _logger.Debug("[Slash:GetWork] 用户已下载过该作品，允许获取，且不再扣除Token。");
+            }
+            // 如果是开放分享, 视为通过
+            if (!data.IsConsumeToken)
+            {
+                tokenResult.Allowable = true;
+                _logger.Debug("[Slash:GetWork] 作品配置为开放分享(不消耗Token)，允许获取。");
+            } 
+            
+
+            if (tokenResult.Allowable == false)
+            {
+                _logger.Info("[GetWork] 拒绝访问: 用户今日配额已用尽。User: {UserId}, Remaining: {Remaining}/{Limit}", 
+                    userId, tokenResult.RemainingToken, tokenResult.TokenLimit);
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Red)
+                        .WithTextDisplay($"""
+                        ### 🎈 到达限制
+                        您今日通过本 BOT 获取的作品数量已到达本日上限, 限制将在 0 点恢复
+                        > -# 当前状态: {tokenResult.RemainingToken}/{tokenResult.TokenLimit}
+                        """)
+                );
+                await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
-                    var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                    await FollowupAsync(components: component, ephemeral: true);
-                }
-                else
+                    await FollowupAsync(components: component.Build(), ephemeral: true);
+                });
+                return;
+            }
+
+            //================
+            // 检查 是否满足可以提前检查的条件
+            //================
+            _logger.Debug("[Slash:GetWork] 开始检查前置条件 (Model: {Model})...", data.ReleaseModel);
+
+            switch (data.ReleaseModel)
+            {
+                // 需要点赞或回复
+                case ReleaseModel.Reaction:
+                    {
+                        var hasReaction = await _applicationService.HasReactionRecordAsync(userId, Context.Channel.Id);
+                        if (hasReaction)
+                        {
+                            _logger.Debug("[Slash:GetWork] 前置条件通过: 检测到点赞。");
+                            break;
+                        }
+                        else
+                        {
+                            _logger.Info("[Slash:GetWork] 拒绝访问: 未满足点赞条件。");
+                            var component = new ComponentBuilderV2()
+                                .WithContainer(container => container
+                                    .WithAccentColor(Color.Red)
+                                    .WithTextDisplay($"""
+                                    ### ⚠️ 前置条件未满足
+                                    至少先对帖子首楼点一个赞哦
+                                    """)
+                            );
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: component.Build(), ephemeral: true);
+                            });
+                            return;
+                        }
+                    }
+                case ReleaseModel.ReactionOrReply:
+                    {
+                        
+                        var hasReaction = await _applicationService.HasReactionRecordAsync(userId, Context.Channel.Id);
+                        var hasReply = await _applicationService.HasMessageRecordAsync(userId, Context.Channel.Id);
+                        if (hasReaction || hasReply)
+                        {
+                            _logger.Debug("[Slash:GetWork] 前置条件通过: 检测到点赞({HasReaction})或回复({HasReply})。", hasReaction, hasReply);
+                            break;
+                        }
+                        else
+                        {
+                            _logger.Info("[Slash:GetWork] 拒绝访问: 未满足点赞或回复条件。");
+                            var component = new ComponentBuilderV2()
+                                .WithContainer(container => container
+                                    .WithAccentColor(Color.Red)
+                                    .WithTextDisplay($"""
+                                    ### ⚠️ 前置条件未满足
+                                    至少先对帖子首楼点一个赞或发送一条回复哦
+                                    """)
+                            );
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: component.Build(), ephemeral: true);
+                            });
+                            return;
+                        }
+                    }
+                // 不需要点赞或回复
+                default:
+                    _logger.Debug("[Slash:GetWork] 无需特殊前置条件。");
+                    break;
+            }
+
+            // 根据作品模式选择回复什么
+            if (data.EnableAlerts)
+            {
+                var component = new ComponentBuilderV2()
+                    .WithContainer(container => container
+                        .WithAccentColor(Color.Green)
+                        .WithTextDisplay($"""
+                            ### 🎈 稍等一下!
+                            这是作者的声明
+                            请仔细阅读一下作者声明的内容，确认后方可获取作品哦：
+                            {(string.IsNullOrWhiteSpace(data.Alerts) ? "作者未设置具体内容" : data.Alerts.Slice(503, "..."))}
+                            """)
+                        .WithActionRow(action => action
+                            .WithButton("我已阅读并确认", $"Alerts:{data.ReleaseMessageId}", ButtonStyle.Success, emote: new Emoji("✅"))
+                        )
+                );
+                await _httpRetryPolicy.ExecuteAsync(async () =>
                 {
-                    await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "data is null"), ephemeral: true);
-                }
+                    await FollowupAsync(components: component.Build(), ephemeral: true);
+                });
                 return;
             }
             else
             {
-                var tokenCost = 1;
-                if(await _applicationService.HasDownloadRecordAsync(Context.User.Id, data.ReleaseMessageId))
+                if (data.NeedPassword)
                 {
-                    tokenCost = 0;
+                    _logger.Debug("[Slash:GetWork] 流程中断: 需要用户输入提取码。");
+                    // 需要提取码
+                    var pwdComponent = new ComponentBuilderV2()
+                        .WithContainer(container => container
+                            .WithAccentColor(Color.Blue)
+                            .WithTextDisplay("### 🔒 需要提取码", 1000)
+                            .WithTextDisplay("获取该作品需要输入提取码。", 1001)
+                            .WithActionRow(row => row
+                                .WithButton(
+                                    label: "输入提取码",
+                                    customId: $"GetWorkByPwd:{data.ReleaseMessageId}",
+                                    style: ButtonStyle.Primary,
+                                    emote: new Emoji("🔑"))
+                            )
+                        );
+                    await FollowupAsync(components: pwdComponent.Build(), ephemeral: true);
+                    return;
                 }
-                (var allowable, var isConsumed, var remainingToken, var tokenLimit) = _tokenBucketService.GetToken(Context.User.Id, Context.Channel.Id, tokenCost);
-
-                
-                if (!data.IsConsumeToken)
+                else
                 {
-                    allowable = true;
-                }
-
-                switch (data.ReleaseModel)
-                {
-                    case ReleaseModel.NoLimit:
-                        {
-                            var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                            await FollowupAsync(components: component, ephemeral: true);
-                            
-                            var downloadLog = new DownloadLog() { UserId = Context.User.Id, ThreadId = Context.Channel.Id, ReleaseMessageId = data.ReleaseMessageId };
-                            await _applicationService.InsertDownloadLogAsync(downloadLog);
-                            return;
-                        }
-                    case ReleaseModel.ReactionOrReply:
+                    // 不需要需要提取码
+                    _logger.Debug("[Slash:GetWork] 流程继续: 尝试执行最终获取逻辑...");
+                    var result = await GetWorkAsync(data, hasDownloaded);
+                    try
                     {
-                            // 检查点赞或回复
-                            var hasReaction = await _applicationService.HasReactionRecordAsync(Context.User.Id, Context.Channel.Id);
-                            var hasReply = await _applicationService.HasMessageRecordAsync(Context.User.Id, Context.Channel.Id);
-
-                            if (hasReaction || hasReply)
-                            {
-                                var component = await GetWorkAsync(data, remainingToken, tokenLimit, isConsumed);
-                                await FollowupAsync(components: component, ephemeral: true);
-
-                                var downloadLog = new DownloadLog() { UserId = Context.User.Id, ThreadId = Context.Channel.Id, ReleaseMessageId = data.ReleaseMessageId };
-                                await _applicationService.InsertDownloadLogAsync(downloadLog);
-                                
-                            }
-                            else
-                            {
-                                // 前置条件未满足，回滚 Token
-                                _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                                var component = new ComponentBuilderV2()
-                                    .WithContainer(container => container
-                                        .WithAccentColor(Color.Red)
-                                        .WithTextDisplay($"""
-                                        ### ⚠️ 前置条件未满足
-                                        至少先对帖子点一个赞或发送一条回复哦
-                                        """)
-                                );
-                                await FollowupAsync(components: component.Build(), ephemeral: true);
-                            }
-                            return;
-                        }
-                    case ReleaseModel.Password:
+                        if (result.Component is not null)
                         {
-                            // 密码模式需要弹出 Modal，但 Slash Command 的 Defer 后无法直接 RespondWithModal
-                            // 这是一个 Discord API 的限制：Modal 必须是对 Interaction 的直接响应，不能在 Defer 后发送。
-                            // 但我们在步骤3已经 Defer 了。
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: result.Component, ephemeral: true);
+                            });
+                            _logger.Info("[Slash:GetWork] 作品获取成功。User: {UserId}, Work: {MessageId}", userId, data.ReleaseMessageId);
+                            // 记录 log
+                            var downloadLog = new DownloadLog()
+                            {
+                                UserId = userId,
+                                ThreadId = Context.Channel.Id,
+                                ReleaseMessageId = data.ReleaseMessageId
+                            };
                             
-                            // 解决方案：
-                            // 1. 如果是密码模式，我们回滚 Token (因为还没输入密码)。
-                            _tokenBucketService.UndoGetToken(Context.User.Id, Context.Channel.Id, tokenCost, isConsumed);
-                            
-                            // 2. 发送一个带有“输入提取码”按钮的消息，让用户点击按钮来触发 Modal。
-                            // 这样用户体验也比较流畅。
-                            
-                            var pwdComponent = new ComponentBuilderV2()
-                                .WithContainer(container => container
-                                    .WithAccentColor(Color.Blue)
-                                    .WithTextDisplay("### 🔒 需要提取码", 1000)
-                                    .WithTextDisplay("获取该作品需要输入提取码。", 1001)
-                                    .WithActionRow(row => row
-                                        // 这里的 CustomId 构造要匹配现有的 HandleGetWorkByPwdAsync 逻辑所需的格式
-                                        // 现有逻辑: GetWorkByPwd:messageId:token
-                                        .WithButton(
-                                            label: "输入提取码",
-                                            customId: $"GetWorkByPwd:{data.ReleaseMessageId}:{(data.IsConsumeToken ? 1 : 0)}:{(isConsumed ? "true" : "false")}",
-                                            style: ButtonStyle.Primary,
-                                            emote: new Emoji("🔑"))
-                                    )
-                                );
-                            
-                            await FollowupAsync(components: pwdComponent.Build(), ephemeral: true);
-                            return;
+                            await _applicationService.InsertDownloadLogAsync(downloadLog);
+
+                            _logger.Debug("[Alerts] 尝试发送私信, 当前服务可用状态: DMComponent Available: {DMComponent}, AssistService Available: {AssistService}",
+                                result.DMComponent is not null ? true : false, _assistService is not null ? true : false);
+                            if (result.DMComponent is not null && _assistService is not null)
+                            {
+                                var message = await _httpRetryPolicy.ExecuteAsync(async () =>
+                                {
+                                    return await _assistService.SendWorkViaDM(userId, result.DMComponent);
+                                });
+                                if (message is not null)
+                                {
+                                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                                    {
+                                        await FollowupAsync(components: GetDMJumpComponent(message), ephemeral: true);
+                                    });
+                                }
+                                else
+                                {
+                                    await _httpRetryPolicy.ExecuteAsync(async () =>
+                                    {
+                                        await FollowupAsync(components: GetDMFailedComponent(), ephemeral: true);
+                                    });
+                                }
+                            }
                         }
+                        else
+                        {
+                            _logger.Error("[Slash:GetWork] 严重错误: GetWorkAsync 返回了 null Component。User: {UserId}", userId);
+                            await _httpRetryPolicy.ExecuteAsync(async () =>
+                            {
+                                await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: result.Component is not null"), ephemeral: true);
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error(ex, "[Slash:GetWork] 最终获取阶段发生异常，正在执行 Token 回滚。User: {UserId}", userId);
+                        if (result.Allowable)
+                        {
+                            _tokenBucketService.UndoConsumeToken(userId, 1);
+                            _logger.Debug("[Slash:GetWork] Token 已回滚。");
+                        }
+                        _logger.Error(ex);
+                        await _httpRetryPolicy.ExecuteAsync(async () =>
+                        {
+                            await FollowupAsync(components: _componentUtils.LoggerErrorComponente("获取失败", "HandleGetWorkAsync: catch Exception"), ephemeral: true);
+                        });
+                    }
+                    return;
                 }
             }
+            
         }
         catch (Exception ex)
         {
-            _logger.Error(ex);
+            _logger.Error(ex, "GetWorkByCommand Exception");
         }
     }
-    #endregion
     
     private static bool IsImageAttachment(IAttachment attachment)
     {

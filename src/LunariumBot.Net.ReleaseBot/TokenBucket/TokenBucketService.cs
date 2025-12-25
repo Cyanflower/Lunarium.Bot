@@ -31,7 +31,7 @@ public class TokenBucketService : IDisposable
     /// 允许多个线程同时进入 (持有读锁)
     /// 但如果有 WriteLock(ResumeAllToken) 正在运行, 这里会阻塞
     /// </summary>
-    public (bool allowable, bool isConsumed, int remainingToken, int tokenLimit) GetToken(ulong userId, ulong threadId, int token)
+    public (bool Allowable, int RemainingToken, int TokenLimit) ConsumeToken(ulong userId, int token)
     {
         // 进入读锁模式
         _globalLock.EnterReadLock();
@@ -39,9 +39,9 @@ public class TokenBucketService : IDisposable
         {
             var bucket = _tokenBuckets.GetOrAdd(userId, _ => new TokenBucket(_tokenLimit));
 
-            (var allowable, var isConsumed) = bucket.GetToken(threadId, token);
+            var allowable = bucket.GetToken(token);
 
-            return (allowable, isConsumed, bucket.CurrentToken, _tokenLimit);
+            return (allowable, bucket.CurrentToken, _tokenLimit);
         }
         catch (Exception ex)
         {
@@ -55,17 +55,39 @@ public class TokenBucketService : IDisposable
         }
     }
 
-    public void UndoGetToken(ulong userId, ulong threadId, int token, bool isConsumed)
+    public (bool Allowable, int RemainingToken, int TokenLimit) CheckToken(ulong userId, int token)
     {
-        if (!isConsumed) return;
-        if (token == 0) return;
+        // 进入读锁模式
+        _globalLock.EnterReadLock();
+        try
+        {
+            var bucket = _tokenBuckets.GetOrAdd(userId, _ => new TokenBucket(_tokenLimit));
+
+            var allowable = bucket.CheckToken( token);
+
+            return (allowable, bucket.CurrentToken, _tokenLimit);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "GetToken Exception");
+            throw;
+        }
+        finally
+        {
+            // 释放读锁
+            _globalLock.ExitReadLock();
+        }
+    }
+    
+    public void UndoConsumeToken(ulong userId, int token)
+    {
         // 进入读锁模式
         _globalLock.EnterReadLock();
         try
         {
             if (_tokenBuckets.TryGetValue(userId, out var tokenBucket))
             {
-                tokenBucket.UndoGetToken(threadId, token);
+                tokenBucket.UndoGetToken(token);
             }
         }
         catch (Exception ex)

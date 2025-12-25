@@ -16,6 +16,7 @@ public class WorkData
 
     public ReleaseModel ReleaseModel { get; set; } = ReleaseModel.NoLimit;
     public string ReleasePassword { get; set; } = "";
+    public bool NeedPassword { get; set; } = false;
     public bool IsConsumeToken { get; set; } = false;
 
     public string CacheMessageUrl { get; set; } = "";
@@ -45,6 +46,7 @@ public class WorkDataDb
 
     public ReleaseModel ReleaseModel { get; set; } = ReleaseModel.NoLimit;
     public string ReleasePassword { get; set; } = "";
+    public bool NeedPassword { get; set; } = false;
     public bool IsConsumeToken { get; set; } = false;
     
 
@@ -81,6 +83,7 @@ public class WorkDataDb
         EnableAlerts = workData.EnableAlerts,
         ReleaseModel = workData.ReleaseModel,
         ReleasePassword = workData.ReleasePassword,
+        NeedPassword = workData.NeedPassword,
         IsConsumeToken = workData.IsConsumeToken,
         IsUpdate = workData.IsUpdate,
         IsDeleted = workData.IsDeleted,
@@ -108,6 +111,7 @@ public class WorkDataDb
         EnableAlerts = EnableAlerts,
         ReleaseModel = ReleaseModel,
         ReleasePassword = ReleasePassword,
+        NeedPassword = NeedPassword,
         IsConsumeToken = IsConsumeToken,
         IsUpdate = IsUpdate,
         IsDeleted = IsDeleted,

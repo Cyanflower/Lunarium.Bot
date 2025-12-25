@@ -55,6 +55,7 @@ public class ReleaseBotService : IHostedService
     private readonly LunariumScheduler _scheduler;
     private readonly ListenerService _listenerService;
     private readonly HealthMonitor _healthMonitoring;
+    private readonly AssistBotPayload _assistBotPayload;
 
     // 全局配置 ================================
     private readonly HttpClient _httpClient;
@@ -75,9 +76,10 @@ public class ReleaseBotService : IHostedService
 
     // ======================================================================================
     #region 构造函数
-    public ReleaseBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig)
+    public ReleaseBotService(BotTokens token, ILogger runtimeRootLogger, ProxyConfig proxyConfig, AssistBotPayload assistBotPayload)
     {
-        _token = token;
+        _token = token.MainToken;
+        _assistBotPayload = assistBotPayload;
         // 本地日志上下文
         _logger = runtimeRootLogger.ForContext("ReleaseBotService");
         _logger.Info("初始化 ReleaseBot 服务...");
@@ -89,6 +91,9 @@ public class ReleaseBotService : IHostedService
         _httpRetryPolicy = HttpRetryPolicyConfig();
         _dbRetryPolicy = DbRetryPolicy();
 
+        // ========================================
+        // DI 容器部分, DI容器所需的部分必须在此之上完成初始化和赋值
+        // ========================================
         // 构建私有DI容器
         _privateServices = ConfigurePrivateServices(proxyConfig, _logger);
 
@@ -102,6 +107,7 @@ public class ReleaseBotService : IHostedService
         _scheduler = _privateServices.GetRequiredService<LunariumScheduler>();
 
         _healthMonitoring = _privateServices.GetRequiredService<HealthMonitor>();
+
 
         _logger.Info("✅ ReleaseBot 服务初始化完成。");
     }
@@ -120,7 +126,10 @@ public class ReleaseBotService : IHostedService
             // ==================== BOT 基础功能与配置 ====================
             // 注册日志
             .AddSingleton(logger)
+            // 注册代理配置
             .AddSingleton(proxyConfig)
+            // 注册辅助 BOT 载荷
+            .AddSingleton(_assistBotPayload)
 
             // 注册 Discord 客户端，并使用从全局传入的代理配置
             .AddSingleton<DiscordSocketClient>(provider =>
@@ -151,7 +160,7 @@ public class ReleaseBotService : IHostedService
             .AddSingleton<ConfigLoader>()
 
             // 注册命令鉴权工具            
-            .AddSingleton<TokenBucketService>(provider => 
+            .AddSingleton<TokenBucketService>(provider =>
             {
                 var logger = provider.GetRequiredService<LunariumBot.Net.Logger.ILogger>();
                 var configLoader = provider.GetRequiredService<ConfigLoader>();
@@ -196,7 +205,7 @@ public class ReleaseBotService : IHostedService
             })
             .AddSingleton<HealthMonitor>()
 
-            // 构建 DI 容器
+            // 构建 DI 容器;
             .BuildServiceProvider();
 
         return services;
@@ -348,9 +357,12 @@ public class ReleaseBotService : IHostedService
         // _client.MessageReceived += HandleMessageCommandAsync;
 
         // 加载命令模块，使用私有DI容器
-        await _interactions.AddModulesAsync(Assembly.GetEntryAssembly(), _privateServices);
+        // await _interactions.AddModulesAsync(Assembly.GetEntryAssembly(), _privateServices);
+        await _interactions.AddModuleAsync<EntranceInteraction>(_privateServices);
+        await _interactions.AddModuleAsync<GetRelease>(_privateServices);
+        await _interactions.AddModuleAsync<Release>(_privateServices);
 
-        _logger.Info("斜杠命令模块已加载。");
+        _logger.Info("交互模块已加载。");
 
         // 调度器和任务配置
         // 示例：每天凌晨 4:00 执行 FullSyncJob
@@ -423,6 +435,10 @@ public class ReleaseBotService : IHostedService
             case LogSeverity.Debug:
                 _logger.Debug("[Discord.Net] {log.Message}", log.Message);
                 break;
+            default:
+                _logger.Info("[Discord.Net] {log.Message}", log.Message);
+                break;
+
         }
         return Task.CompletedTask;
     }
@@ -453,6 +469,41 @@ public class ReleaseBotService : IHostedService
                 var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread) as IMessageChannel;
                 if (channelCache is not null) await channelCache.SendMessageAsync(embed: loginEmbed);
 
+                _client.ModalSubmitted += async (modal) =>
+                {
+                    _logger.Debug("收到 Modal 提交: {CustomId}", modal.Data.CustomId);
+                };
+                _interactions.ModalCommandExecuted += async (commandInfo, context, result) =>
+                {
+                    // commandInfo: 也就是你的 HandleUpFilesModalAsync 方法信息
+                    // result: 执行结果，包含成功或失败的原因
+
+                    if (!result.IsSuccess)
+                    {
+                        _logger.Error(
+                            "❌ Modal 执行失败！\n" +
+                            "命令: {CommandName}\n" +
+                            "错误类型: {ErrorType}\n" +
+                            "错误原因: {ErrorReason}",
+                            commandInfo?.Name ?? "Unknown",
+                            result.Error,
+                            result.ErrorReason // 🔥 这里会告诉你为什么进不去方法体
+                        );
+
+                        // 如果是参数解析失败，这里通常会显示 "BadArgs" 或 "ParseFailed"
+                        // 如果是类型转换失败（比如 IEnumerable 问题），这里会显示 "ConvertFailed"
+                        if (result.Error == InteractionCommandError.ParseFailed ||
+                            result.Error == InteractionCommandError.ConvertFailed ||
+                            result.Error == InteractionCommandError.BadArgs)
+                        {
+                            // 你可以在这里做一些额外的调试输出
+                        }
+                    }
+                    else
+                    {
+                        _logger.Debug("✅ Modal 执行成功: {CommandName}", commandInfo?.Name);
+                    }
+                };
             }
             else
             {
@@ -485,6 +536,25 @@ public class ReleaseBotService : IHostedService
                 {
                     await channelCache.SendMessageAsync(embed: loginEmbed);
                     await channelCache.SendFilesAsync(text: "<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                }
+            }
+
+            // 或者在模块添加后
+            var modules = _interactions.Modules;
+            foreach (var module in modules)
+            {
+                _logger.Debug("模块: {ModuleName}", module.Name);
+                foreach (var command in module.SlashCommands)
+                {
+                    _logger.Debug("  - 斜杠命令: {CommandName}", command.Name);
+                }
+                foreach (var command in module.ComponentCommands)
+                {
+                    _logger.Debug("  - 组件命令: {CustomId}", command.Name);
+                }
+                foreach (var command in module.ModalCommands)
+                {
+                    _logger.Debug("  - Modal 命令: {CustomId}", command.Name);
                 }
             }
         }

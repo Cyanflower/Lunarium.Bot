@@ -29,8 +29,10 @@ public class ServiceResult<T> where T : class
 public enum ReleaseModel
 {
     NoLimit = 10,
+    Reaction = 15,
     ReactionOrReply = 20,
-    Password = 30
+    Password = 30,
+    RoRAndPwd = 40
 }
 
 /// <summary>

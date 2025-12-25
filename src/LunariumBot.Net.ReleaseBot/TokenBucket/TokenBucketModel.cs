@@ -19,59 +19,58 @@ public class TokenBucketSnapshot
 
 public class TokenBucket
 {
+    private int Token => _token;
+    private int TokenLimit => _tokenLimit;
     private int _tokenLimit;
     private int _token;
-    // private HashSet<ulong> hasTokenThreads = new();
     private Lock _lock = new();
 
     public TokenBucket(int tokenLimit, int? currentToken = null)
     {
         _tokenLimit = tokenLimit;
-        // 如果没有传入当前token, 则默认为满
         _token = currentToken ?? tokenLimit;
     }
 
-    public (bool allowable, bool isConsumed) GetToken(ulong threadId, int token)
+    public bool GetToken(int token)
     {
         lock (_lock)
         {
-            // if (hasTokenThreads.Contains(threadId))
-            // {
-            //     return (true, false);
-            // }
             if (token == 0)
             {
-                return (true, false);
+                return true;
             }
-            if (_token > 0)
+            if (_token - token > 0)
             {
                 _token = _token - token;
-                // hasTokenThreads.Add(threadId);
-                return (true, true);
+                return true;
             }
             else
             {
-                return (false, false);
+                return false;
             }
         }
     }
 
-    public void UndoGetToken(ulong threadId, int token)
+    public bool CheckToken(int token)
     {
         lock (_lock)
         {
-            // if (hasTokenThreads.Contains(threadId))
-            // {
-            //     hasTokenThreads.Remove(threadId);
-            //     if (_token < _tokenLimit)
-            //     {
-            //         _token = _token + token;
-            //         if (_token > _tokenLimit)
-            //         {
-            //             _token = _tokenLimit;
-            //         }
-            //     }
-            // }
+            if (token == 0)
+            {
+                return true;
+            }
+            return _token - token > 0;
+        }
+    }
+
+    public void UndoGetToken(int token)
+    {
+        lock (_lock)
+        {
+            if (token == 0)
+            {
+                return;
+            }
             if (_token < _tokenLimit)
             {
                 _token = _token + token;

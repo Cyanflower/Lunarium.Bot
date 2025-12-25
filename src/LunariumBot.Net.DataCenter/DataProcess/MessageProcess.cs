@@ -4,6 +4,7 @@ using System.Net;
 
 // NuGet 包依赖
 using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
@@ -43,18 +44,9 @@ public partial class DataProcessService
             _logger.Debug("空值检查处理: {message.Author}", message.Author);
             _logger.Debug("空值检查处理: {message.Author.Id}", message.Author.Id);
 
-            IThreadChannel thread = (IThreadChannel)socketThreadChannel;
-
-            if (thread.OwnerId == 0)
-            {
-                _logger.Debug("空值检查处理: Owner 为 null");
-                thread = (IThreadChannel)await _discordSocketClient.GetChannelAsync(socketThreadChannel.Id);
-                OwnerId = thread.OwnerId;
-            }
-            else
-            {
-                OwnerId = thread.OwnerId;
-            }
+            var restThread = (RestThreadChannel)await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id);
+            IThreadChannel thread = restThread;
+            OwnerId = thread.OwnerId;
 
             _logger.Debug("空值检查处理: {OwnerId}", OwnerId);
 
@@ -70,7 +62,7 @@ public partial class DataProcessService
 
                     await _httpRetryPolicy.ExecuteAsync(async () =>
                     {
-                        refreshMessage = await socketThreadChannel.GetMessageAsync(message.Id);
+                        refreshMessage = await restThread.GetMessageAsync(message.Id);
                     });
 
                     if (refreshMessage is null)
@@ -85,7 +77,7 @@ public partial class DataProcessService
                         if (isUpdate)
                         {
                             _logger.Info("✨ 检测到作品更新: [{GuildName}.{ChannelName}.{ThreadName}] 消息ID: {MessageId}",
-                                parentChannel.Guild.Name, parentChannel.Name, socketThreadChannel.Name, message.Id);
+                                parentChannel.Guild.Name, parentChannel.Name, restThread.Name, message.Id);
                         }
                     }
                 }
@@ -209,7 +201,7 @@ public partial class DataProcessService
                     await transaction.SaveAsync("before_update_count");
                     try
                     {
-                        await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, socketThreadChannel.MessageCount);
+                        await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, restThread.MessageCount);
                     }
                     catch (Exception ex)
                     {
@@ -233,7 +225,7 @@ public partial class DataProcessService
                 }
 
             });
-            _logger.Debug("✅ 成功记录消息: 消息ID {MessageId}, 回复数: {MessageCount}", message.Id, socketThreadChannel.MessageCount);
+            _logger.Debug("✅ 成功记录消息: 消息ID {MessageId}, 回复数: {MessageCount}", message.Id, restThread.MessageCount);
         }
         catch (Exception ex)
         {
