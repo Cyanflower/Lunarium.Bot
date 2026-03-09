@@ -92,10 +92,10 @@ public static class LoggerBuilderExtensions
     /// <param name="builder">要配置的 LoggerBuilder 实例。</param>
     /// <param name="bridge">包含 ChannelWriter 的 LogChannelBridge 实例。</param>
     /// <returns>返回配置后的 LoggerBuilder 实例，以便进行链式调用。</returns>
-    public static LoggerBuilder AddChannelSink(this LoggerBuilder builder, out ChannelReader<string> reader, int? channelCapacity = null, SinkConfiguration? sinkConfiguration = null)
+    public static LoggerBuilder AddChannelSink(this LoggerBuilder builder, out ChannelReader<string> reader, int? channelCapacity = null, bool isColor = false, SinkConfiguration? sinkConfiguration = null)
     {
         var bridge = new LogChannelBridge(channelCapacity);
         reader = bridge.Reader;
-        return builder.AddSink(new ChannelSink(bridge.Writer), sinkConfiguration);
+        return builder.AddSink(new ChannelSink(bridge.Writer, isColor), sinkConfiguration);
     }
 }

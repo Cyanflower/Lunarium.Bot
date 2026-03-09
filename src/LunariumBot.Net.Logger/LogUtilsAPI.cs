@@ -11,9 +11,9 @@ public static class LogUtils
         var formattedTimestamp = TimestampFormatConfig.TextMode switch
         {
             TextTimestampMode.Unix => LogTimestampConfig.GetTimestamp().ToUnixTimeSeconds().ToString(),
-            TextTimestampMode.UnixMs => LogTimestampConfig.GetTimestamp().ToUnixTimeSeconds().ToString(),
+            TextTimestampMode.UnixMs => LogTimestampConfig.GetTimestamp().ToUnixTimeMilliseconds().ToString(),
             TextTimestampMode.ISO8601 => $"{LogTimestampConfig.GetTimestamp():O}",
-            TextTimestampMode.Custom => string.Format($"0:{TimestampFormatConfig.TextCustomFormat}", LogTimestampConfig.GetTimestamp()),
+            TextTimestampMode.Custom => LogTimestampConfig.GetTimestamp().ToString(TimestampFormatConfig.TextCustomFormat),
             _ => $"{LogTimestampConfig.GetTimestamp():O}"
         };
         return formattedTimestamp;

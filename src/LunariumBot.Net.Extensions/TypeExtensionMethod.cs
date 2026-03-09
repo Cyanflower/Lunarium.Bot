@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace LunariumBot.Net.Extensions;
 
 #region string
@@ -49,17 +51,34 @@ public static class DiscordExtensions
     {
         return unchecked((ulong)dbId);
     }
-    
+
     // uint 转 int
     public static int ToDbId(this uint discordId)
     {
         return unchecked((int)discordId);
     }
-    
+
     // int 转 uint
     public static uint ToDiscordId(this int dbId)
     {
         return unchecked((uint)dbId);
+    }
+}
+
+#endregion
+
+#region Enum
+
+public static class EnumExtensions
+{
+    // 基础方法：获取单个枚举的描述
+    public static string ToDescription(this Enum value)
+    {
+        if (value == null) return "";
+        var field = value.GetType().GetField(value.ToString());
+        if (field == null) return value.ToString();
+        var attr = Attribute.GetCustomAttribute(field, typeof(DescriptionAttribute)) as DescriptionAttribute;
+        return attr?.Description ?? value.ToString();
     }
 }
 

@@ -1,4 +1,3 @@
-// 在 Paginator 文件夹下创建一个新文件 PaginationControlsBuilder.cs
 using Discord;
 
 namespace LunariumBot.Net.SearchBot.Paginator;

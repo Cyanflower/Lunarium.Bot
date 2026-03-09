@@ -12,14 +12,16 @@ public class ChannelSink : ILogSink
 {
     // 存放用于写入日志条目的 ChannelWriter
     private readonly ChannelWriter<string> _writer;
+    private readonly bool _isColor;
 
     /// <summary>
     /// 初始化一个新的 ChannelSink 实例。
     /// </summary>
     /// <param name="writer">用于接收日志条目的 ChannelWriter。</param>
-    public ChannelSink(ChannelWriter<string> writer)
+    public ChannelSink(ChannelWriter<string> writer, bool isColor)
     {
         _writer = writer;
+        _isColor = isColor;
     }
 
     /// <summary>
@@ -28,10 +30,37 @@ public class ChannelSink : ILogSink
     /// <param name="entry">要写入的日志条目。</param>
     public void Emit(LogEntry entry, bool toJson)
     {
-        // 尝试写入，如果 Channel 已关闭或发生其他问题，它会无声地失败，不会阻塞或抛出异常。
-        using LogWriter logWriter = toJson ? WriterPool.Get<LogJsonWriter>() : WriterPool.Get<LogTextWriter>();
-        logWriter.Render(entry);
-        _writer.TryWrite(logWriter.ToString());
+        LogWriter logWriter;
+
+        // JSON 优先级最高
+        // 如果用户强行开启了 JSON，说明下游消费者期望的是 JSON 格式
+        // 此时无论是否开启了颜色，都必须输出纯净的 JSON，否则下游解析会炸
+        if (toJson)
+        {
+            logWriter = WriterPool.Get<LogJsonWriter>();
+        }
+        // 其次是带颜色的文本
+        // 只有在不是 JSON 且明确要求颜色时，才使用 ColorWriter
+        else if (_isColor)
+        {
+            logWriter = WriterPool.Get<LogColorTextWriter>();
+        }
+        // 最后是普通纯文本
+        // 兜底方案
+        else
+        {
+            logWriter = WriterPool.Get<LogTextWriter>();
+        }
+
+        try
+        {
+            logWriter.Render(entry);
+            _writer.TryWrite(logWriter.ToString());
+        }
+        finally
+        {
+            logWriter.Return();
+        }
     }
 
     /// <summary>
@@ -40,10 +69,3 @@ public class ChannelSink : ILogSink
     /// </summary>
     public void Dispose() { }
 }
-
-/*
-通过 Channel 向主程序的Tui发送日志
-channel建立在bot程序集上, bot负责初始化自己的日志模块, 然后自行配置输出到文件, 然后bot自己创建一个channel实例, 
-传给LoggerBuilder的一个单独的例如TuiSkin然后-> 日志实例, 这个Skin就直接往这个channel里写消息, 
-然后作为运行时动态加载的接口一部分, 主进程和Bot直接对接这个channel
-*/
