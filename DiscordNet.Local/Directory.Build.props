@@ -1,0 +1,33 @@
+<Project>
+  <!-- 
+    这个文件会自动被子项目加载。
+    在这里做的配置会应用到 Discord.Net 的所有项目 (Rest, WebSocket, Core 等)。
+  -->
+
+  <ItemGroup>
+    <!-- 
+      核心：注入 InternalsVisibleTo 属性。
+      _Parameter1 是你的项目程序集名称（注意：是程序集名称，通常与 .csproj 文件名一致）。
+      如果有多个项目需要访问，就复制多行。
+    -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>LunariumBot.Net.Extensions</_Parameter1>
+    </AssemblyAttribute>
+    
+    <!-- <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>LunariumBot.Net.Archive</_Parameter1>
+    </AssemblyAttribute> -->
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- 
+      重要：禁用强签名 (Strong Naming)。
+      默认情况下 Discord.Net 是开启签名的。如果程序集已签名，InternalsVisibleTo 必须包含公钥。
+      为了省事（避免去搞公钥），我们直接在这个环境里把 Discord.Net 的签名关掉。
+      这对你的私有 Bot 没有任何负面影响。
+    -->
+    <SignAssembly>false</SignAssembly>
+    <AssemblyOriginatorKeyFile></AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+</Project>
