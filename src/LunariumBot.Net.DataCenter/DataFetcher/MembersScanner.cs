@@ -36,7 +36,7 @@ public class MembersScanner
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
-    private Dictionary<ulong, RestRoleV2> _rolesCache = new();
+    private Dictionary<ulong, RestRole> _rolesCache = new();
     private HashSet<ulong> DeployGuildIds => _configLoader.Config.DeployConfig.DeployGuildIds;
     private HashSet<ulong> ExcludeGuildIds => _configLoader.Config.DeployConfig.ExcludeGuildIds;
     public MembersScanner(
@@ -295,16 +295,16 @@ public class MembersScanner
                     // RoleIconUrl = role.Icon,
                     RoleIconUrl = role.GetIconUrl(),
                     RoleEmoji = role.Emoji?.ToString(),
-                    RolePrimaryColor = role.Colors?.PrimaryColor.RawValue,
-                    RoleSecondaryColor = role.Colors?.SecondaryColor?.RawValue,
-                    RoleTertiaryColor = role.Colors?.TertiaryColor?.RawValue,
+                    RolePrimaryColor = role.Colors.PrimaryColor.RawValue,
+                    RoleSecondaryColor = role.Colors.SecondaryColor?.RawValue,
+                    RoleTertiaryColor = role.Colors.TertiaryColor?.RawValue,
                     IsDeleted = false,
                     DeleteAt = null
                 });
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "❌ 转换 RestRoleV2 对象到 RoleData 对象时出错");
+                _logger.Error(ex, "❌ 转换 RestRole 对象到 RoleData 对象时出错");
             }
         }
         return roleDatas;
