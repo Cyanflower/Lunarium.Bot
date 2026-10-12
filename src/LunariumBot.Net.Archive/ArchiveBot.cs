@@ -16,6 +16,7 @@ using Discord.WebSocket;
 // 解决方案内引用项目
 using LunariumBot.Net.Logger;
 using LunariumBot.Net.Extensions;
+using LunariumBot.Net.Extensions.CacheStore;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;
@@ -103,6 +104,16 @@ public sealed class ArchiveBotService : IHostedService
             )
 
             .AddSingleton<PriorityArchiveDataLoader>()
+
+            // 状态报告消息账本：
+            // - CacheStore 必须由容器创建（传入现成实例的话容器不会释放它，防抖队列里的最后写入会丢失）
+            // - 两者都注册在 ArchiverService 之前：容器按注册逆序释放，从而「先停归档、后刷盘」
+            .AddSingleton(provider => new CacheStore(
+                cacheNamespace: "archive-status-log",
+                logError: ex => provider.GetRequiredService<ILogger>().Error(ex, "状态报告账本 CacheStore 异常"),
+                allowCorruptRebuild: true))
+            .AddSingleton<GuildLogMessageRegistry>()
+
             .AddSingleton<ArchiverService>()
 
             // 注册鉴权服务
@@ -154,9 +165,9 @@ public sealed class ArchiveBotService : IHostedService
         await _client.StopAsync();
 
         // 释放私有服务容器
-        if (_privateServices is IDisposable disposable)
+        if (_privateServices is IAsyncDisposable asyncDisposable)
         {
-            disposable.Dispose();
+            await asyncDisposable.DisposeAsync();
         }
         
         _logger.Info("✅ ArchiveBot 服务已停止。");

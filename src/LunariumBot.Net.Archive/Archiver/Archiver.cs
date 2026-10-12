@@ -23,7 +23,7 @@ namespace LunariumBot.Net.Archive.Archiver;
 /// Discord 线程归档服务
 /// 负责定期清理和归档 Discord 服务器中的非活跃线程，维护置顶帖状态
 /// </summary>
-public sealed class ArchiverService : IDisposable
+public sealed class ArchiverService : IAsyncDisposable
 {
     #region 私有字段
 
@@ -33,14 +33,27 @@ public sealed class ArchiverService : IDisposable
     private readonly PriorityArchiveDataLoader _priorityArchiveDataLoader;
 
     /// <summary>
+    /// 状态报告消息账本（跨重启持久化消息 id，用于认领既有报告）
+    /// </summary>
+    private readonly GuildLogMessageRegistry _logMessageRegistry;
+
+    /// <summary>
     /// 定时执行归档任务的计时器
     /// </summary>
     private Timer? _archiveTimer;
 
     /// <summary>
     /// 用于防止并发执行归档任务的锁对象
+    /// <para>
+    /// 该信号量同时精确编码了「是否有归档周期在飞」：能拿到锁即代表当前没有周期在跑。
+    /// </para>
     /// </summary>
     private readonly SemaphoreSlim _archiveTaskLock = new SemaphoreSlim(1, 1);
+
+    /// <summary>
+    /// 关闭信号：取消后定时器回调不再启动新的归档周期，释放时也用它等待在飞周期结束。
+    /// </summary>
+    private readonly CancellationTokenSource _shutdownCts = new();
 
     /// <summary>
     /// 缓存的置顶帖信息
@@ -85,12 +98,15 @@ public sealed class ArchiverService : IDisposable
     /// <param name="logger">日志记录器</param>
     /// <param name="configLoader">配置加载器</param>
     /// <param name="discordClient">Discord客户端</param>
-    public ArchiverService(ILogger logger, ConfigLoader configLoader, DiscordSocketClient discordClient, PriorityArchiveDataLoader priorityArchiveDataLoader)
+    /// <param name="priorityArchiveDataLoader">优先归档数据加载器</param>
+    /// <param name="logMessageRegistry">状态报告消息账本（持久化消息 id，用于跨重启认领）</param>
+    public ArchiverService(ILogger logger, ConfigLoader configLoader, DiscordSocketClient discordClient, PriorityArchiveDataLoader priorityArchiveDataLoader, GuildLogMessageRegistry logMessageRegistry)
     {
         _logger = logger.ForContext("ArchiverService");
         _archiveConfig = configLoader;
         _discordClient = discordClient;
         _priorityArchiveDataLoader = priorityArchiveDataLoader;
+        _logMessageRegistry = logMessageRegistry;
         _priorityArchive = new(_priorityArchiveDataLoader.LoadData());
 
         // 配置HTTP重试策略
@@ -315,32 +331,51 @@ public sealed class ArchiverService : IDisposable
     /// 使用锁机制防止重叠执行
     /// </summary>
     /// <param name="state">定时器状态参数（未使用）</param>
-    private async void ExecuteArchiveTaskCallback(object? state)
+    private void ExecuteArchiveTaskCallback(object? state)
+    {
+        // Timer 回调必须是 void：把实际工作交给可等待的 Task 实现，异常在内部捕获
+        _ = RunArchiveTaskAsync();
+    }
+
+    /// <summary>
+    /// 执行一个归档周期。<see cref="_archiveTaskLock"/> 既是互斥锁，也精确编码了「是否有周期在飞」。
+    /// </summary>
+    private async Task RunArchiveTaskAsync()
     {
         // 尝试立即获取锁 (等待时间为0毫秒)
-        if (await _archiveTaskLock.WaitAsync(0))
-        {
-            _logger.Info("====== 定时归档任务开始 ======");
-            try
-            {
-                // 这里的 await 可以安全地切换线程了
-                await ProcessAllGuildsArchiveTask();
-            }
-            catch (Exception ex)
-            {
-                // 即使是 async void，也要捕获所有异常，防止程序崩溃
-                _logger.Error(ex, "执行归档任务时发生未处理的异常");
-            }
-            finally
-            {
-                _logger.Info("====== 定时归档任务结束 ======");
-                // 释放锁，让下一次任务可以进入
-                _archiveTaskLock.Release();
-            }
-        }
-        else
+        if (!await _archiveTaskLock.WaitAsync(0))
         {
             _logger.Warning("上一次归档任务仍在执行中，本次执行已跳过");
+            return;
+        }
+
+        // 已进入关闭流程：立刻放锁退出，避免在状态频道/缓存释放后继续写入
+        if (_shutdownCts.IsCancellationRequested)
+        {
+            _archiveTaskLock.Release();
+            return;
+        }
+
+        _logger.Info("====== 定时归档任务开始 ======");
+        try
+        {
+            // 这里的 await 可以安全地切换线程了
+            await ProcessAllGuildsArchiveTask();
+        }
+        catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested)
+        {
+            _logger.Warning("归档任务因服务关闭而中断");
+        }
+        catch (Exception ex)
+        {
+            // 捕获所有异常，防止定时器线程崩溃
+            _logger.Error(ex, "执行归档任务时发生未处理的异常");
+        }
+        finally
+        {
+            _logger.Info("====== 定时归档任务结束 ======");
+            // 释放锁，让下一次任务可以进入
+            _archiveTaskLock.Release();
         }
     }
 
@@ -757,17 +792,48 @@ public sealed class ArchiverService : IDisposable
             taskDuration,
             taskEndTime);
 
-        // 尝试更新现有消息，如果不存在则发送新消息
-        if (_guildStatusMessageCache.TryGetValue(guildId, out IUserMessage? cachedMessage) && cachedMessage != null)
+        // 记录状态频道（用于识别频道配置变更）
+        _logMessageRegistry.RememberChannel(_statusChannel.Id);
+
+        // 运行时句柄：本进程内已发送或已认领过的消息
+        _guildStatusMessageCache.TryGetValue(guildId, out IUserMessage? statusMessage);
+
+        // 句柄缺失（进程刚启动 / 上一轮认领失败）→ 按持久化账本认领既有报告，避免重复新建
+        statusMessage ??= await _logMessageRegistry.TryClaimAsync(guildId, _statusChannel);
+
+        // 认领不到 → 新建并记账
+        if (statusMessage is null)
         {
-            await cachedMessage.ModifyAsync(props => { props.Embed = statusEmbed; });
+            statusMessage = await _statusChannel.SendMessageAsync(embed: statusEmbed);
+            _guildStatusMessageCache[guildId] = statusMessage;
+            _logMessageRegistry.RememberMessage(guildId, statusMessage.Id);
+            _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告发送成功", guildName, guildId);
+            return;
+        }
+
+        _guildStatusMessageCache[guildId] = statusMessage;
+
+        // 就地更新；消息已被删除（10008 Unknown Message）→ 清账重发，实现自愈
+        try
+        {
+            await statusMessage.ModifyAsync(props => { props.Embed = statusEmbed; });
             _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告更新成功", guildName, guildId);
         }
-        else
+        catch (HttpException ex) when (ex.HttpCode == HttpStatusCode.NotFound)
         {
-            var newStatusMessage = await _statusChannel!.SendMessageAsync(embed: statusEmbed);
-            _guildStatusMessageCache[guildId] = newStatusMessage;
-            _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告发送成功", guildName, guildId);
+            _logger.Warning("[{guildName}({GuildId})] 状态报告消息已被删除，正在重新发送...", guildName, guildId);
+            _guildStatusMessageCache.Remove(guildId);
+            _logMessageRegistry.Forget(guildId);
+
+            var resentMessage = await _statusChannel.SendMessageAsync(embed: statusEmbed);
+            _guildStatusMessageCache[guildId] = resentMessage;
+            _logMessageRegistry.RememberMessage(guildId, resentMessage.Id);
+            _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告重新发送成功", guildName, guildId);
+        }
+        catch (Exception ex)
+        {
+            // 其它异常（限流 / 网络等）：保留账本与句柄，下一轮重试
+            _logger.Error(ex, "[{guildName}({GuildId})] 步骤6/6: 状态报告更新失败，将于下一轮重试", guildName, guildId);
         }
     }
 
@@ -1045,12 +1111,44 @@ public sealed class ArchiverService : IDisposable
     }
 
     /// <summary>
-    /// 释放资源
+    /// 释放资源。
+    /// <para>
+    /// 顺序：停定时器 → 通知关闭 → 等待在飞周期结束 → 释放其余资源。
+    /// 等待是必要的：单轮归档实测约 27 秒，若不等它跑完，周期会在状态频道与消息账本释放后继续写入。
+    /// </para>
+    /// <para>
+    /// 注意：必须通过容器的 <c>DisposeAsync</c> 释放（本类型只实现 <see cref="IAsyncDisposable"/>），
+    /// 同步释放会抛 <see cref="InvalidOperationException"/>。
+    /// </para>
     /// </summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        // 1) 停掉定时器：不再产生新的周期（已排队的那次会在 RunArchiveTaskAsync 中直接退出）
         _archiveTimer?.Dispose();
+        _archiveTimer = null;
+
+        // 2) 通知关闭，并等待在飞周期结束
+        _shutdownCts.Cancel();
+        try
+        {
+            // 能拿到锁 ⇒ 当前没有周期在跑（信号量已精确编码该状态）
+            if (await _archiveTaskLock.WaitAsync(TimeSpan.FromSeconds(60), CancellationToken.None))
+            {
+                _archiveTaskLock.Release();
+            }
+            else
+            {
+                _logger.Warning("等待在飞归档周期结束超时(60 秒)，继续释放资源");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "等待在飞归档周期时发生异常，继续释放资源");
+        }
+
+        // 3) 释放其余资源
         _apiRequestRateLimiter?.Dispose();
+        _shutdownCts.Dispose();
     }
 
     #endregion
