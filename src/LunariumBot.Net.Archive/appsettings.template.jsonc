@@ -4,7 +4,9 @@
     "AdminRoleIds": [
       123
     ],
-    "LogChannel": 123
+    "LogChannel": 123,
+    "StatusChannel": 123,
+    "MaintainerId": 123
   },
   // 服务器配置(兼容多服务器配置)
   // 服务器ID

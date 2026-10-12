@@ -65,15 +65,15 @@ public sealed class ArchiverService : IDisposable
     private readonly AsyncRetryPolicy _httpRetryPolicy;
 
     /// <summary>
-    /// 日志频道，用于发送归档状态信息
+    /// 状态频道，用于发送归档状态报告
     /// </summary>
-    private IMessageChannel? _logChannel = null;
+    private IMessageChannel? _statusChannel = null;
 
     /// <summary>
-    /// 每个服务器的日志消息缓存，用于更新而不是重复发送消息
-    /// 结构: [服务器ID] = 日志消息对象
+    /// 每个服务器的状态消息缓存，用于更新而不是重复发送消息
+    /// 结构: [服务器ID] = 状态消息对象
     /// </summary>
-    private Dictionary<ulong, IUserMessage?> _guildLogMessageCache = new();
+    private Dictionary<ulong, IUserMessage?> _guildStatusMessageCache = new();
 
     #endregion
 
@@ -349,8 +349,8 @@ public sealed class ArchiverService : IDisposable
     /// </summary>
     private async Task ProcessAllGuildsArchiveTask()
     {
-        // 初始化日志频道（如果尚未初始化）
-        await InitializeLogChannelIfNeeded();
+        // 初始化状态频道（如果尚未初始化）
+        await InitializeStatusChannelIfNeeded();
 
         // 遍历所有配置的服务器
         foreach ((var guildId, var activeThreadLimit) in _archiveConfig.Config.DeployGuildConfig)
@@ -398,8 +398,8 @@ public sealed class ArchiverService : IDisposable
         // 5. 维护置顶线程状态
         await MaintainPinnedThreadsStatus();
 
-        // 6. 发送或更新状态日志
-        await UpdateArchiveStatusLog(guildId, guildName, allActiveThreads.Count, activeThreadLimit, archiveResults, taskStartTime);
+        // 6. 发送或更新状态报告
+        await UpdateArchiveStatusReport(guildId, guildName, allActiveThreads.Count, activeThreadLimit, archiveResults, taskStartTime);
     }
 
     #endregion
@@ -689,43 +689,43 @@ public sealed class ArchiverService : IDisposable
 
     #endregion
 
-    #region 日志和状态更新方法
+    #region 状态报告更新方法
 
     /// <summary>
-    /// 初始化日志频道（如果尚未初始化）
+    /// 初始化状态频道（如果尚未初始化）
     /// </summary>
-    private async Task InitializeLogChannelIfNeeded()
+    private async Task InitializeStatusChannelIfNeeded()
     {
-        if (_logChannel == null)
+        if (_statusChannel == null)
         {
-            _logger.Info("日志频道尚未初始化, 正在尝试获取频道对象 (ID: {ChannelId})...", _archiveConfig.Config.AuthConfig.LogChannel);
+            _logger.Info("状态频道尚未初始化, 正在尝试获取频道对象 (ID: {ChannelId})...", _archiveConfig.Config.AuthConfig.StatusChannel);
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
-                var logChannelObj = await _discordClient.GetChannelAsync(_archiveConfig.Config.AuthConfig.LogChannel);
-                _logChannel = logChannelObj as IMessageChannel;
+                var statusChannelObj = await _discordClient.GetChannelAsync(_archiveConfig.Config.AuthConfig.StatusChannel);
+                _statusChannel = statusChannelObj as IMessageChannel;
             });
-            if (_logChannel != null)
+            if (_statusChannel != null)
             {
                 // [新增日志]
-                _logger.Info("日志频道初始化成功!");
+                _logger.Info("状态频道初始化成功!");
             }
             else
             {
                 // [新增日志]
-                _logger.Error("日志频道初始化失败! 无法获取频道或频道类型不正确。后续将无法发送状态报告。");
+                _logger.Error("状态频道初始化失败! 无法获取频道或频道类型不正确。后续将无法发送状态报告。");
             }
         }
     }
 
     /// <summary>
-    /// 更新或发送归档状态日志
+    /// 更新或发送归档状态报告
     /// </summary>
     /// <param name="guildId">服务器ID</param>
     /// <param name="totalActiveThreads">总活跃线程数</param>
     /// <param name="activeThreadLimit">活跃线程限制</param>
     /// <param name="archiveResult">归档操作结果</param>
     /// <param name="taskStartTime">任务开始时间</param>
-    private async Task UpdateArchiveStatusLog(
+    private async Task UpdateArchiveStatusReport(
         ulong guildId,
         string guildName,
         int totalActiveThreads,
@@ -734,9 +734,9 @@ public sealed class ArchiverService : IDisposable
         DateTimeOffset taskStartTime
     )
     {
-        if (_logChannel == null)
+        if (_statusChannel == null)
         {
-            _logger.Warning("[{guildName}({GuildId})] 步骤6/6: 由于日志频道未初始化, 跳过发送状态报告", guildName, guildId);
+            _logger.Warning("[{guildName}({GuildId})] 步骤6/6: 由于状态频道未初始化, 跳过发送状态报告", guildName, guildId);
             return;
         }
 
@@ -758,15 +758,15 @@ public sealed class ArchiverService : IDisposable
             taskEndTime);
 
         // 尝试更新现有消息，如果不存在则发送新消息
-        if (_guildLogMessageCache.TryGetValue(guildId, out IUserMessage? cachedMessage) && cachedMessage != null)
+        if (_guildStatusMessageCache.TryGetValue(guildId, out IUserMessage? cachedMessage) && cachedMessage != null)
         {
             await cachedMessage.ModifyAsync(props => { props.Embed = statusEmbed; });
             _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告更新成功", guildName, guildId);
         }
         else
         {
-            var newLogMessage = await _logChannel!.SendMessageAsync(embed: statusEmbed);
-            _guildLogMessageCache[guildId] = newLogMessage;
+            var newStatusMessage = await _statusChannel!.SendMessageAsync(embed: statusEmbed);
+            _guildStatusMessageCache[guildId] = newStatusMessage;
             _logger.Info("[{guildName}({GuildId})] 步骤6/6: 状态报告发送成功", guildName, guildId);
         }
     }
@@ -792,7 +792,7 @@ public sealed class ArchiverService : IDisposable
         DateTimeOffset taskEndTime
     )
     {
-        var logSB = new StringBuilder();
+        var statusSB = new StringBuilder();
 
         var title = "🗂️ 定时归档执行报告";
         var footer = $"⏱️ 耗时: {taskDuration.TotalSeconds:F2} 秒 | 间隔: {_archiveConfig.Config.IntervalMin} 分钟";
@@ -802,9 +802,9 @@ public sealed class ArchiverService : IDisposable
             .WithFooter(footer)
             .WithTimestamp(DateTimeOffset.UtcNow);
 
-        logSB.Append('\n');
-        logSB.AppendLine(title);
-        logSB.AppendLine(footer);
+        statusSB.Append('\n');
+        statusSB.AppendLine(title);
+        statusSB.AppendLine(footer);
 
 
 
@@ -828,7 +828,7 @@ public sealed class ArchiverService : IDisposable
                 .WithColor(Color.Green)
                 .WithDescription(description);
 
-            logSB.AppendLine(description);
+            statusSB.AppendLine(description);
         }
         else if (archiveResult.ThreadsToArchive == 0)
         {
@@ -847,7 +847,7 @@ public sealed class ArchiverService : IDisposable
                 .WithColor(Color.Orange)
                 .WithDescription(description);
 
-            logSB.AppendLine(description);
+            statusSB.AppendLine(description);
         }
         else
         {
@@ -871,9 +871,9 @@ public sealed class ArchiverService : IDisposable
                 .WithColor(failedArchives > 0 ? Color.Red : Color.Blue)
                 .WithDescription(description);
 
-            logSB.AppendLine(description);
+            statusSB.AppendLine(description);
 
-            _logger.Info(logSB.ToString());
+            _logger.Info(statusSB.ToString());
 
             // 添加具体的归档结果详情（最多显示25个）
             var displayResults = archiveResult.ArchiveResults.Take(25);

@@ -158,9 +158,9 @@ public sealed class ConfigLoader
             {
                 errors.AppendLine("- AuthConfig.AdminRoleIds 不能为空，至少需要一个管理员角色ID。");
             }
-            if (config.AuthConfig.LogChannel == 0)
+            if (config.AuthConfig.StatusChannel == 0)
             {
-                errors.AppendLine("- AuthConfig.LogChannel 必须设置为一个有效的频道ID。");
+                errors.AppendLine("- AuthConfig.StatusChannel 必须设置为一个有效的频道ID。");
             }
         }
 

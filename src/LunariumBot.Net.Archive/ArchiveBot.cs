@@ -149,6 +149,8 @@ public sealed class ArchiveBotService : IHostedService
         _client.InteractionCreated -= HandleInteractionAsync;
         _client.MessageReceived -= HandleMessageCommandAsync;
 
+        _healthMonitoring.RemoveConnectEventHandler();
+
         await _client.StopAsync();
 
         // 释放私有服务容器
@@ -194,6 +196,8 @@ public sealed class ArchiveBotService : IHostedService
             {
                 // 现在 bot 完全就绪，可以安全地同步命令
                 await SyncCommandsAsync();
+                // 注册连接事件处理器(否则连接状态队列恒为空)
+                _healthMonitoring.AddConnectEventHandler();
                 _isFirstTime = false;
                 // 启动归档服务
                 _archiverService.EnsureTimerIsRunning();
@@ -209,27 +213,35 @@ public sealed class ArchiveBotService : IHostedService
                         ### BOT 客户端重新连接
                         登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
                         检测到 BOT 客户端在运行时重新连接 Discord API 网关事件
-                        <@867658156510150716>
-                        以下文件是最近延迟信息于网关事件
                         """)
                     .Build();
+
                 // 获取监控日志字符串
-                var latencysLog = _healthMonitoring.GetLatencysLog();
-                var connectStatesLog = _healthMonitoring.GetConnectStatesLog();
+                var latencysLog = _healthMonitoring.GetLatencysLog(5);
+                var connectStatesLog = _healthMonitoring.GetConnectStatesLog(5);
 
-                // 把字符串转换成内存流
-                using var latencyStream = new MemoryStream(Encoding.UTF8.GetBytes(latencysLog));
-                using var connectStateStream = new MemoryStream(Encoding.UTF8.GetBytes(connectStatesLog));
+                _logger.Warning("BOT 客户端重新连接, 登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})");
+                _logger.Warning("检测到 BOT 客户端在运行时重新连接 Discord API 网关事件");
+                _logger.Warning(latencysLog);
+                _logger.Warning(connectStatesLog);
 
-                // 为每个流创建一个 FileAttachment
-                var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
-                var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
-                
-                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
-                if (channelCache is not null)
+                // 向维护者发送私信通知
+                try
                 {
-                    await channelCache.SendMessageAsync(embed: loginEmbed);
-                    await channelCache.SendFilesAsync(text:"<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                    var maintainer = await _client.GetUserAsync(_configLoader.Config.AuthConfig.MaintainerId);
+                    if (maintainer is not null)
+                    {
+                        await maintainer.SendMessageAsync(embed: loginEmbed);
+                        _logger.Info("已向维护者({MaintainerId})发送重连通知私信", _configLoader.Config.AuthConfig.MaintainerId);
+                    }
+                    else
+                    {
+                        _logger.Warning("无法获取维护者用户({MaintainerId}), 重连通知私信未发送", _configLoader.Config.AuthConfig.MaintainerId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "向维护者({MaintainerId})发送重连通知私信失败", _configLoader.Config.AuthConfig.MaintainerId);
                 }
             }
 
@@ -243,8 +255,8 @@ public sealed class ArchiveBotService : IHostedService
     
     private async Task SendLoginNotificationAsync()
     {
-        var logChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel);
-        if (logChannel is IMessageChannel logMessageChannel)
+        var statusChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.StatusChannel);
+        if (statusChannel is IMessageChannel statusMessageChannel)
         {
             var guildInfoList = new List<(IGuild guild, int limit)>();
             var invalidConfig = new List<(ulong, int)>();
@@ -262,40 +274,40 @@ public sealed class ArchiveBotService : IHostedService
                     invalidConfig.Add((pair.Key, pair.Value));
                 }
             }
-            var loginLogSB = new StringBuilder();
-            loginLogSB.AppendLine($"""
+            var loginLogStatusSB = new StringBuilder();
+            loginLogStatusSB.AppendLine($"""
                 ### 服务已启动
                 登录 BOT : {_client.CurrentUser.Username}({_client.CurrentUser.Id})
                 归档服务部署服务器:
                 """);
             foreach (var guildInfo in guildInfoList)
             {
-                loginLogSB.AppendLine($"""
+                loginLogStatusSB.AppendLine($"""
                     > - {guildInfo.guild.Name}: {guildInfo.limit}
                     > -# ID: {guildInfo.guild.Id}
                     """);
             }
             if (invalidConfig.Count > 0)
             {
-                loginLogSB.AppendLine("发现以下无效配置, 当前所登录 BOT 并不处于这些服务器中");
+                loginLogStatusSB.AppendLine("发现以下无效配置, 当前所登录 BOT 并不处于这些服务器中");
                 foreach (var guildInfo in guildInfoList)
                 {
-                    loginLogSB.AppendLine($"> - ID: {guildInfo.guild.Id}: {guildInfo.limit}");
+                    loginLogStatusSB.AppendLine($"> - ID: {guildInfo.guild.Id}: {guildInfo.limit}");
                 }
             }
 
             var embed = new EmbedBuilder()
                 .WithTitle("自动归档服务")
-                .WithDescription(loginLogSB.ToString())
+                .WithDescription(loginLogStatusSB.ToString())
                 .WithTimestamp(DateTimeOffset.UtcNow)
                 .Build();
 
-            await logMessageChannel.SendMessageAsync(embed: embed);
+            await statusMessageChannel.SendMessageAsync(embed: embed);
             _logger.Info("成功发送登录消息通知");
         }
         else
         {
-            _logger.Warning("ReadyAsync 出现异常: 配置的 Log 频道({channelId})不是可发消息频道类型(IMessageChannel)", _configLoader.Config.AuthConfig.LogChannel);
+            _logger.Warning("ReadyAsync 出现异常: 配置的 Status 频道({channelId})不是可发消息频道类型(IMessageChannel)", _configLoader.Config.AuthConfig.StatusChannel);
         }
     }
     
