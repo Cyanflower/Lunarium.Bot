@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 
 using Discord;
 using Discord.Net;
@@ -22,6 +24,16 @@ public class HealthMonitor : IDisposable
     
     // 客户端连接状态信息队列: 连接事件驱动
     private readonly Queue<(DateTimeOffset Time, string connectEvent, string State, int Latency, Exception? ex)> _connectStates = new();
+
+    // JSON 序列化选项: 无缩进(即无多余空格/换行), 且不转义非 ASCII 字符
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    /// <summary>JSON 重载默认采样条数: 从最多 96 条记录中均匀抽取的条数。</summary>
+    public const int MonitorSampleCount = 5;
 
     public HealthMonitor(DiscordSocketClient discordClient, ILogger logger)
     {
@@ -118,6 +130,87 @@ public class HealthMonitor : IDisposable
             return $"GetConnectStates Failed:\n{ex}";
         }
     }
+
+    /// <summary>
+    /// 重载版本: 返回序列化后的 JSON 字符串(无空格、无换行)。
+    /// 从当前缓存的记录中均匀选取 <paramref name="sampleCount"/> 条(默认 5 条, 即从 96 条中均匀取 5 条)。
+    /// </summary>
+    public string GetLatencysLog(int sampleCount = MonitorSampleCount)
+    {
+        try
+        {
+            var items = UniformSample(_latencys.ToArray(), sampleCount)
+                .Select(l => new
+                {
+                    time = l.Time,
+                    state = l.State,
+                    latency = l.Latency
+                })
+                .ToArray();
+            var json = JsonSerializer.Serialize(items, JsonOptions);
+            _logger.Debug("GetLatencysLog(Json): {GetLatencysLog}", json);
+            return json;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "GetLatencys(Json) Failed:");
+            return "[]";
+        }
+    }
+
+    /// <summary>
+    /// 重载版本: 返回序列化后的 JSON 字符串(无空格、无换行)。
+    /// 从当前缓存的记录中均匀选取 <paramref name="sampleCount"/> 条(默认 5 条, 即从 96 条中均匀取 5 条)。
+    /// </summary>
+    public string GetConnectStatesLog(int sampleCount = MonitorSampleCount)
+    {
+        try
+        {
+            var items = UniformSample(_connectStates.ToArray(), sampleCount)
+                .Select(c => new
+                {
+                    time = c.Time,
+                    @event = c.connectEvent,
+                    state = c.State,
+                    latency = c.Latency,
+                    exception = c.ex?.Message
+                })
+                .ToArray();
+            var json = JsonSerializer.Serialize(items, JsonOptions);
+            _logger.Debug("GetConnectStatesLog(Json): {GetConnectStatesLog}", json);
+            return json;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "GetConnectStates(Json) Failed:");
+            return "[]";
+        }
+    }
+
+    /// <summary>
+    /// 从 <paramref name="items"/> 中均匀选取 <paramref name="count"/> 个元素。
+    /// 元素不足时返回全部; <paramref name="count"/> 小于等于 0 时返回空数组。
+    /// </summary>
+    private static T[] UniformSample<T>(T[] items, int count)
+    {
+        if (count <= 0 || items.Length == 0) return Array.Empty<T>();
+        if (items.Length <= count) return items;
+
+        var result = new T[count];
+        if (count == 1)
+        {
+            result[0] = items[items.Length - 1];
+            return result;
+        }
+
+        for (var i = 0; i < count; i++)
+        {
+            var index = (int)Math.Round(i * (items.Length - 1) / (double)(count - 1));
+            result[i] = items[index];
+        }
+        return result;
+    }
+
     private void ConnectEventHandler(string connectEvent, Exception? exception = null)
     {
         try
