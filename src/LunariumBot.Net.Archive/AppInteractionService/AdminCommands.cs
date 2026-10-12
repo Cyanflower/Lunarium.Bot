@@ -2,7 +2,7 @@
 using Discord.Interactions;
 using Discord;
 
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;

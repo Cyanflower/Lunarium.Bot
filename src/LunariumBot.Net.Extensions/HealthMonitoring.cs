@@ -6,7 +6,7 @@ using Discord;
 using Discord.Net;
 using Discord.WebSocket;
 
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 namespace LunariumBot.Net.Extensions;
 

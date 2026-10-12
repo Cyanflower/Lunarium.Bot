@@ -14,7 +14,7 @@ using Discord.Net.WebSockets;
 using Discord.WebSocket;
 
 // 解决方案内引用项目
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 using LunariumBot.Net.Extensions;
 using LunariumBot.Net.Extensions.CacheStore;
 
@@ -259,7 +259,7 @@ public sealed class ArchiveBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("ReadyAsync 出现异常:", ex);
+            _logger.Error(ex, "ReadyAsync 出现异常:");
         }
 
     }
@@ -408,7 +408,7 @@ public sealed class ArchiveBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("执行重新注册命令时发生错误。", ex);
+            _logger.Error(ex, "执行重新注册命令时发生错误。");
             await userMessage.Channel.SendMessageAsync("执行重新注册命令时发生错误。");
         }
     }
@@ -447,7 +447,7 @@ public sealed class ArchiveBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("❌ 同步命令时发生错误", ex);
+            _logger.Error(ex, "❌ 同步命令时发生错误");
         }
     }
 
@@ -460,7 +460,7 @@ public sealed class ArchiveBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("处理交互时发生错误。",ex);
+            _logger.Error(ex, "处理交互时发生错误。");
         }
     }
 }

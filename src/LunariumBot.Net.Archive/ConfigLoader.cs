@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text; // [新增] 引入StringBuilder
 
 // 解决方案内引用项目
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;
@@ -39,7 +39,7 @@ public sealed class ConfigLoader
             }
             catch (Exception ex)
             {
-                _logger.Critical("配置加载或验证失败: {ex}", ex);
+                _logger.Critical(ex, "配置加载或验证失败");
                 throw; // 首次加载失败，直接抛出异常终止程序
             }
         }

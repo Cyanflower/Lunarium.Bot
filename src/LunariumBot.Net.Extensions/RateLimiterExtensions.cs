@@ -1,5 +1,5 @@
 using System.Threading.RateLimiting;
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 namespace LunariumBot.Net.Extensions;
 

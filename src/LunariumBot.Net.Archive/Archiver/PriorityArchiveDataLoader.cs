@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text;
 
 // 解决方案内引用项目
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;

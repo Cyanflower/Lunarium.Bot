@@ -10,7 +10,7 @@ using Discord.API;
 using Polly;
 using Polly.Retry;
 
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 using LunariumBot.Net.Extensions;
 using LunariumBot.Net.Extensions.DiscordNetExtension;
 

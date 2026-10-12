@@ -4,7 +4,7 @@ using Discord;
 using Discord.Net;
 
 using LunariumBot.Net.Extensions.CacheStore;
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 namespace LunariumBot.Net.Archive.Archiver;
 

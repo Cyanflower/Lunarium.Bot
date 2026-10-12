@@ -6,7 +6,7 @@ using Discord.Interactions;
 using LunariumBot.Net.Archive.Archiver;
 using LunariumBot.Net.Archive.Model;
 using LunariumBot.Net.Archive.Utils;
-using LunariumBot.Net.Logger;
+using Lunarium.Logging;
 
 namespace LunariumBot.Net.Archive.AppInteractionService.Commands;
 

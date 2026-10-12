@@ -3,8 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 // 解决方案内引用项目
-using LunariumBot.Net.Logger;
-using LunariumBot.Net.Logger.Extensions;
+using Lunarium.Logging;
+using Lunarium.Logging.Extensions;
 
 // 项目内命名空间
 using LunariumBot.Net.Archive.Model;
@@ -43,12 +43,12 @@ public class Program
                 .Apply();
             // === 构建日志 ===
             _rootLogger = new LoggerBuilder()
-                .LoggerName("Runtime")
+                .SetLoggerName("Runtime")
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/Runtime/Runtime.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         ContextFilterExcludes = ["ArchiveBotService.CommandAuth", "PerformanceMonitoringService"],
                         LogMinLevel = fileLogLevel
@@ -57,7 +57,7 @@ public class Program
                     logFilePath: "Logs/CommandAuth/CommandAuth.log",
                     maxFileSizeMB: 10,
                     maxFile: 10,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         ContextFilterIncludes = ["ArchiveBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel
@@ -66,7 +66,7 @@ public class Program
                     logFilePath: "Logs/EW/Error.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = LogLevel.Error
                     })
@@ -74,13 +74,13 @@ public class Program
                     logFilePath: "Logs/EW/Warning.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = LogLevel.Warning,
                         LogMaxLevel = LogLevel.Warning
                     })
                 .AddConsoleSink(
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = consoleLogLevel
                     })
@@ -160,7 +160,7 @@ public class Program
             // 捕获全局并行任务异常
             TaskScheduler.UnobservedTaskException += (sender, e) =>
             {
-                _mainLogger.Error("⚠️ 检测到未观察的任务异常", e.Exception);
+                _mainLogger.Error(e.Exception, "⚠️ 检测到未观察的任务异常");
                 e.SetObserved(); // 标记为已处理，防止程序崩溃
             };
 
@@ -174,7 +174,7 @@ public class Program
             // 否则，退回到用 Console.Write
             if (_rootLogger != null)
             {
-                _rootLogger.ForContext("Program").Critical("💥 服务启动失败", ex);
+                _rootLogger.ForContext("Program").Critical(ex, "💥 服务启动失败");
             }
             else
             {
