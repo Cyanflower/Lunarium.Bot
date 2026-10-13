@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LunariumBot.Net 项目脚本生成器
+Lunarium.Bot 项目脚本生成器
 自动为每个子项目生成启动、部署和编译脚本
 """
 
@@ -17,14 +17,14 @@ from typing import List
 # 需要排除的目录（类库项目不需要生成脚本）
 EXCLUDED_DIRS = {
     'Discord.Net',
-    'LunariumBot.Net.Extensions',
-    'LunariumBot.Net.Logger',
-    'LunariumBot.Net.Scheduler',
+    'Lunarium.Bot.Extensions',
+    'Lunarium.Bot.Logger',
+    'Lunarium.Bot.Scheduler',
 }
 
 # 服务器配置
-REMOTE_HOST = "LunariumBot.Net"
-REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"
+REMOTE_HOST = "BotCenterVPS"
+REMOTE_BASE_PATH = "~/services/cyanflower/Lunarium.Bot"
 
 
 # ==============================================================================
@@ -239,10 +239,10 @@ def ask_overwrite(file_path: Path) -> bool:
 def extract_token_var_name(project_name: str) -> str:
     """
     从项目名提取 Token 环境变量名
-    例如: LunariumBot.Net.Archive -> ARCHIVE_BOT_TOKEN
+    例如: Lunarium.Bot.Archive -> ARCHIVE_BOT_TOKEN
     """
-    # 移除前缀 "LunariumBot.Net."
-    suffix = project_name.replace("LunariumBot.Net.", "")
+    # 移除前缀 "Lunarium.Bot."
+    suffix = project_name.replace("Lunarium.Bot.", "")
     # 转换为大写并添加后缀
     return f"{suffix.upper()}_BOT_TOKEN"
 
@@ -252,7 +252,7 @@ def is_valid_project(dir_path: Path) -> bool:
     判断是否是有效的项目目录
     需要满足：
     1. 是目录
-    2. 以 LunariumBot.Net. 开头
+    2. 以 Lunarium.Bot. 开头
     3. 不在排除列表中
     4. 包含 .csproj 文件
     """
@@ -261,7 +261,7 @@ def is_valid_project(dir_path: Path) -> bool:
     
     dir_name = dir_path.name
     
-    if not dir_name.startswith("LunariumBot.Net."):
+    if not dir_name.startswith("Lunarium.Bot."):
         return False
     
     if dir_name in EXCLUDED_DIRS:
@@ -330,7 +330,7 @@ def main():
         sys.exit(1)
     
     print("=" * 60)
-    print("LunariumBot.Net 项目脚本生成器")
+    print("Lunarium.Bot 项目脚本生成器")
     print("=" * 60)
     
     # 查找所有有效的项目目录

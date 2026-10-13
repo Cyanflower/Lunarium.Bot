@@ -1,4 +1,4 @@
-# LunariumBot.Net 自动化脚本工具套件
+# Lunarium.Bot 自动化脚本工具套件
 
 完整的项目管理和部署自动化解决方案。
 
@@ -41,15 +41,15 @@ chmod +x install_git_hook.sh
 
 ```bash
 # 编译项目
-cd src/LunariumBot.Net.Archive
+cd src/Lunarium.Bot.Archive
 ./build.sh
 
 # 部署到服务器
 ./deploy.sh
 
 # 在服务器上启动（需要先 SSH 到服务器并配置 Token）
-ssh LunariumBot.Net
-cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
+ssh Lunarium.Bot
+cd ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive
 # 编辑 start.sh，取消注释并填写 Token
 ./start.sh
 ```
@@ -59,7 +59,7 @@ cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
 ### 1. 智能项目识别
 
 自动识别符合以下条件的项目：
-- ✅ 目录名以 `LunariumBot.Net.` 开头
+- ✅ 目录名以 `Lunarium.Bot.` 开头
 - ✅ 包含 `.csproj` 文件
 - ✅ 不在排除列表中（类库项目会被自动排除）
 
@@ -67,8 +67,8 @@ cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
 
 | 项目名 | Token 变量 | 服务器路径 |
 |--------|-----------|-----------|
-| LunariumBot.Net.Archive | `ARCHIVE_BOT_TOKEN` | `/home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive` |
-| LunariumBot.Net.DataCenter | `DATACENTER_BOT_TOKEN` | `/home/lunarium/LunariumBot.Net/LunariumBot.Net.DataCenter` |
+| Lunarium.Bot.Archive | `ARCHIVE_BOT_TOKEN` | `~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive` |
+| Lunarium.Bot.DataCenter | `DATACENTER_BOT_TOKEN` | `~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.DataCenter` |
 
 ### 3. 安全部署策略
 
@@ -91,22 +91,22 @@ cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
 export ARCHIVE_BOT_TOKEN="你的开发Token"
 
 # 直接运行项目
-dotnet run --project src/LunariumBot.Net.Archive
+dotnet run --project src/Lunarium.Bot.Archive
 ```
 
 ### 生产部署
 
 ```bash
 # 1. 本地编译
-cd src/LunariumBot.Net.Archive
+cd src/Lunarium.Bot.Archive
 ./build.sh
 
 # 2. 部署到服务器
 ./deploy.sh
 
 # 3. SSH 到服务器配置 Token
-ssh LunariumBot.Net
-cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
+ssh Lunarium.Bot
+cd ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive
 nano start.sh  # 取消注释并填写真实 Token
 
 # 4. 启动应用
@@ -122,8 +122,8 @@ nano start.sh  # 取消注释并填写真实 Token
 ```python
 EXCLUDED_DIRS = {
     'Discord.Net',
-    'LunariumBot.Net.Extensions',
-    'LunariumBot.Net.Logger',
+    'Lunarium.Bot.Extensions',
+    'Lunarium.Bot.Logger',
     # 添加更多要排除的项目
 }
 ```
@@ -133,8 +133,8 @@ EXCLUDED_DIRS = {
 编辑 `generate_scripts.py` 中的服务器配置：
 
 ```python
-REMOTE_HOST = "LunariumBot.Net"  # SSH 配置名
-REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"
+REMOTE_HOST = "BotCenterVPS"  # SSH 配置名
+REMOTE_BASE_PATH = "~/services/cyanflower/Lunarium.Bot"
 ```
 
 ## 🔒 安全最佳实践
@@ -202,7 +202,7 @@ REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"
 **解决方案**: 
 ```bash
 # 确保目录结构如下
-LunariumBot.Net/
+Lunarium.Bot/
 ├── generate_scripts.py  <-- 在这里
 ├── src/
 └── tests/
@@ -252,7 +252,7 @@ git commit --dry-run
 
 ## 📄 许可
 
-这些工具脚本与 LunariumBot.Net 项目使用相同的许可。
+这些工具脚本与 Lunarium.Bot 项目使用相同的许可。
 
 ---
 

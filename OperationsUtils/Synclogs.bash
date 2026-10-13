@@ -6,8 +6,8 @@
 # ============================================
 
 # 配置区域 - 请根据实际情况修改
-REMOTE_HOST="LunariumBot.Net"
-REMOTE_PATH="/home/lunarium/LunariumBot.Net/"  # 修改为实际的远程路径
+REMOTE_HOST="BotCenterVPS"
+REMOTE_PATH="~/services/cyanflower/Lunarium.Bot/"  # 修改为实际的远程路径
 LOCAL_FOLDER="synced_logs"  # 本地保存文件夹名称
 
 # ============================================

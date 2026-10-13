@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-`generate_scripts.py` 可以自动为 LunariumBot.Net 项目中的每个子项目生成三个脚本：
+`generate_scripts.py` 可以自动为 Lunarium.Bot 项目中的每个子项目生成三个脚本：
 
 1. **start.sh** - 启动与守护脚本
 2. **deploy.sh** - 部署脚本
@@ -13,12 +13,12 @@
 ### 1. 将脚本放置在项目根目录
 
 ```
-LunariumBot.Net/
+Lunarium.Bot/
 ├── generate_scripts.py  <-- 放在这里
 ├── src/
-│   ├── LunariumBot.Net.Archive/
-│   ├── LunariumBot.Net.DataCenter/
-│   ├── LunariumBot.Net.ExampleBot/
+│   ├── Lunarium.Bot.Archive/
+│   ├── Lunarium.Bot.DataCenter/
+│   ├── Lunarium.Bot.Examples/
 │   └── ...
 └── tests/
 ```
@@ -39,7 +39,7 @@ chmod +x generate_scripts.py
 脚本会在每个项目目录下生成三个文件：
 
 ```
-src/LunariumBot.Net.Archive/
+src/Lunarium.Bot.Archive/
 ├── start.sh      # 启动脚本
 ├── deploy.sh     # 部署脚本
 ├── build.sh      # 编译脚本
@@ -55,8 +55,8 @@ src/LunariumBot.Net.Archive/
 ```python
 EXCLUDED_DIRS = {
     'Discord.Net',
-    'LunariumBot.Net.Extensions',
-    'LunariumBot.Net.Logger',
+    'Lunarium.Bot.Extensions',
+    'Lunarium.Bot.Logger',
     # 添加更多需要排除的项目
 }
 ```
@@ -66,8 +66,8 @@ EXCLUDED_DIRS = {
 编辑脚本顶部的服务器配置：
 
 ```python
-REMOTE_HOST = "LunariumBot.Net"  # SSH 配置名称
-REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"  # 服务器基础路径
+REMOTE_HOST = "BotCenterVPS"  # SSH 配置名称
+REMOTE_BASE_PATH = "~/services/cyanflower/Lunarium.Bot"  # 服务器基础路径
 ```
 
 ## 命名规则
@@ -76,10 +76,10 @@ REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"  # 服务器基础路径
 
 | 项目名 | Token 环境变量 | 服务器路径 |
 |--------|---------------|-----------|
-| LunariumBot.Net.Archive | ARCHIVE_BOT_TOKEN | /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive |
-| LunariumBot.Net.DataCenter | DATACENTER_BOT_TOKEN | /home/lunarium/LunariumBot.Net/LunariumBot.Net.DataCenter |
-| LunariumBot.Net.ExampleBot | EXAMPLEBOT_BOT_TOKEN | /home/lunarium/LunariumBot.Net/LunariumBot.Net.ExampleBot |
-| LunariumBot.Net.SearchBot | SEARCHBOT_BOT_TOKEN | /home/lunarium/LunariumBot.Net/LunariumBot.Net.SearchBot |
+| Lunarium.Bot.Archive | ARCHIVE_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive |
+| Lunarium.Bot.DataCenter | DATACENTER_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.DataCenter |
+| Lunarium.Bot.Examples | EXAMPLEBOT_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Examples |
+| Lunarium.Bot.SearchBot | SEARCHBOT_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.SearchBot |
 
 ## 生成的脚本说明
 
@@ -109,7 +109,7 @@ REMOTE_BASE_PATH = "/home/lunarium/LunariumBot.Net"  # 服务器基础路径
 export ARCHIVE_BOT_TOKEN="开发用Token"
 
 # 2. 直接运行项目
-dotnet run --project src/LunariumBot.Net.Archive
+dotnet run --project src/Lunarium.Bot.Archive
 ```
 
 ### 部署阶段
@@ -119,19 +119,19 @@ dotnet run --project src/LunariumBot.Net.Archive
 python3 generate_scripts.py
 
 # 2. 编译项目
-cd src/LunariumBot.Net.Archive
+cd src/Lunarium.Bot.Archive
 ./build.sh
 
 # 3. 部署到服务器
 ./deploy.sh
 
 # 4. 在服务器上修改 start.sh 中的 Token
-# ssh 到服务器，编辑 /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive/start.sh
+# ssh 到服务器，编辑 ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive/start.sh
 # 取消注释并填写真实 Token
 
 # 5. 在服务器上启动
-ssh LunariumBot.Net
-cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
+ssh Lunarium.Bot
+cd ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive
 ./start.sh
 ```
 
@@ -153,7 +153,7 @@ cd /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive
 **解决方案**：
 1. 检查项目是否在 `EXCLUDED_DIRS` 中
 2. 确认项目目录包含 `.csproj` 文件
-3. 确认项目名以 `LunariumBot.Net.` 开头
+3. 确认项目名以 `Lunarium.Bot.` 开头
 
 ### 问题：生成的脚本无法执行
 

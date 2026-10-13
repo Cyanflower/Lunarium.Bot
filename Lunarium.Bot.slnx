@@ -1,0 +1,30 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Discord.Net/" />
+  <Folder Name="/Discord.Net/src/">
+    <Project Path="Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
+    <Project Path="Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
+    <Project Path="Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
+    <Project Path="Discord.Net/src/Discord.Net.Webhook/Discord.Net.Webhook.csproj" />
+    <Project Path="Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Lunarium.Bot.Archive/Lunarium.Bot.Archive.csproj" />
+    <Project Path="src/Lunarium.Bot.DataCenter/Lunarium.Bot.DataCenter.csproj" />
+    <Project Path="src/Lunarium.Bot.Examples/Lunarium.Bot.Examples.csproj" />
+    <Project Path="src/Lunarium.Bot.Extensions/Lunarium.Bot.Extensions.csproj" />
+    <!-- <Project Path="src/Lunarium.Bot.Logger/Lunarium.Bot.Logger.csproj" /> -->
+    <!-- <Project Path="src/Lunarium.Bot.ReleaseBot/Lunarium.Bot.ReleaseBot.csproj" /> -->
+    <!-- <Project Path="src/Lunarium.Bot.Scheduler/Lunarium.Bot.Scheduler.csproj" /> -->
+    <Project Path="src/Lunarium.Bot.SearchBot/Lunarium.Bot.SearchBot.csproj" />
+    <!-- <Project Path="src/Lunarium.Bot.VoteBot/Lunarium.Bot.VoteBot.csproj" /> -->
+    <!-- <Project Path="src/LunariumProxy/LunariumProxy.csproj" /> -->
+  </Folder>
+  <Folder Name="/tests/">
+    <!-- <Project Path="tests/Lunarium.Bot.LoggerParser/Lunarium.Bot.Logger.Test.csproj" /> -->
+  </Folder>
+</Solution>

@@ -1,4 +1,4 @@
-# LunariumBot.Net .gitignore 配置建议
+# Lunarium.Bot .gitignore 配置建议
 
 ## 基础 .NET 忽略规则
 bin/
@@ -104,20 +104,20 @@ exit 0
 # 1. 首次设置项目
 """
 git clone <repository>
-cd LunariumBot.Net
+cd Lunarium.Bot
 python3 generate_scripts.py  # 生成所有脚本
 """
 
 # 2. 开发时使用临时环境变量
 """
 export ARCHIVE_BOT_TOKEN="开发Token"
-dotnet run --project src/LunariumBot.Net.Archive
+dotnet run --project src/Lunarium.Bot.Archive
 """
 
 # 3. 部署时在服务器上修改
 """
 # 在服务器上编辑
-nano /home/lunarium/LunariumBot.Net/LunariumBot.Net.Archive/start.sh
+nano ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive/start.sh
 # 修改后仅存在于服务器，不会同步回本地仓库
 """
 

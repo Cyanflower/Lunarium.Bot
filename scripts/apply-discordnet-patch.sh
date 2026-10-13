@@ -6,7 +6,7 @@
 #   - DiscordNet.Local/     本补丁的唯一权威副本（随外层仓库提交/备份）
 #
 # 补丁内容（Directory.Build.props）：
-#   - InternalsVisibleTo(LunariumBot.Net.Extensions)：让扩展能访问库的 internal 成员
+#   - InternalsVisibleTo(Lunarium.Bot.Extensions)：让扩展能访问库的 internal 成员
 #   - SignAssembly=false：免去 InternalsVisibleTo 必须附带公钥的麻烦
 #
 # 用法：
