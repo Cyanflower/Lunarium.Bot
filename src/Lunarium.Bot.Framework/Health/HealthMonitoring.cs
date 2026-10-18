@@ -1,3 +1,5 @@
+
+using Lunarium.Scheduler;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -8,22 +10,46 @@ using Discord.WebSocket;
 
 using Lunarium.Logging;
 
-namespace Lunarium.Bot.Extensions;
+namespace Lunarium.Bot.Framework.Health;
 
 public class HealthMonitor : IDisposable
 {
+    public record Latency(DateTimeOffset Time, string State, int LatencyMs)
+    {
+        public override string ToString()
+        {
+            return $"[{Time:O}] [State: {State}] [Latency: {LatencyMs} ms]";
+        }
+    }
+    public record ConnectState(DateTimeOffset Time, string ConnectEvent, string State, int Latency, Exception? Ex)
+    {
+        public override string ToString()
+        {
+            if (Ex is null)
+            {
+                return $"[{Time:O}] [Event: {ConnectEvent}] [State: {State}] [Latency: {Latency}]";
+            }
+            return $"[{Time:O}] [Event: {ConnectEvent}] [State: {State}] [Latency: {Latency}] [Exception: {Ex.Message}]";
+        }
+    }
+
     private readonly DiscordSocketClient _discordClient;
     private readonly ILogger _logger;
+    private readonly HealthMonitorConfig _config;
     private readonly CancellationTokenSource _cts;
     private readonly Task _heartbeatLoopTask;
     private Func<Task> _onConnected;
     private Func<Exception, Task> _onDisconnected;
     private bool _handlersAttached = false;
     // WebSocket 延迟信息队列: 定时查询驱动
-    private readonly Queue<(DateTimeOffset Time, string State, int Latency)> _latencys = new();
+    private readonly Queue<Latency> _latencys = new();
+    private readonly Lock _latencyLock = new();
     
     // 客户端连接状态信息队列: 连接事件驱动
-    private readonly Queue<(DateTimeOffset Time, string connectEvent, string State, int Latency, Exception? ex)> _connectStates = new();
+    private readonly Queue<ConnectState> _connectStates = new();
+    private readonly Lock _connectStateLock = new();
+
+    private const int QueueLengthLimit = 96;
 
     // JSON 序列化选项: 无缩进(即无多余空格/换行), 且不转义非 ASCII 字符
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -32,13 +58,14 @@ public class HealthMonitor : IDisposable
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    /// <summary>JSON 重载默认采样条数: 从最多 96 条记录中均匀抽取的条数。</summary>
-    public const int MonitorSampleCount = 5;
-
-    public HealthMonitor(DiscordSocketClient discordClient, ILogger logger)
+    public HealthMonitor(DiscordSocketClient discordClient, ILogger logger, HealthMonitorConfig config)
     {
+        _config = config;
         _discordClient = discordClient;
         _logger = logger.ForContext("HealthMonitoring");
+        _logger.Info(
+            "健康监控配置: HTTP 服务 {HttpEnabled} (端口 {HttpPort}), 心跳上报 {HeartbeatEnabled} -> {HeartbeatTarget}",
+            config.EnableHttpServer, config.HttpPort, config.EnableHeartbeat, config.HeartbeatTarget);
         _cts = new CancellationTokenSource();
         _heartbeatLoopTask = Task.Run(() => HeartbeatLoop(_cts.Token), _cts.Token);
         _onConnected = () =>
@@ -46,7 +73,7 @@ public class HealthMonitor : IDisposable
             ConnectEventHandler("Connected");
             return Task.CompletedTask;
         };
-        
+
         _onDisconnected = (ex) =>
         {
             ConnectEventHandler("Disconnected", ex);
@@ -92,99 +119,47 @@ public class HealthMonitor : IDisposable
             _handlersAttached = false;
         }
     }
-    public string GetLatencysLog()
+
+    public IReadOnlyList<string> GetLatencyLogs(int sampleCount = 5, int windowSize = 32)
     {
         try
         {
-            var sb = new StringBuilder();
-            var items = _latencys.ToArray();
-            foreach (var latency in items.Take(96))
-            {
-                sb.AppendLine($"[{latency.Time:O}] [State: {latency.State}] [Latency: {latency.Latency}]");
-            }
-            _logger.Debug("GetLatencysLog: {GetLatencysLog}", sb.ToString());
-            return sb.ToString();
+            VerifyArgument(sampleCount, windowSize);
+
+            var result = UniformSample<Latency>(GetLatencies(windowSize), sampleCount);
+
+            return result.Select(x => x.ToString()).ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetLatencys Failed:");
-            return $"GetLatencys Failed:\n{ex}";
-        }
-    }
-    public string GetConnectStatesLog()
-    {
-        try
-        {
-            var sb = new StringBuilder();
-            var items = _connectStates.ToArray();
-            foreach (var connectStates in items.Take(96))
-            {
-                sb.AppendLine($"[{connectStates.Time:O}] [Event: {connectStates.connectEvent}] [State: {connectStates.State}] [Latency: {connectStates.Latency}] [Exception: {(connectStates.ex is null ? "null" : connectStates.ex.Message)}]");
-            }
-            _logger.Debug("GetConnectStatesLog: {GetConnectStatesLog}", sb.ToString());
-            return sb.ToString();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "GetConnectStates Failed:");
-            return $"GetConnectStates Failed:\n{ex}";
+            _logger.Error(ex, "GetLatencys Failed");
+            return [$"GetLatencys Failed: {ex.Message}"];
         }
     }
 
-    /// <summary>
-    /// 重载版本: 返回序列化后的 JSON 字符串(无空格、无换行)。
-    /// 从当前缓存的记录中均匀选取 <paramref name="sampleCount"/> 条(默认 5 条, 即从 96 条中均匀取 5 条)。
-    /// </summary>
-    public string GetLatencysLog(int sampleCount = MonitorSampleCount)
+    public IReadOnlyList<string> GetConnectStateLogs(int sampleCount = 5, int windowSize = 32)
     {
         try
         {
-            var items = UniformSample(_latencys.ToArray(), sampleCount)
-                .Select(l => new
-                {
-                    time = l.Time,
-                    state = l.State,
-                    latency = l.Latency
-                })
-                .ToArray();
-            var json = JsonSerializer.Serialize(items, JsonOptions);
-            _logger.Debug("GetLatencysLog(Json): {GetLatencysLog}", json);
-            return json;
+            VerifyArgument(sampleCount, windowSize);
+
+            var result = UniformSample<ConnectState>(GetContentStatus(windowSize), sampleCount);
+
+            return result.Select(x => x.ToString()).ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "GetLatencys(Json) Failed:");
-            return "[]";
+            _logger.Error(ex, "GetConnectStates Failed");
+            return [$"GetConnectStates Failed: {ex.Message}"];
         }
     }
 
-    /// <summary>
-    /// 重载版本: 返回序列化后的 JSON 字符串(无空格、无换行)。
-    /// 从当前缓存的记录中均匀选取 <paramref name="sampleCount"/> 条(默认 5 条, 即从 96 条中均匀取 5 条)。
-    /// </summary>
-    public string GetConnectStatesLog(int sampleCount = MonitorSampleCount)
+    private static void VerifyArgument(int sampleCount, int windowSize)
     {
-        try
-        {
-            var items = UniformSample(_connectStates.ToArray(), sampleCount)
-                .Select(c => new
-                {
-                    time = c.Time,
-                    @event = c.connectEvent,
-                    state = c.State,
-                    latency = c.Latency,
-                    exception = c.ex?.Message
-                })
-                .ToArray();
-            var json = JsonSerializer.Serialize(items, JsonOptions);
-            _logger.Debug("GetConnectStatesLog(Json): {GetConnectStatesLog}", json);
-            return json;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "GetConnectStates(Json) Failed:");
-            return "[]";
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(windowSize);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(windowSize, QueueLengthLimit);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(sampleCount, windowSize);
     }
 
     /// <summary>
@@ -211,6 +186,22 @@ public class HealthMonitor : IDisposable
         return result;
     }
 
+    private Latency[] GetLatencies(int count)
+    {
+        lock (_latencyLock)
+        {
+            return _latencys.TakeLast(count).ToArray();
+        }
+    }
+
+    private ConnectState[] GetContentStatus(int count)
+    {
+        lock (_connectStateLock)
+        {
+            return _connectStates.TakeLast(count).ToArray();
+        }
+    }
+
     private void ConnectEventHandler(string connectEvent, Exception? exception = null)
     {
         try
@@ -223,25 +214,28 @@ public class HealthMonitor : IDisposable
                 ConnectionState.Disconnecting => "Disconnecting",
                 _ => "Unknow State"
             };
-            if (_connectStates.Count >= 96)
+
+            var entry = new ConnectState(DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception);
+
+
+            lock (_connectStateLock)
             {
-                _connectStates.Dequeue();
-                _connectStates.Enqueue((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
-                _logger.Debug("{entry}", (DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
+                if (_connectStates.Count >= QueueLengthLimit)
+                {
+                    _connectStates.Dequeue();
+                }
+                _connectStates.Enqueue(entry);
             }
-            else
-            {
-                _connectStates.Enqueue((DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
-                _logger.Debug("{entry}", (DateTimeOffset.Now, connectEvent, status, _discordClient.Latency, exception));
-            }
+
+            _logger.Debug("{entry}", entry);
             
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ <LoopTask>: HeartbeatLoop Exception");
+            _logger.Error(ex, "❌ <LoopTask>: ConnectEventHandler Exception");
         }
     }
-    
+
     private async Task HeartbeatLoop(CancellationToken cancellationToken)
     {
         try
@@ -256,17 +250,20 @@ public class HealthMonitor : IDisposable
                     ConnectionState.Disconnecting => "Disconnecting",
                     _ => "Unknow State"
                 };
-                if (_latencys.Count >= 96)
+
+                var entry = new Latency(DateTimeOffset.Now, status, _discordClient.Latency);
+
+                lock (_latencyLock)
                 {
-                    _latencys.Dequeue();
-                    _latencys.Enqueue((DateTimeOffset.Now, status, _discordClient.Latency));
-                    _logger.Debug("{entry}", (DateTimeOffset.Now, status, _discordClient.Latency));
+                    if (_latencys.Count >= QueueLengthLimit)
+                    {
+                        _latencys.Dequeue();
+                    }
+                    _latencys.Enqueue(entry);
                 }
-                else
-                {
-                    _latencys.Enqueue((DateTimeOffset.Now, status, _discordClient.Latency));
-                    _logger.Debug("{entry}", (DateTimeOffset.Now, status, _discordClient.Latency));
-                }
+
+                _logger.Debug("{entry}", entry);
+
                 await Task.Delay(30000, cancellationToken);
             }
         }
@@ -279,8 +276,10 @@ public class HealthMonitor : IDisposable
             _logger.Error(ex, "❌ <LoopTask>: HeartbeatLoop Exception");
         }
     }
+    
     public void Dispose()
     {
+        RemoveConnectEventHandler();
         _cts?.Cancel();
         try
         {

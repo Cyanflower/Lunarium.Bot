@@ -1,7 +1,7 @@
 using System.Threading.RateLimiting;
 using Lunarium.Logging;
 
-namespace Lunarium.Bot.Extensions;
+namespace Lunarium.Bot.Framework;
 
 public static class RateLimiterExtensions
 {

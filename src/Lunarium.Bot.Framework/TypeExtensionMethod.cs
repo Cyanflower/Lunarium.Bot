@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace Lunarium.Bot.Extensions;
+namespace Lunarium.Bot.Framework;
 
 #region string
 

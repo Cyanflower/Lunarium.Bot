@@ -2,7 +2,7 @@ using Discord;
 using Discord.Rest;
 using System.Collections.Immutable;
 
-namespace Lunarium.Bot.Extensions.DiscordNetExtension;
+namespace Lunarium.Bot.Framework.OpenAPI;
 
 public static class GuildRoleExtensions
 {

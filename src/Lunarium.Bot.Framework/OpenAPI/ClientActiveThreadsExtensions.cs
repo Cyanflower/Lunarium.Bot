@@ -3,7 +3,7 @@ using Discord.Rest;
 using Discord.WebSocket;
 using System.Collections.Immutable;
 
-namespace Lunarium.Bot.Extensions.DiscordNetExtension;
+namespace Lunarium.Bot.Framework.OpenAPI;
 
 public static class ClientAllActiveThreadsExtensions
 {
