@@ -1,153 +1,264 @@
-using Lunarium.Scheduler;
+using System.Collections.Frozen;
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using Discord;
 using Discord.Interactions;
-using Discord.Net.Rest;
-using Discord.Net.WebSockets;
 using Discord.WebSocket;
 
+using Lunarium.Bot.Framework.AuthRuleEngine;
 using Lunarium.Logging;
 
 namespace Lunarium.Bot.Framework;
 
-public sealed class CommandSynchronizer
+/// <summary>
+/// 处理通过 @Bot 触发的文本维护命令：
+/// <list type="bullet">
+///   <item><c>重新注册</c>：清空全局与各部署服务器的命令后，重新注册到所有部署服务器。</item>
+///   <item><c>在本服务器重新注册</c>：仅重新注册触发消息所在服务器的命令。</item>
+/// </list>
+/// 两条命令均仅限维护者使用。
+/// </summary>
+public sealed partial class CommandSynchronizer
 {
-    private readonly ILogger _logger;
-    private readonly DiscordSocketClient _client;
-    private readonly HashSet<string> _reRegisterCommands = new(StringComparer.OrdinalIgnoreCase)
+    private enum TextCommand
     {
-        "重新注册",
-        "re-registration",
-        "reregister"
-    };
+        /// <summary>清空并重新注册所有部署服务器的命令。</summary>
+        ReRegisterAll,
 
-    public CommandSynchronizer(ILogger logger, DiscordSocketClient client)
-    {
-        _logger = logger;
-        _client = client;
+        /// <summary>仅重新注册当前服务器的命令。</summary>
+        ReRegisterHere
     }
 
-    public async Task SyncCommandsAsync(SocketMessage message, InteractionService interactions, ulong maintainerId, List<ulong> DeployGuildList)
+    /// <summary>触发词到命令的映射；比较器已忽略大小写。</summary>
+    private static readonly FrozenDictionary<string, TextCommand> _commandMap =
+        new Dictionary<string, TextCommand>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["重新注册"] = TextCommand.ReRegisterAll,
+            ["re-registration"] = TextCommand.ReRegisterAll,
+            ["reregister"] = TextCommand.ReRegisterAll,
+            ["在本服务器重新注册"] = TextCommand.ReRegisterHere,
+            ["reregister-here"] = TextCommand.ReRegisterHere
+        }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ILogger _logger;
+    private readonly DiscordSocketClient _client;
+    private readonly InteractionService _interactions;
+
+    public CommandSynchronizer(ILogger logger, DiscordSocketClient client, InteractionService interactions)
     {
-        // 过滤掉不关心的消息
-        // - 消息不是用户发的 (例如系统消息)
-        // - 消息是机器人自己或其他机器人发的
+        _logger = logger.ForContext("CommandSynchronizer");
+        _client = client;
+        _interactions = interactions;
+    }
+
+    /// <summary>匹配消息中的 @Bot 提及片段。</summary>
+    [GeneratedRegex(@"<@!?\d+>\s*")]
+    private static partial Regex MentionRegex();
+
+    /// <summary>
+    /// 处理一条文本消息；若不是发给 Bot 的维护命令则直接忽略。
+    /// </summary>
+    /// <param name="message">收到的消息。</param>
+    /// <param name="maintainerId">维护者用户 ID。</param>
+    /// <param name="deployGuildIds">部署服务器 ID 列表（仅全量重新注册使用）。</param>
+    public async Task HandleMessageAsync(
+        SocketMessage message,
+        ulong maintainerId,
+        IReadOnlyCollection<ulong> deployGuildIds)
+    {
+        if (!TryParseCommand(message, out var command))
+        {
+            return;
+        }
+
+        var userMessage = (SocketUserMessage)message;
+        _logger.Info("用户 {Username} 触发了传统命令: {Command}", userMessage.Author.Username, command);
+
+        switch (command)
+        {
+            case TextCommand.ReRegisterAll:
+                await ReRegisterAllAsync(userMessage, maintainerId, deployGuildIds);
+                break;
+
+            case TextCommand.ReRegisterHere:
+                await ReRegisterHereAsync(userMessage, maintainerId);
+                break;
+        }
+    }
+
+    private bool TryParseCommand(SocketMessage message, out TextCommand command)
+    {
+        command = default;
+
+        // 过滤掉不关心的消息：非用户消息、机器人消息
         if (message is not SocketUserMessage userMessage || message.Author.IsBot)
         {
-            return;
+            return false;
         }
 
-        // 检查消息是否 @ 了Bot
+        // 必须 @ 了 Bot
         if (!userMessage.MentionedUsers.Any(u => u.Id == _client.CurrentUser.Id))
         {
-            return;
+            return false;
         }
 
-        // 解析出命令文本
-        // 用正则表达式把 @mention 的部分去掉，然后去掉前后的空格
-        var commandText = Regex.Replace(userMessage.Content, @"<@!?\d+>\s*", "").Trim();
+        // 去掉 @mention 后按忽略大小写匹配触发词
+        var commandText = MentionRegex().Replace(userMessage.Content, "").Trim();
+        return _commandMap.TryGetValue(commandText, out command);
+    }
 
-        // 忽略大小写的匹配
-        if (!_reRegisterCommands.Any(cmd => string.Equals(cmd, commandText, StringComparison.OrdinalIgnoreCase)))
+    /// <summary>鉴权：通过返回 <see langword="true"/>；失败时已回复用户并返回 <see langword="false"/>。</summary>
+    private async Task<bool> AuthorizeAsync(SocketUserMessage userMessage, params IMsgBasedAuthRule[] rules)
+    {
+        var failReason = await RuleEngine.ValidateAsync(userMessage, rules);
+        if (failReason is null)
+        {
+            return true;
+        }
+
+        _logger.Warning("鉴权失败: 用户 {Username} 尝试执行维护命令失败。", userMessage.Author.Username);
+        await userMessage.ReplyAsync(components: failReason);
+        return false;
+    }
+
+    private async Task ReRegisterAllAsync(
+        SocketUserMessage userMessage,
+        ulong maintainerId,
+        IReadOnlyCollection<ulong> deployGuildIds)
+    {
+        if (!await AuthorizeAsync(userMessage, new BaseRuleSet.RequireMaintainer(new HashSet<ulong> { maintainerId })))
         {
             return;
         }
 
-        // 记录操作
-        _logger.Info("用户 {userMessage.Author.Username} 触发了传统命令: {commandText}", userMessage.Author.Username, commandText);
-
-        // 鉴权
-        if (userMessage.Author.Id != maintainerId)
-        {
-            _logger.Warning("鉴权失败: 用户 {userMessage.Author.Username} 尝试执行管理员命令失败。", userMessage.Author.Username);
-            await userMessage.ReplyAsync("权限不足: 该命令为系统维护命令");
-            return;
-        }
-
-        _logger.Info("鉴权成功: 用户 {userMessage.Author.Username} 正在执行命令。", userMessage.Author.Username);
-
+        _logger.Info("鉴权成功: 用户 {Username} 正在执行命令。", userMessage.Author.Username);
         await userMessage.ReplyAsync("鉴权成功: 正在刷新所有斜杠命令... 请稍等片刻");
 
         try
         {
-            var sendMessage = new StringBuilder();
+            var report = new StringBuilder();
+
             // 清除全局命令
             _logger.Info("正在清除全局命令...");
-            await _client.BulkOverwriteGlobalApplicationCommandsAsync(new ApplicationCommandProperties[0]);
+            await _client.BulkOverwriteGlobalApplicationCommandsAsync([]);
             _logger.Info("全局命令已清除。");
-            sendMessage.Append("- 全局命令已清除。");
+            report.AppendLine("- 全局命令已清除。");
 
             // 清除各个服务器中的命令
-            foreach (var guildId in DeployGuildList)
+            foreach (var guildId in deployGuildIds)
             {
-                try
-                {
-                    _logger.Info("正在清除服务器 {guildId} 的命令...", userMessage.Author.Username);
-                    var guild = _client.GetGuild(guildId);
-                    if (guild != null)
-                    {
-                        // 使用空数组覆盖服务器命令
-                        await guild.BulkOverwriteApplicationCommandAsync(new ApplicationCommandProperties[0]);
-                        _logger.Info("服务器 {GuildId} 的命令已清除。", userMessage.Author.Username);
-                        sendMessage.Append($"- 服务器 {guildId} 的命令已清除。");
-                    }
-                    else
-                    {
-                        _logger.Warning("无法找到服务器 {GuildId}", guildId);
-                        sendMessage.Append($"- 无法找到服务器 {guildId}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "清除服务器 {GuildId} 命令时发生错误", guildId);
-                    sendMessage.Append($"- 清除服务器 {guildId} 命令时发生错误\n```{ex.ToString().Slice(150, "...")}```");
-                    // 继续处理其他服务器
-                }
+                await ClearGuildCommandsAsync(guildId, report);
             }
 
-            // 重新同步
-            try
-            {
-                _logger.Info("正在同步命令到部署服务器列表...");
-                _logger.Info("同步命令列表:");
-                foreach (var command in interactions.SlashCommands)
-                {
-                    _logger.Info("  - {command.Name}: {command.Description}",command.Name, command.Description);
-                }
-                _logger.Info("命令总数: {_interactions.SlashCommands.Count}", interactions.SlashCommands.Count);
+            // 重新同步到部署服务器
+            await RegisterToDeployGuildsAsync(deployGuildIds);
 
-                // 同步命令到部署服务器列表
-                foreach (var guildId in DeployGuildList)
-                {
-                    var guild = _client.GetGuild(guildId);
-                    if (guild != null)
-                    {
-                        _logger.Info("正在同步命令到服务器: {GuildId} - {GuildName}", guildId, guild.Name);
-                        await interactions.RegisterCommandsToGuildAsync(guildId, true);
-                        _logger.Info("服务器 {guild.Name} 命令同步完成。", guild.Name);
-                    }
-                    else
-                    {
-                        _logger.Warning("⚠️ 无法找到服务器 {GuildId}，Bot可能不在该服务器中或服务器ID不正确", guildId);
-                    }
-                }
-                _logger.Info("✅ 命令同步完成！");
-            }
-            catch (Exception ex)
-            {
-                _logger.Error(ex, "❌ 同步命令时发生错误");
-            }
-
-            await userMessage.Channel.SendMessageAsync($"✅ 操作完成！\n{sendMessage.ToString()}");
+            await userMessage.Channel.SendMessageAsync($"✅ 操作完成！\n{report}");
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "执行重新注册命令时发生错误。");
             await userMessage.Channel.SendMessageAsync("执行重新注册命令时发生错误。");
+        }
+    }
+
+    private async Task ClearGuildCommandsAsync(ulong guildId, StringBuilder report)
+    {
+        try
+        {
+            _logger.Info("正在清除服务器 {GuildId} 的命令...", guildId);
+            var guild = _client.GetGuild(guildId);
+            if (guild is null)
+            {
+                _logger.Warning("无法找到服务器 {GuildId}", guildId);
+                report.AppendLine($"- 无法找到服务器 {guildId}");
+                return;
+            }
+
+            // 使用空数组覆盖服务器命令
+            await guild.BulkOverwriteApplicationCommandAsync([]);
+            _logger.Info("服务器 {GuildName}({GuildId}) 的命令已清除。", guild.Name, guildId);
+            report.AppendLine($"- 服务器 {guildId} 的命令已清除。");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "清除服务器 {GuildId} 命令时发生错误", guildId);
+            report.AppendLine($"- 清除服务器 {guildId} 命令时发生错误\n```{ex.ToString().Slice(150, "...")}```");
+            // 继续处理其他服务器
+        }
+    }
+
+    private async Task RegisterToDeployGuildsAsync(IReadOnlyCollection<ulong> deployGuildIds)
+    {
+        try
+        {
+            _logger.Info("正在同步命令到部署服务器列表...");
+            _logger.Info("同步命令列表:");
+            foreach (var command in _interactions.SlashCommands)
+            {
+                _logger.Info("  - {Name}: {Description}", command.Name, command.Description);
+            }
+            _logger.Info("命令总数: {Count}", _interactions.SlashCommands.Count);
+
+            foreach (var guildId in deployGuildIds)
+            {
+                var guild = _client.GetGuild(guildId);
+                if (guild is null)
+                {
+                    _logger.Warning("⚠️ 无法找到服务器 {GuildId}，Bot可能不在该服务器中或服务器ID不正确", guildId);
+                    continue;
+                }
+
+                _logger.Info("正在同步命令到服务器: {GuildId} - {GuildName}", guildId, guild.Name);
+                await _interactions.RegisterCommandsToGuildAsync(guildId, true);
+                _logger.Info("服务器 {GuildName} 命令同步完成。", guild.Name);
+            }
+
+            _logger.Info("✅ 命令同步完成！");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 同步命令时发生错误");
+        }
+    }
+
+    private async Task ReRegisterHereAsync(SocketUserMessage userMessage, ulong maintainerId)
+    {
+        if (!await AuthorizeAsync(
+                userMessage,
+                new BaseRuleSet.RequireInAnyGuild(),
+                new BaseRuleSet.RequireMaintainer(new HashSet<ulong> { maintainerId })))
+        {
+            return;
+        }
+
+        // RequireInAnyGuild 已保证消息来自服务器频道，此处仅为防御
+        if (userMessage.Channel is not IGuildChannel guildChannel)
+        {
+            return;
+        }
+
+        _logger.Info(
+            "鉴权成功: 用户 {Username} 正在重新注册服务器 {GuildId} 的命令。",
+            userMessage.Author.Username,
+            guildChannel.GuildId);
+        await userMessage.ReplyAsync("鉴权成功: 正在重新注册本服务器的斜杠命令... 请稍等片刻");
+
+        try
+        {
+            // deleteMissing: true 会在一次 BulkOverwrite 中整体覆盖，无需先清空
+            await _interactions.RegisterCommandsToGuildAsync(guildChannel.GuildId, true);
+            _logger.Info(
+                "服务器 {GuildName}({GuildId}) 的命令已重新注册。",
+                guildChannel.Guild.Name,
+                guildChannel.GuildId);
+            await userMessage.Channel.SendMessageAsync("✅ 本服务器的斜杠命令已重新注册。");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "重新注册服务器 {GuildId} 的命令时发生错误", guildChannel.GuildId);
+            await userMessage.Channel.SendMessageAsync("❌ 重新注册本服务器的斜杠命令时发生错误。");
         }
     }
 }

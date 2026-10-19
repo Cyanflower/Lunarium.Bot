@@ -10,14 +10,14 @@ public interface IInteractionSession
     public MessageComponent Render();
 }
 
-public interface ISessionFactory<out TSession> where TSession : IInteractionSession
+public interface ISessionContext<out TSession> where TSession : IInteractionSession
 {
     TSession CreateSession(string sessionId, DateTimeOffset expiresAt);
 }
 
 /*
 实际 Context 示例
-public record OrderSessionContext(OrderData Data, ILogger Logger) : ISessionFactory<OrderSession>
+public record OrderSessionContext(OrderData Data, ILogger Logger) : ISessionContext<OrderSession>
 {
     public OrderSession CreateSession(string cacheId, DateTimeOffset expiresAt)
     {
@@ -26,8 +26,8 @@ public record OrderSessionContext(OrderData Data, ILogger Logger) : ISessionFact
 }
 
 调用：
-var context = new OrderSessionData(order, _logger);
+var context = new OrderSessionContext(order, _logger);
 
 // 调用：根据 context 自动推导出返回的是 OrderSession
-OrderSession session = sessionManager.RegisterView(userId, context);
+OrderSession session = sessionManager.Register(context);
 */

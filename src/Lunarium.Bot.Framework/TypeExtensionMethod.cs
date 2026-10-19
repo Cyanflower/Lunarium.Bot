@@ -1,5 +1,4 @@
 using System.ComponentModel;
-
 namespace Lunarium.Bot.Framework;
 
 #region string
@@ -83,3 +82,56 @@ public static class EnumExtensions
 }
 
 #endregion
+
+public static class DiscordMentionExtensions
+{
+    #region 单一 ID 转换
+
+    public static string ToRoleMention(this ulong id) => $"<@&{id}>";
+    public static string ToUserMention(this ulong id) => $"<@{id}>";
+    public static string ToChannelMention(this ulong id) => $"<#{id}>";
+
+    #endregion
+
+    #region 身分组 (Role Mentions)
+
+    public static List<string> ToRoleMentions(this IEnumerable<ulong> ids)
+    {
+        return ids.Select(id => id.ToRoleMention()).ToList();
+    }
+
+    public static string JoinRoleMentions(this IEnumerable<ulong> ids, string separator = "\n")
+    {
+        return string.Join(separator, ids.Select(id => id.ToRoleMention()));
+    }
+
+    #endregion
+
+    #region 用户 (User Mentions)
+
+    public static List<string> ToUserMentions(this IEnumerable<ulong> ids)
+    {
+        return ids.Select(id => id.ToUserMention()).ToList();
+    }
+
+    public static string JoinUserMentions(this IEnumerable<ulong> ids, string separator = "\n")
+    {
+        return string.Join(separator, ids.Select(id => id.ToUserMention()));
+    }
+
+    #endregion
+
+    #region 频道 (Channel Mentions)
+
+    public static List<string> ToChannelMentions(this IEnumerable<ulong> ids)
+    {
+        return ids.Select(id => id.ToChannelMention()).ToList();
+    }
+
+    public static string JoinChannelMentions(this IEnumerable<ulong> ids, string separator = "\n")
+    {
+        return string.Join(separator, ids.Select(id => id.ToChannelMention()));
+    }
+
+    #endregion
+}

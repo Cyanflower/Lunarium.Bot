@@ -11,7 +11,7 @@ public class SessionManager : IDisposable
     const int MaxRetry = 5;
     private readonly string _alphabet;
     private readonly int _expireHours = 1; // 小时
-    private readonly PeriodicTimer _timer; 
+    private readonly PeriodicTimer _timer;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _cleanupTask;
     private volatile bool _isDisposed = false;
@@ -27,40 +27,64 @@ public class SessionManager : IDisposable
         _cleanupTask = Task.Run(async () => { await CleanupLoopAsync(); });
     }
 
-    public TSession Register<TSession>(ISessionFactory<TSession> context, string? prefix = null, int nanoLegth = 10) where TSession : IInteractionSession
+    public TSession Register<TSession>(ISessionContext<TSession> context, int nanoLength = 10) where TSession : IInteractionSession
     {
         if (_isDisposed)
             throw new ObjectDisposedException(nameof(SessionManager));
         if (_isBroken)
             throw new InvalidOperationException("SessionManager is out of service due to repeated failures.");
 
-        string key;
-        // 生成 ID
-        if (prefix is not null)
-            key = $"{prefix}{NanoId.Generate(nanoLegth)}";
-        else
-            key = $"{NanoId.Generate(nanoLegth)}";
-
+        var key = $"{NanoId.Generate(nanoLength, _alphabet)}";
 
         var expiresAt = DateTimeOffset.UtcNow.AddHours(_expireHours);
 
-        // 自动推导 data out出的实际类型
+        // 自动推导 Context 给的实际 Session 类型
         var session = context.CreateSession(key, expiresAt);
 
         // 安全向上转型
         _sessions.TryAdd(key, session);
         return session;
     }
-    
+
+    public TSession Register<TSession>(ISessionContext<TSession> context, string prefix, int nanoLength = 10) where TSession : IInteractionSession
+    {
+        if (_isDisposed)
+            throw new ObjectDisposedException(nameof(SessionManager));
+        if (_isBroken)
+            throw new InvalidOperationException("SessionManager is out of service due to repeated failures.");
+        if (prefix.Contains('|'))
+            throw new ArgumentException("prefix Cannot Contains '|'");
+
+        var key = $"{prefix}|{NanoId.Generate(nanoLength, _alphabet)}";
+
+
+        var expiresAt = DateTimeOffset.UtcNow.AddHours(_expireHours);
+
+        // 自动推导 Context 给的实际 Session 类型
+        var session = context.CreateSession(key, expiresAt);
+
+        // 安全向上转型
+        _sessions.TryAdd(key, session);
+        return session;
+    }
     // 泛型 Get
-    // TView 必须是 IInteractionsCache 的实现类
-    public TView? Get<TView>(string key) where TView : class, IInteractionSession
+    // TSession 必须是 IInteractionsCache 的实现类
+    public TSession? Get<TSession>(string key) where TSession : class, IInteractionSession
     {
         // 复用上面的逻辑, 确保"续命"被执行
         var session = Get(key);
-        
+
         // 尝试转换, 如果类型不匹配, 例如 ID 存在但对应的是 SearchCache 而不是 FavCache,这里会返回 null
-        return session as TView;
+        return session as TSession;
+    }
+
+    public bool TryGet<TSession>(string key, out TSession? session) where TSession : class, IInteractionSession
+    {
+        // 复用上面的逻辑, 确保"续命"被执行
+        session = Get<TSession>(key);
+
+        // 尝试转换, 如果类型不匹配, 例如 ID 存在但对应的是 SearchCache 而不是 FavCache,这里会返回 null
+        return session is not null;
     }
 
     public IInteractionSession? Get(string key)
@@ -75,7 +99,7 @@ public class SessionManager : IDisposable
         }
         return null;
     }
-    
+
     public void TryRemove(string key)
     {
         _sessions.TryRemove(key, out _);
@@ -95,7 +119,7 @@ public class SessionManager : IDisposable
                     if (_sessions.IsEmpty) continue;
 
                     var now = DateTimeOffset.UtcNow;
-                    
+
                     // 核心清理逻辑
                     foreach (var session in _sessions.Values)
                     {
@@ -109,7 +133,7 @@ public class SessionManager : IDisposable
                     }
 
                     // 如果成功执行完一轮, 重置重试计数器
-                    retryCount = 0; 
+                    retryCount = 0;
                 }
                 catch (Exception ex)
                 {

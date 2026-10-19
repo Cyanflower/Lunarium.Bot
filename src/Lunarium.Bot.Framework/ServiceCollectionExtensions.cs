@@ -1,3 +1,4 @@
+using Lunarium.Bot.Framework.Interaction;
 using Lunarium.Bot.Framework.Health;
 using Lunarium.Bot.Framework.Configuration;
 using Lunarium.Common.Net;
@@ -11,6 +12,7 @@ using Discord.Interactions;
 using Discord.Net.Rest;
 using Discord.Net.WebSockets;
 using Discord.WebSocket;
+using Lunarium.Common;
 
 namespace Lunarium.Bot.Framework;
 
@@ -74,6 +76,20 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddSessionManager(this IServiceCollection services)
+    {
+        return services.AddSessionManager(Alphabet.Base, 1);
+    }
+
+    public static IServiceCollection AddSessionManager(this IServiceCollection services, string keyAlphabet = Alphabet.Base, int expiresHours = 1)
+    {
+        services.TryAddSingleton(provider =>
+        {
+            var logger = provider.GetRequiredService<ILogger>();
+            return new SessionManager(logger, keyAlphabet, expiresHours);
+        });
+        return services;
+    }
     /// <summary>
     /// 注册健康监控。
     /// <para>

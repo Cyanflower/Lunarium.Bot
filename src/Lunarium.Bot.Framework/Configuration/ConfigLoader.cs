@@ -78,8 +78,10 @@ public class ConfigLoader<T> where T : class, IValidatableObject, new()
     /// <summary>
     /// 在磁盘当前内容的基础上应用修改，校验通过后原子写回并替换快照；任一步失败则完全回滚。
     /// </summary>
-    /// <returns>成功为 true；校验失败或 IO 失败为 false（详细原因已写日志）。</returns>
-    public bool TryUpdate(Action<T> mutate)
+    /// <returns>
+    /// 成功时返回空列表；失败时返回错误列表（校验错误或异常信息，详细原因已写日志）。
+    /// </returns>
+    public IReadOnlyList<string> TryUpdate(Action<T> mutate)
     {
         ArgumentNullException.ThrowIfNull(mutate);
 
@@ -101,7 +103,7 @@ public class ConfigLoader<T> where T : class, IValidatableObject, new()
                         _logger.Error("❌ 配置校验未通过: {Error}", error);
                     }
 
-                    return false;
+                    return errors;
                 }
 
                 Save(copy);
@@ -109,12 +111,12 @@ public class ConfigLoader<T> where T : class, IValidatableObject, new()
                 _logger.Info("✅ 配置已更新并写回文件。");
 
                 OnConfigApplied(copy);
-                return true;
+                return Array.Empty<string>();
             }
             catch (Exception ex)
             {
                 _logger.Error(ex, "❌ 配置更新失败，内存与文件均保持原样。");
-                return false;
+                return [$"配置更新失败: {ex.Message}"];
             }
         }
     }

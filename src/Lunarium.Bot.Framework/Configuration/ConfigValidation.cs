@@ -65,9 +65,6 @@ public static class ConfigValidation
 
     /// <summary>
     /// 校验雪花 ID 列表：允许为空（= 功能对所有人关闭），但元素不得为 0。
-    /// <para>
-    /// 集合元素无法用特性表达，因此单独提供；两个以上模型用到时才算值得抽。
-    /// </para>
     /// </summary>
     public static IEnumerable<ValidationResult> CheckIdList(IReadOnlyList<ulong>? ids, string memberName)
     {
