@@ -66,6 +66,8 @@ token.txt
 # Bot Config
 config.jsonc
 appsettings.jsonc
+# 实际运行配置（含真实频道/角色 ID、被 Bot 回写的状态），入库仅 template
+appsettings.json
 # Example
 Example/
 SourceCodeDoc/
@@ -106,6 +108,8 @@ src/LunariumProxy/
 CLAUDE.local.md
 
 # --- 其他 AI 编码助手 / 编辑器 ---
+# AI 会话笔记（本地草稿，不入库）
+note.md
 .opencode/
 .cursor/
 .cursorrules

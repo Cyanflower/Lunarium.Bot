@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 引用共享库 -->
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
+    <ProjectReference Include="../Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
+    <ProjectReference Include="../Lunarium.Bot.AI/Lunarium.Bot.AI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CopyToOutputDirectory 让编译器在构建时复制它们 -->
+    <!-- PreserveNewest: 如果文件没变动就不复制 -->
+    <Content Include="appsettings.template.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.health.template.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- 部署脚本可选：仓库里还没有这个文件时不应阻塞构建 -->
+    <Content Include="start.sh" Condition="Exists('start.sh')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lunarium.Common" Version="1.2.1" />
+    <PackageReference Include="Lunarium.Logging" Version="1.1.0" />
+    <PackageReference Include="Lunarium.Logging.Hosting" Version="1.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Polly" Version="8.8.0" />
+    <!-- 归档打包时把 PNG 转成高质量 JPEG（只处理内存，不改磁盘原件） -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+  </ItemGroup>
+
+</Project>
