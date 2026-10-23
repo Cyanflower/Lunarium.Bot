@@ -87,9 +87,12 @@ public sealed partial class TicketArchiveService
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var relative = Relative(ticketDirectory, file);
+
+                    // 只排除工单目录根下的归档产物；attachment/ 里用户上传的 .zip 必须保留
+                    var isRootFile = !relative.Contains('/');
                     if (relative.Equals(TicketLocalData.TicketFileName, StringComparison.OrdinalIgnoreCase)
-                        || relative.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                        || relative.EndsWith(".zip.tmp", StringComparison.OrdinalIgnoreCase))
+                        || (isRootFile && relative.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                        || (isRootFile && relative.EndsWith(".zip.tmp", StringComparison.OrdinalIgnoreCase)))
                     {
                         continue;
                     }
@@ -162,8 +165,12 @@ public sealed partial class TicketArchiveService
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var relative = Relative(ticketDirectory, file);
-                    if (relative.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                        || relative.EndsWith(".zip.tmp", StringComparison.OrdinalIgnoreCase))
+
+                    // 只排除根目录下的归档产物，attachment/ 里用户上传的 .zip 必须保留
+                    var isRootFile = !relative.Contains('/');
+                    if (isRootFile
+                        && (relative.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                            || relative.EndsWith(".zip.tmp", StringComparison.OrdinalIgnoreCase)))
                     {
                         continue;
                     }
@@ -234,8 +241,9 @@ public sealed partial class TicketArchiveService
             body { margin: 0; background: #313338; color: #dbdee1;
                    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
                    line-height: 1.5; }
-            header { background: #1e1f22; border-bottom: 1px solid #3f4147; padding: 20px 24px; }
-            header h1 { margin: 0 0 8px; font-size: 22px; color: #f2f3f5; }
+            header { background: #1e1f22; border-bottom: 1px solid #3f4147; padding: 20px 0; }
+            header .header-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+            header h1 { margin: 0 0 8px; font-size: 22px; color: #f2f3f5; text-align: center; }
             header dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px;
                         margin: 0; font-size: 14px; color: #b5bac1; }
             header dt { color: #949ba4; }
@@ -307,7 +315,7 @@ public sealed partial class TicketArchiveService
             <body>
             """);
 
-        builder.Append("<header>");
+        builder.Append("<header><div class=\"header-inner\">");
         builder.Append($"<h1>{Html(ticket.ToString())}</h1>");
         builder.Append("<dl>");
         AppendDefinition(builder, "类型", ticket.TicketType.Describe());
@@ -319,7 +327,7 @@ public sealed partial class TicketArchiveService
         AppendDefinition(builder, "关闭", DescribeActor(ticket.CloseInfo?.UserId, ticket.CloseInfo?.DisplayName, ticket.CloseInfo?.ClosedAt));
         AppendDefinition(builder, "归档", DescribeActor(ticket.ArchiveInfo?.UserId, ticket.ArchiveInfo?.DisplayName, ticket.ArchiveInfo?.ArchivedAt));
         AppendDefinition(builder, "原始数据", $"<a href=\"{TicketLocalData.TicketFileName}\">{TicketLocalData.TicketFileName}</a>");
-        builder.Append("</dl></header><main>");
+        builder.Append("</dl></div></header><main>");
 
         var messages = ticket.TicketMessages;
         if (messages is null || messages.Count == 0)
