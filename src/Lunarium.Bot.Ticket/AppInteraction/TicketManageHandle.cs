@@ -112,11 +112,7 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
                 await DeferAsync(ephemeral: true);
 
                 var result = await _workflow.CloseAsync(guild, ticket, TicketActor.From(Context.User), reason);
-                await FollowupAsync(
-                    components: result.Success
-                        ? MessagePrefab.OperateSuccess(result.Message)
-                        : MessagePrefab.FunctionFail(result.Message),
-                    ephemeral: true);
+                await TrySendResultAsync(result);
             }
             finally
             {
@@ -175,11 +171,7 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
                 await DeferAsync(ephemeral: true);
 
                 var result = await _workflow.ArchiveAsync(guild, resolved.Config!, ticket, TicketActor.From(Context.User), deleteChannel);
-                await FollowupAsync(
-                    components: result.Success
-                        ? MessagePrefab.OperateSuccess(result.Message)
-                        : MessagePrefab.FunctionFail(result.Message),
-                    ephemeral: true);
+                await TrySendResultAsync(result);
             }
             finally
             {
@@ -208,10 +200,29 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
 
         if (!_ticketManager.TryGetByChannel(Context.Channel.Id, out var ticket) || ticket is null)
         {
+            // 归档后活跃索引会移除该频道；用频道名反推工单号，给出准确提示而不是「频道不匹配」
+            if (Context.Channel is IGuildChannel channel
+                && TryParseTicketId(channel.Name, out var ticketId)
+                && _ticketManager.LoadAny(ticketId) is { Status: TicketStatus.Archived } archived)
+            {
+                return ResolvedTicket.Fail(MessagePrefab.AnyNotifier(
+                    $"工单 {archived} 已归档，无需重复操作", "### 工单已归档"));
+            }
+
             return ResolvedTicket.Fail(MessagePrefab.AnyFail("此命令只能在工单频道中使用", "### 频道不匹配"));
         }
 
         return new ResolvedTicket(guild, config, ticket, null);
+    }
+
+    /// <summary>从 <c>ticket-00001</c> 形式的频道名解析工单号。</summary>
+    private static bool TryParseTicketId(string channelName, out int ticketId)
+    {
+        const string Prefix = "ticket-";
+        ticketId = 0;
+        return channelName.Length > Prefix.Length
+            && channelName.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(channelName.AsSpan(Prefix.Length), out ticketId);
     }
 
     private async Task<MessageComponent?> ValidateAdminAsync(GuildConfig config)
@@ -220,6 +231,28 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
             Context,
             new BaseRuleSet.MaintainerBypass(_configLoader.Value.DeployerConfig.DeployerIds.ToHashSet()),
             new BaseRuleSet.RequireAdminRole(config.AllowManageTicketAdminRoleIds.ToHashSet()));
+    }
+
+    /// <summary>
+    ///     发送命令结果。业务已结束时回执失败（常见于网络抖动导致的
+    ///     <c>ResponseEnded</c>）只记日志，不能再报「内部错误」——
+    ///     否则用户会同时收到成功与失败两条相反的回执。
+    /// </summary>
+    private async Task TrySendResultAsync(WorkflowResult result)
+    {
+        try
+        {
+            await FollowupAsync(
+                components: result.Success
+                    ? MessagePrefab.OperateSuccess(result.Message)
+                    : MessagePrefab.FunctionFail(result.Message),
+                ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "发送命令结果回执失败: Success={Success} Message={Message}",
+                result.Success, result.Message);
+        }
     }
 
     private async Task TryReportFailureAsync(string message)
