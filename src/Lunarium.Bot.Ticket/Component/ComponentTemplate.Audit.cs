@@ -47,14 +47,14 @@ public static partial class ComponentTemplate
                 {
                     container.WithTextDisplay($"""
                     ### AI建议: {suggestion.Emoji}
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     """);
                 }
                 else
                 {
                     container.WithTextDisplay($"""
                     ### AI建议: {suggestion.Emoji}
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     ### 拒绝理由
                     ```
                     {suggestion.RejectReason}
@@ -121,14 +121,14 @@ public static partial class ComponentTemplate
                 {
                     container.WithTextDisplay($"""
                     ### AI建议
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     """);
                 }
                 else
                 {
                     container.WithTextDisplay($"""
                     ### AI建议
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     ### 拒绝理由
                     ```
                     {suggestion.RejectReason}
@@ -178,14 +178,14 @@ public static partial class ComponentTemplate
                 {
                     container.WithTextDisplay($"""
                     ### AI建议
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     """);
                 }
                 else
                 {
                     container.WithTextDisplay($"""
                     ### AI建议
-                    > {suggestion.Suggestion}
+                    {QuoteLines(suggestion.Suggestion)}
                     ### 拒绝理由
                     ```
                     {suggestion.RejectReason}

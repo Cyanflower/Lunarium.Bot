@@ -28,8 +28,11 @@ public sealed record LLMSuggestion
         - Respond with ONE valid JSON object and nothing else. No markdown, no code fences, no explanations, no leading or trailing text.
         - Use exactly these property names and casing: "Suggestion", "Emoji", "RejectReason".
         - "Suggestion": required, non-empty. State the recommended decision for the staff and the reason behind it.
+          Format it as multiple lines: the first line is the decision, then an empty line, then up to 3 bullet points starting with "- ".
+          Inside the JSON string, line breaks MUST be written as the two-character escape \n (backslash + n), never as a real newline.
         - "Emoji": required. Exactly one emoji character summarizing the decision.
         - "RejectReason": the message that will be sent back to the ticket creator. Required when rejecting, omitted (or null) when approving.
+          Keep it as a single short paragraph without line breaks.
         - A null or absent "RejectReason" is the sole indicator of an "Approve" decision. A non-empty "RejectReason" means "Reject".
         - Default to Approve. Rejection is a hard stop for the submitter, so only reject when the submission is clearly one of:
           - empty or meaningless content (random characters, only a greeting like "在吗", only a bare URL, no actual request)
@@ -49,13 +52,13 @@ public sealed record LLMSuggestion
 
         EXAMPLE JSON OUTPUT When Approve (evidence is expected later):
         {
-            "Suggestion": "通过 - 提交人报告了具体的盗图行为，证据会在工单频道内补充。建议要求提交人提供：原图与盗图的对比截图、涉嫌盗图者的用户主页或帖子链接。",
+            "Suggestion": "通过 - 提交人报告了具体的盗图行为，证据会在工单频道内补充。\n\n建议核实：\n- 原图与盗图的对比截图\n- 涉嫌盗图者的用户主页或帖子链接",
             "Emoji": "✅"
         }
 
         EXAMPLE JSON OUTPUT When Reject (only for empty / test / spam):
         {
-            "Suggestion": "拒绝 - 正文为空或无意义，无法确认任何诉求。原因：属于测试或误发内容。",
+            "Suggestion": "拒绝 - 正文为空或无意义，无法确认任何诉求。\n\n原因：属于测试或误发内容。",
             "Emoji": "⛔️",
             "RejectReason": "抱歉，这条提交没有可处理的内容（正文为空 / 仅问候语 / 测试消息），未创建工单。请补充**具体事由、涉及对象（用户或帖子链接）**后重新提交。"
         }

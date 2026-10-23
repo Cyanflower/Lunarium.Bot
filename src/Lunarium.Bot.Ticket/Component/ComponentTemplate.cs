@@ -31,6 +31,17 @@ public static partial class ComponentTemplate
             ((IFormattable)option.Value).ToString("D", CultureInfo.InvariantCulture))).ToList();
 
     /// <summary>
+    ///     把多行文本逐行转成 Markdown 引用块。
+    ///     Discord 的 <c>&gt;</c> 只对当前行生效，不逐行处理的话第二行起会掉出引用块。
+    /// </summary>
+    private static string QuoteLines(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        return string.Join('\n', normalized.Split('\n')
+            .Select(line => line.Length == 0 ? ">" : $"> {line}"));
+    }
+
+    /// <summary>
     ///     自动通过时间的展示行；<see langword="null"/> 表示未启用（必须人工审核）。
     /// </summary>
     private static string FormatAutoApproveLine(DateTimeOffset? autoApproveTime) =>
