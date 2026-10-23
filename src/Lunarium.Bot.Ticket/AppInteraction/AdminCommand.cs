@@ -338,6 +338,9 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
                 components: MessagePrefab.OperateSuccess(
                     $"已为 <@{user.Id}> 添加一次性提交冷却豁免。\n有效期至 <t:{expireAt.ToUnixTimeSeconds()}:F>（<t:{expireAt.ToUnixTimeSeconds()}:R>）。{remainingLine}"),
                 ephemeral: true);
+
+            // 回执保持 ephemeral；日志频道另发一条公开记录，供其他管理员追溯
+            await TryPostTempPermissionLogAsync(guild, config, user.Id, Context.User.Id, expireAt, remainingLine);
         }
         catch (Exception ex)
         {
@@ -352,6 +355,46 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
             {
                 track.Warning(notifyEx, "回报临时许可失败时再次失败");
             }
+        }
+    }
+
+    /// <summary>临时许可的公开记录（发到工单日志频道）；失败只记日志，不影响主流程。</summary>
+    private async Task TryPostTempPermissionLogAsync(
+        SocketGuild guild,
+        GuildConfig config,
+        ulong targetUserId,
+        ulong operatorId,
+        DateTimeOffset expireAt,
+        string remainingLine)
+    {
+        if (config.TicketLogChannel == 0)
+        {
+            _logger.Warning("未配置工单日志频道，跳过临时许可通告: GuildId={GuildId}", guild.Id);
+            return;
+        }
+
+        if (guild.GetChannel(config.TicketLogChannel) is not ITextChannel channel)
+        {
+            _logger.Warning("工单日志频道无效或不是文字频道，跳过临时许可通告: ChannelId={ChannelId}", config.TicketLogChannel);
+            return;
+        }
+
+        try
+        {
+            var unix = expireAt.ToUnixTimeSeconds();
+            var embed = new EmbedBuilder()
+                .WithColor(Color.Blue)
+                .WithTitle("🎫 临时许可已授予")
+                .WithDescription($"已为 <@{targetUserId}> 添加一次性提交冷却豁免。\n有效期至 <t:{unix}:F>（<t:{unix}:R>）。{remainingLine}")
+                .AddField("操作人", $"<@{operatorId}>", inline: true)
+                .WithTimestamp(DateTimeOffset.UtcNow)
+                .Build();
+
+            await channel.SendMessageAsync(embed: embed);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.Warning(ex, "发送临时许可日志失败: ChannelId={ChannelId}", channel.Id);
         }
     }
 }
