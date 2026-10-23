@@ -38,4 +38,6 @@ public record CustomId
         => new CustomId(scope, action, sessionId).ToString();
 
     public override string ToString() => $"{Scope}:{Action}:{SessionId}";
+
+    public static implicit operator string(CustomId customId) => customId.ToString();
 }

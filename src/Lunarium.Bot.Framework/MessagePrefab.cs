@@ -16,14 +16,37 @@ public static class MessagePrefab
         .Build();
     }
 
-    public static MessageComponent AuthFail(string reason)
+    public static MessageComponent AnyNotifier(string reason, string title = "提示")
     {
-        return AnyFail(reason, "### 鉴权失败");
+        return new ComponentBuilderV2().WithContainer(container =>
+        {
+            container.WithAccentColor(Color.Blue);
+            container.WithTextDisplay(title);
+            container.WithSeparator();
+            container.WithTextDisplay(reason);
+        })
+        .Build();
     }
 
-    public static MessageComponent FunctionFail(string reason)
+    public static MessageComponent AnySuccess(string reason, string title = "成功")
     {
-
-        return AnyFail(reason, "### 内部错误");
+        return new ComponentBuilderV2().WithContainer(container =>
+        {
+            container.WithAccentColor(Color.DarkGreen);
+            container.WithTextDisplay(title);
+            container.WithSeparator();
+            container.WithTextDisplay(reason);
+        })
+        .Build();
     }
+
+    public static MessageComponent AuthFail(string reason) => AnyFail(reason, "### 鉴权失败");
+    
+
+    public static MessageComponent FunctionFail(string reason) => AnyFail(reason, "### 内部错误");
+    
+
+    public static MessageComponent ConfigFail(string reason) => AnyFail(reason, "### 配置错误");
+
+    public static MessageComponent OperateSuccess(string reason) => AnySuccess(reason, "### 操作成功");
 }

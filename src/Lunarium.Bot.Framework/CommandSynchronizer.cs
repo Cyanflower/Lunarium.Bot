@@ -87,6 +87,46 @@ public sealed partial class CommandSynchronizer
         }
     }
 
+    /// <summary>
+    ///     把当前已加载的斜杠命令注册到所有部署服务器（<c>deleteMissing: true</c>）。
+    /// </summary>
+    /// <remarks>
+    ///     供 Bot 首次登录完成时调用。逐服务器独立处理：某个服务器失败只记录日志，不影响其它服务器。
+    /// </remarks>
+    /// <param name="deployGuildIds">部署服务器 ID 列表。</param>
+    public async Task SyncCommandsToDeployGuildsAsync(IReadOnlyCollection<ulong> deployGuildIds)
+    {
+        _logger.Info("正在同步命令到部署服务器列表...");
+        foreach (var command in _interactions.SlashCommands)
+        {
+            _logger.Info("  - {Name}: {Description}", command.Name, command.Description);
+        }
+        _logger.Info("命令总数: {Count}", _interactions.SlashCommands.Count);
+
+        foreach (var guildId in deployGuildIds)
+        {
+            var guild = _client.GetGuild(guildId);
+            if (guild is null)
+            {
+                _logger.Warning("⚠️ 无法找到服务器 {GuildId}，Bot可能不在该服务器中或服务器ID不正确", guildId);
+                continue;
+            }
+
+            try
+            {
+                _logger.Info("正在同步命令到服务器: {GuildId} - {GuildName}", guildId, guild.Name);
+                await _interactions.RegisterCommandsToGuildAsync(guildId, true);
+                _logger.Info("服务器 {GuildName} 命令同步完成。", guild.Name);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "❌ 服务器 {GuildId} 命令同步失败", guildId);
+            }
+        }
+
+        _logger.Info("✅ 命令同步完成！");
+    }
+
     private bool TryParseCommand(SocketMessage message, out TextCommand command)
     {
         command = default;
@@ -152,7 +192,7 @@ public sealed partial class CommandSynchronizer
             }
 
             // 重新同步到部署服务器
-            await RegisterToDeployGuildsAsync(deployGuildIds);
+            await SyncCommandsToDeployGuildsAsync(deployGuildIds);
 
             await userMessage.Channel.SendMessageAsync($"✅ 操作完成！\n{report}");
         }
@@ -186,40 +226,6 @@ public sealed partial class CommandSynchronizer
             _logger.Error(ex, "清除服务器 {GuildId} 命令时发生错误", guildId);
             report.AppendLine($"- 清除服务器 {guildId} 命令时发生错误\n```{ex.ToString().Slice(150, "...")}```");
             // 继续处理其他服务器
-        }
-    }
-
-    private async Task RegisterToDeployGuildsAsync(IReadOnlyCollection<ulong> deployGuildIds)
-    {
-        try
-        {
-            _logger.Info("正在同步命令到部署服务器列表...");
-            _logger.Info("同步命令列表:");
-            foreach (var command in _interactions.SlashCommands)
-            {
-                _logger.Info("  - {Name}: {Description}", command.Name, command.Description);
-            }
-            _logger.Info("命令总数: {Count}", _interactions.SlashCommands.Count);
-
-            foreach (var guildId in deployGuildIds)
-            {
-                var guild = _client.GetGuild(guildId);
-                if (guild is null)
-                {
-                    _logger.Warning("⚠️ 无法找到服务器 {GuildId}，Bot可能不在该服务器中或服务器ID不正确", guildId);
-                    continue;
-                }
-
-                _logger.Info("正在同步命令到服务器: {GuildId} - {GuildName}", guildId, guild.Name);
-                await _interactions.RegisterCommandsToGuildAsync(guildId, true);
-                _logger.Info("服务器 {GuildName} 命令同步完成。", guild.Name);
-            }
-
-            _logger.Info("✅ 命令同步完成！");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "❌ 同步命令时发生错误");
         }
     }
 

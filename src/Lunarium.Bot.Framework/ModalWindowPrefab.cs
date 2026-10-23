@@ -3,7 +3,7 @@ using Lunarium.Bot.Framework.Interaction;
 
 namespace Lunarium.Bot.Framework;
 
-public static class ModelWindowPrefab
+public static class ModalWindowPrefab
 {
     public static Modal SingleTextField(CustomId customId, string title, string label, string description, string placeholder = "请输入...")
     {

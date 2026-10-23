@@ -75,6 +75,49 @@ public static class BaseRuleSet
         }
     }
 
+    public class RequireRole(IReadOnlySet<ulong> roleIds) : IAuthRule, IMsgBasedAuthRule
+    {
+        public async ValueTask<ValidateResult> ValidateAsync(IInteractionContext context)
+        {
+            if (context.Guild is null)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得服务器信息"));
+
+            var user = context.User as IGuildUser
+                   ?? await context.Guild.GetUserAsync(context.User.Id);
+
+            if (user is null)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得用户信息"));
+
+            if (!user.RoleIds.Any(roleIds.Contains))
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("缺少必要的身份组"));
+
+            return new ValidateResult(ResultType.Success, null);
+        }
+
+        public async ValueTask<ValidateResult> ValidateAsync(SocketMessage msg)
+        {
+            if (msg.Channel is null)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得消息所在频道信息"));
+            if (msg.Channel.ChannelType is ChannelType.DM)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("消息不在服务器内"));
+            if (msg.Channel is not IGuildChannel channel)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("消息所在频道不是预期类型"));
+            if (channel.Guild is null)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得消息所在服务器信息"));
+
+            var user = msg.Author as IGuildUser
+                   ?? await channel.Guild.GetUserAsync(msg.Author.Id);
+
+            if (user is null)
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得用户信息"));
+
+            if (!user.RoleIds.Any(roleIds.Contains))
+                return new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("缺少必要的身份组"));
+
+            return new ValidateResult(ResultType.Success, null);
+        }
+    }
+
     public class RequireInGuild(IReadOnlySet<ulong> guildIds) : IAuthRule, IMsgBasedAuthRule
     {
         public ValueTask<ValidateResult> ValidateAsync(IInteractionContext context)
@@ -117,6 +160,40 @@ public static class BaseRuleSet
                 return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得消息所在频道信息")));
             if (msg.Channel is not IGuildChannel)
                 return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("消息不在服务器内")));
+
+            return ValueTask.FromResult(new ValidateResult(ResultType.Success, null));
+        }
+    }
+
+    /// <summary>
+    /// 要求交互 / 消息发生在指定频道之一。
+    /// <para>
+    /// 用于把敏感命令限制在固定频道（如通知频道、日志频道），
+    /// 该规则不区分权限，维护者亦需遵守。
+    /// </para>
+    /// </summary>
+    public class RequireInChannel(IReadOnlySet<ulong> channelIds) : IAuthRule, IMsgBasedAuthRule
+    {
+        private string AllowedChannels => string.Join("、", channelIds.Select(id => $"<#{id}>"));
+
+        public ValueTask<ValidateResult> ValidateAsync(IInteractionContext context)
+        {
+            if (context.Channel is null)
+                return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得频道信息")));
+
+            if (!channelIds.Contains(context.Channel.Id))
+                return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail($"该命令仅可在 {AllowedChannels} 内使用")));
+
+            return ValueTask.FromResult(new ValidateResult(ResultType.Success, null));
+        }
+
+        public ValueTask<ValidateResult> ValidateAsync(SocketMessage msg)
+        {
+            if (msg.Channel is null)
+                return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail("无法获得消息所在频道信息")));
+
+            if (!channelIds.Contains(msg.Channel.Id))
+                return ValueTask.FromResult(new ValidateResult(ResultType.Fail, MessagePrefab.AuthFail($"该命令仅可在 {AllowedChannels} 内使用")));
 
             return ValueTask.FromResult(new ValidateResult(ResultType.Success, null));
         }
