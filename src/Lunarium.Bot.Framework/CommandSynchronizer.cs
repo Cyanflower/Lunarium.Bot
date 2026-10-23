@@ -96,6 +96,20 @@ public sealed partial class CommandSynchronizer
     /// <param name="deployGuildIds">部署服务器 ID 列表。</param>
     public async Task SyncCommandsToDeployGuildsAsync(IReadOnlyCollection<ulong> deployGuildIds)
     {
+        // 本项目只把命令注册到部署服务器，但全局命令会与服务器命令同时出现在客户端里。
+        // RegisterCommandsToGuildAsync 的 deleteMissing 仅覆盖该服务器的命令集，
+        // 旧版本遗留的全局命令不会随之消失，必须单独清空一次。
+        try
+        {
+            _logger.Info("正在清理全局命令...");
+            await _client.BulkOverwriteGlobalApplicationCommandsAsync([]);
+            _logger.Info("全局命令已清理。");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ 清理全局命令失败（旧命令可能仍显示在客户端）");
+        }
+
         _logger.Info("正在同步命令到部署服务器列表...");
         foreach (var command in _interactions.SlashCommands)
         {
