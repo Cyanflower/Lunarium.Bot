@@ -36,6 +36,9 @@ public sealed class TicketCrawler
     private readonly TicketLocalData _localData;
     private readonly TicketResourceDownloader _downloader;
 
+    /// <summary>下载并发上限：同时拉多个大文件会争带宽，过高的并发反而拉长总耗时。</summary>
+    private readonly SemaphoreSlim _downloadGate = new(4);
+
     public TicketCrawler(ILogger logger, TicketLocalData localData, TicketResourceDownloader downloader)
     {
         _logger = logger.ForContext("TicketService.TicketCrawler");
@@ -96,20 +99,23 @@ public sealed class TicketCrawler
             var attachments = new List<TicketAttachment>();
             var attachmentsByName = new Dictionary<string, TicketAttachment>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var attachment in message.Attachments)
+            // 消息内附件并行下载（WhenAll 返回值顺序与输入一致）
+            var attachmentTasks = message.Attachments
+                .Select(attachment => SaveDiscordAttachmentAsync(
+                    attachment, attachmentRoot, ticketDirectory, $"{index:D4}-", cancellationToken))
+                .ToArray();
+            var savedAttachments = await Task.WhenAll(attachmentTasks);
+            foreach (var (attachment, saved) in message.Attachments.Zip(savedAttachments))
             {
-                var saved = await SaveDiscordAttachmentAsync(
-                    attachment, attachmentRoot, ticketDirectory, $"{index:D4}-", cancellationToken);
                 attachments.Add(saved);
                 attachmentsByName[attachment.Filename] = saved;
                 budget.AddBytes(saved.Size);
             }
 
-            var embeds = new List<TicketEmbed>();
-            foreach (var embed in message.Embeds)
-            {
-                embeds.Add(await SaveEmbedAsync(embed, externalDirectory, ticketDirectory, budget, cancellationToken));
-            }
+            var embedTasks = message.Embeds
+                .Select(embed => SaveEmbedAsync(embed, externalDirectory, ticketDirectory, budget, cancellationToken))
+                .ToArray();
+            var embeds = (await Task.WhenAll(embedTasks)).ToList();
 
             var stickers = await SaveStickersAsync(
                 message.Stickers, stickerDirectory, ticketDirectory, budget, cancellationToken);
@@ -183,29 +189,37 @@ public sealed class TicketCrawler
                 return null;
             }
 
-            var resource = await _downloader.DownloadAsync(
-                uri, MaxExternalImageBytes, requireImage: true, cancellationToken);
-            if (resource is null)
+            await _downloadGate.WaitAsync(cancellationToken);
+            try
             {
-                return null;
-            }
+                var resource = await _downloader.DownloadAsync(
+                    uri, MaxExternalImageBytes, requireImage: true, cancellationToken);
+                if (resource is null)
+                {
+                    return null;
+                }
 
-            var extension = TicketResourceDownloader.ExtensionFor(resource.MediaType);
-            if (extension.Length == 0)
+                var extension = TicketResourceDownloader.ExtensionFor(resource.MediaType);
+                if (extension.Length == 0)
+                {
+                    extension = ".png";
+                }
+
+                Directory.CreateDirectory(avatarDirectory);
+                var fileName = $"{author.Id}{extension}";
+                var path = Path.Combine(avatarDirectory, fileName);
+
+                if (!File.Exists(path))
+                {
+                    await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
+                }
+
+                return ToRelativePath(ticketDirectory, path);
+            }
+            finally
             {
-                extension = ".png";
+                _downloadGate.Release();
             }
-
-            Directory.CreateDirectory(avatarDirectory);
-            var fileName = $"{author.Id}{extension}";
-            var path = Path.Combine(avatarDirectory, fileName);
-
-            if (!File.Exists(path))
-            {
-                await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
-            }
-
-            return ToRelativePath(ticketDirectory, path);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -230,26 +244,34 @@ public sealed class TicketCrawler
                 return Failed(attachment, isImage);
             }
 
-            var resource = await _downloader.DownloadAsync(
-                uri, MaxDiscordFileBytes, requireImage: false, cancellationToken);
-            if (resource is null)
+            await _downloadGate.WaitAsync(cancellationToken);
+            try
             {
-                return Failed(attachment, isImage);
+                var resource = await _downloader.DownloadAsync(
+                    uri, MaxDiscordFileBytes, requireImage: false, cancellationToken);
+                if (resource is null)
+                {
+                    return Failed(attachment, isImage);
+                }
+
+                Directory.CreateDirectory(attachmentRoot);
+                var fileName = $"{prefix}{SanitizeFileName(attachment.Filename)}";
+                var path = MakeUnique(Path.Combine(attachmentRoot, fileName));
+                await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
+
+                return new TicketAttachment
+                {
+                    FileName = attachment.Filename,
+                    Url = attachment.Url,
+                    Size = resource.Bytes.LongLength,
+                    IsImage = isImage,
+                    LocalPath = ToRelativePath(ticketDirectory, path),
+                };
             }
-
-            Directory.CreateDirectory(attachmentRoot);
-            var fileName = $"{prefix}{SanitizeFileName(attachment.Filename)}";
-            var path = MakeUnique(Path.Combine(attachmentRoot, fileName));
-            await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
-
-            return new TicketAttachment
+            finally
             {
-                FileName = attachment.Filename,
-                Url = attachment.Url,
-                Size = resource.Bytes.LongLength,
-                IsImage = isImage,
-                LocalPath = ToRelativePath(ticketDirectory, path),
-            };
+                _downloadGate.Release();
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -356,10 +378,14 @@ public sealed class TicketCrawler
         var imageUrl = embed.Image?.Url;
         var thumbnailUrl = embed.Thumbnail?.Url;
 
-        var imagePath = await TrySaveEmbedImageAsync(
+        var imageTask = TrySaveEmbedImageAsync(
             imageUrl, externalDirectory, ticketDirectory, budget, cancellationToken);
-        var thumbnailPath = await TrySaveEmbedImageAsync(
+        var thumbnailTask = TrySaveEmbedImageAsync(
             thumbnailUrl, externalDirectory, ticketDirectory, budget, cancellationToken);
+
+        await Task.WhenAll(imageTask, thumbnailTask);
+        var imagePath = imageTask.Result;
+        var thumbnailPath = thumbnailTask.Result;
 
         return new TicketEmbed
         {
@@ -671,20 +697,29 @@ public sealed class TicketCrawler
     private static string? NullIfEmpty(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    /// <summary>单张工单的下载预算：限制外链数量与总字节。</summary>
+    /// <summary>单张工单的下载预算：限制外链数量与总字节（多线程并发访问）。</summary>
     private sealed class CrawlBudget
     {
-        public int ExternalCount { get; private set; }
+        private int _externalCount;
+        private long _totalBytes;
 
-        public long TotalBytes { get; private set; }
+        public int ExternalCount => Volatile.Read(ref _externalCount);
+
+        public long TotalBytes => Volatile.Read(ref _totalBytes);
 
         public bool Exhausted => ExternalCount >= MaxExternalPerTicket || TotalBytes >= MaxTotalBytes;
 
-        public void AddBytes(long bytes) => TotalBytes += Math.Max(0, bytes);
+        public void AddBytes(long bytes)
+        {
+            if (bytes > 0)
+            {
+                Interlocked.Add(ref _totalBytes, bytes);
+            }
+        }
 
         public void CountExternal(long bytes)
         {
-            ExternalCount++;
+            Interlocked.Increment(ref _externalCount);
             AddBytes(bytes);
         }
     }
@@ -705,54 +740,62 @@ public sealed class TicketCrawler
 
             var hash = TicketResourceDownloader.ShortHash(uri.AbsoluteUri);
 
-            // 同一外链在一张工单里只下载一次
-            if (Directory.Exists(externalDirectory))
+            await _downloadGate.WaitAsync(cancellationToken);
+            try
             {
-                var cached = Directory.EnumerateFiles(externalDirectory, $"{hash}.*").FirstOrDefault();
-                if (cached is not null)
+                // 同一外链在一张工单里只下载一次（并发下也要二次确认缓存）
+                if (Directory.Exists(externalDirectory))
                 {
-                    return new TicketAttachment
+                    var cached = Directory.EnumerateFiles(externalDirectory, $"{hash}.*").FirstOrDefault();
+                    if (cached is not null)
                     {
-                        FileName = Path.GetFileName(uri.AbsolutePath),
-                        Url = uri.AbsoluteUri,
-                        Size = new FileInfo(cached).Length,
-                        IsImage = true,
-                        IsExternal = true,
-                        LocalPath = ToRelativePath(ticketDirectory, cached),
-                    };
+                        return new TicketAttachment
+                        {
+                            FileName = Path.GetFileName(uri.AbsolutePath),
+                            Url = uri.AbsoluteUri,
+                            Size = new FileInfo(cached).Length,
+                            IsImage = true,
+                            IsExternal = true,
+                            LocalPath = ToRelativePath(ticketDirectory, cached),
+                        };
+                    }
                 }
-            }
 
-            var resource = await _downloader.DownloadAsync(
-                uri, MaxExternalImageBytes, requireImage, cancellationToken);
-            if (resource is null)
-            {
-                return null;
-            }
+                var resource = await _downloader.DownloadAsync(
+                    uri, MaxExternalImageBytes, requireImage, cancellationToken);
+                if (resource is null)
+                {
+                    return null;
+                }
 
-            var extension = TicketResourceDownloader.ExtensionFor(resource.MediaType);
-            if (extension.Length == 0)
-            {
-                extension = Path.GetExtension(uri.AbsolutePath);
+                var extension = TicketResourceDownloader.ExtensionFor(resource.MediaType);
                 if (extension.Length == 0)
                 {
-                    extension = ".img";
+                    extension = Path.GetExtension(uri.AbsolutePath);
+                    if (extension.Length == 0)
+                    {
+                        extension = ".img";
+                    }
                 }
+
+                Directory.CreateDirectory(externalDirectory);
+                var path = Path.Combine(externalDirectory, hash + extension);
+                await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
+
+                return new TicketAttachment
+                {
+                    FileName = Path.GetFileName(uri.AbsolutePath) is { Length: > 0 } name ? name : hash + extension,
+                    Url = uri.AbsoluteUri,
+                    Size = resource.Bytes.LongLength,
+                    IsImage = true,
+                    IsExternal = true,
+                    LocalPath = ToRelativePath(ticketDirectory, path),
+                };
             }
-
-            Directory.CreateDirectory(externalDirectory);
-            var path = Path.Combine(externalDirectory, hash + extension);
-            await File.WriteAllBytesAsync(path, resource.Bytes, cancellationToken);
-
-            return new TicketAttachment
+            finally
             {
-                FileName = Path.GetFileName(uri.AbsolutePath) is { Length: > 0 } name ? name : hash + extension,
-                Url = uri.AbsoluteUri,
-                Size = resource.Bytes.LongLength,
-                IsImage = true,
-                IsExternal = true,
-                LocalPath = ToRelativePath(ticketDirectory, path),
-            };
+                _downloadGate.Release();
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
