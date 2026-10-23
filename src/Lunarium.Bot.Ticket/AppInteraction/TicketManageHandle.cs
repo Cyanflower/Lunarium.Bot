@@ -63,7 +63,7 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
         }
     }
 
-    [SlashCommand("关闭", "关闭当前工单（提交人或管理组可用）")]
+    [SlashCommand("关闭", "关闭当前工单（仅管理组）")]
     public async Task CloseAsync([Summary("原因", "可选，会记录在频道内")] string? reason = null)
     {
         using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
@@ -80,15 +80,12 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
             var config = resolved.Config!;
             var ticket = resolved.Ticket!;
 
-            // 提交人可以关闭自己的工单；其他人必须是管理组
-            if (Context.User.Id != ticket.TicketCreator.UserId)
+            // 只允许管理组关闭：提交人自行关闭后再归档仍需管理介入，不如统一由管理收口
+            var failure = await ValidateAdminAsync(config);
+            if (failure is not null)
             {
-                var failure = await ValidateAdminAsync(config);
-                if (failure is not null)
-                {
-                    await RespondAsync(components: failure, ephemeral: true);
-                    return;
-                }
+                await RespondAsync(components: failure, ephemeral: true);
+                return;
             }
 
             if (!_ticketManager.TryBeginTransition(ticket.Id))
@@ -110,9 +107,13 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
                 }
 
                 await DeferAsync(ephemeral: true);
+                track.Info("关闭: Defer 完成，开始执行工作流: Ticket={Ticket}", ticket);
 
                 var result = await _workflow.CloseAsync(guild, ticket, TicketActor.From(Context.User), reason);
+                track.Info("关闭: 工作流完成 Success={Success} Message={Message}", result.Success, result.Message);
+
                 await TrySendResultAsync(result);
+                track.Info("关闭: 回执发送结束");
             }
             finally
             {
@@ -169,6 +170,9 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
                 }
 
                 await DeferAsync(ephemeral: true);
+
+                // 抓取大附件 + 打包可能耗时数十秒，先把 deferred 响应改成可见的进度提示
+                await TryUpdateProgressAsync("正在抓取工单对话并打包归档，请稍候…", "### 处理中");
 
                 var result = await _workflow.ArchiveAsync(guild, resolved.Config!, ticket, TicketActor.From(Context.User), deleteChannel);
                 await TrySendResultAsync(result);
@@ -234,24 +238,60 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
     }
 
     /// <summary>
-    ///     发送命令结果。业务已结束时回执失败（常见于网络抖动导致的
-    ///     <c>ResponseEnded</c>）只记日志，不能再报「内部错误」——
-    ///     否则用户会同时收到成功与失败两条相反的回执。
+    ///     发送命令结果。用 <c>FollowupAsync</c> 而不是编辑原始响应：
+    ///     编辑路径需要手动补 Components V2 标志，行为在 defer 后不稳定；
+    ///     Followup 由库自动补标志，与审核回执一致，已验证可靠。
+    ///     回执失败只记日志，不再报「内部错误」。
     /// </summary>
     private async Task TrySendResultAsync(WorkflowResult result)
     {
+        var component = result.Success
+            ? MessagePrefab.OperateSuccess(result.Message)
+            : MessagePrefab.FunctionFail(result.Message);
+
         try
         {
-            await FollowupAsync(
-                components: result.Success
-                    ? MessagePrefab.OperateSuccess(result.Message)
-                    : MessagePrefab.FunctionFail(result.Message),
-                ephemeral: true);
+            await FollowupAsync(components: component, ephemeral: true);
+            _logger.Info("命令结果回执已发送: Success={Success}", result.Success);
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "发送命令结果回执失败: Success={Success} Message={Message}",
                 result.Success, result.Message);
+        }
+    }
+
+    /// <summary>把 deferred 响应更新为进度提示；失败只记日志，不影响后续流程。</summary>
+    private Task TryUpdateProgressAsync(string message, string title)
+        => TryEditOriginalAsync(MessagePrefab.AnyNotifier(message, title), "进度提示");
+
+    /// <summary>
+    ///     编辑 deferred 原始响应。注意 Components V2 必须显式带上 <see cref="MessageFlags.ComponentsV2"/>：
+    ///     Followup 路径由库自动补这个标志，而编辑路径不会，缺了会被 Discord 以
+    ///     <c>UNION_TYPE_CHOICES</c> 拒绝。编辑失败时退回发送新消息，保证用户至少能看到回执。
+    /// </summary>
+    private async Task TryEditOriginalAsync(MessageComponent component, string stage)
+    {
+        try
+        {
+            await ModifyOriginalResponseAsync(props =>
+            {
+                props.Components = component;
+                props.Flags = MessageFlags.ComponentsV2;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "编辑原始响应失败，回退为发送新消息: {Stage}", stage);
+
+            try
+            {
+                await FollowupAsync(components: component, ephemeral: true);
+            }
+            catch (Exception followupEx)
+            {
+                _logger.Warning(followupEx, "发送回执失败: {Stage}", stage);
+            }
         }
     }
 
