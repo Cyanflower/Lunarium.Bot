@@ -166,47 +166,59 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
             track.Info("AppCommand: {Command} 收到请求: TicketId={TicketId}, GuildId={GuildId}, UserId={UserId}",
                 command, ticketId, Context.Guild?.Id, Context.User.Id);
 
-            await DeferAsync(ephemeral: true);
+            await DeferAsync();
 
             if (Context.Guild is not SocketGuild guild)
             {
-                await FollowupAsync(components: MessagePrefab.FunctionFail("解析服务器信息失败"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.FunctionFail("解析服务器信息失败"));
                 return;
             }
 
             if (!_configLoader.Value.DeployGuildConfig.TryGetValue(guild.Id, out var config))
             {
-                await FollowupAsync(components: MessagePrefab.ConfigFail("当前配置中并无本服务器配置"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.ConfigFail("当前配置中并无本服务器配置"));
                 return;
             }
 
+            // 获取归档包会把整包内容公开到频道，必须限制在低可见度的管理频道
+            var allowedChannels = new HashSet<ulong> { config.NotifierChannel, config.TicketLogChannel };
+            allowedChannels.Remove(0);
+
+            if (allowedChannels.Count == 0)
+            {
+                await FollowupAsync(components: MessagePrefab.ConfigFail("尚未配置工单通知频道或日志频道"));
+                return;
+            }
+
+            // 频道限制放在最前：不随维护者旁路跳过，避免归档文件被发到公共频道
             var validationResult = await RuleEngine.ValidateAsync(
                 Context,
+                new BaseRuleSet.RequireInChannel(allowedChannels),
                 new BaseRuleSet.MaintainerBypass(_configLoader.Value.DeployerConfig.DeployerIds.ToHashSet()),
                 new BaseRuleSet.RequireAdminRole(config.AllowManageTicketAdminRoleIds.ToHashSet()));
 
             if (validationResult is not null)
             {
-                await FollowupAsync(components: validationResult, ephemeral: true);
+                await FollowupAsync(components: validationResult);
                 return;
             }
 
             var ticket = _ticketManager.LoadAny(ticketId);
             if (ticket is null)
             {
-                await FollowupAsync(components: MessagePrefab.AnyFail($"找不到工单 {TicketData.FormatId(ticketId)}", "### 工单不存在"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.AnyFail($"找不到工单 {TicketData.FormatId(ticketId)}", "### 工单不存在"));
                 return;
             }
 
             if (ticket.GuildId != guild.Id)
             {
-                await FollowupAsync(components: MessagePrefab.AuthFail("工单不属于本服务器"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.AuthFail("工单不属于本服务器"));
                 return;
             }
 
             if (ticket.ArchiveInfo is null)
             {
-                await FollowupAsync(components: MessagePrefab.AnyNotifier($"工单 {TicketData.FormatId(ticketId)} 尚未归档", "### 无法获取"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.AnyNotifier($"工单 {TicketData.FormatId(ticketId)} 尚未归档", "### 无法获取"));
                 return;
             }
 
@@ -219,8 +231,7 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
             if (size > 24L * 1024 * 1024)
             {
                 await FollowupAsync(
-                    components: MessagePrefab.AnyFail($"文件 {size / 1024d / 1024d:0.#} MB 超过上传上限，请联系维护者从服务器取回", "### 文件过大"),
-                    ephemeral: true);
+                    components: MessagePrefab.AnyFail($"文件 {size / 1024d / 1024d:0.#} MB 超过上传上限，请联系维护者从服务器取回", "### 文件过大"));
                 return;
             }
 
@@ -229,8 +240,7 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
                 fileName: $"ticket-{ticketId:D5}{(archive ? "" : "-database")}.zip",
                 text: archive
                     ? $"📁 工单归档（HTML + 数据 + 附件）\n-# {size / 1024d:0.#} KB"
-                    : $"📦 工单数据库原件（数据 + 附件）\n-# {size / 1024d:0.#} KB",
-                ephemeral: true);
+                    : $"📦 工单数据库原件（数据 + 附件）\n-# {size / 1024d:0.#} KB");
 
             track.Info("AppCommand: {Command} 已发送: TicketId={TicketId}, Size={Size}", command, ticketId, size);
         }
@@ -241,7 +251,7 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
 
             try
             {
-                await FollowupAsync(components: MessagePrefab.FunctionFail("生成或发送文件失败，请联系维护者"), ephemeral: true);
+                await FollowupAsync(components: MessagePrefab.FunctionFail("生成或发送文件失败，请联系维护者"));
             }
             catch (Exception notifyEx)
             {
