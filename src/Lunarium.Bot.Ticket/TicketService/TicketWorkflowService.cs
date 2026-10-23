@@ -42,6 +42,10 @@ public sealed record WorkflowResult(bool Success, string Message)
 /// </summary>
 public sealed class TicketWorkflowService
 {
+    /// <summary>自动通过时追加到开场消息的安抚文案。</summary>
+    private const string AutoApproveApology =
+        "⏳ 本条工单为系统自动通过，管理组目前较为繁忙、人手有限，可能无法立即回复，请稍安勿躁。";
+
     /// <summary>工单频道的权限覆盖（提交人）。</summary>
     private static readonly OverwritePermissions CreatorPermissions = new(
         viewChannel: PermValue.Allow,
@@ -154,7 +158,7 @@ public sealed class TicketWorkflowService
         _audit.Info("工单已通过: {Ticket} 审批人={ApproverId} 自动={IsAuto} 频道={ChannelId}",
             ticket, approver.Id, isAutoApprove, channel.Id);
 
-        await TrySendStartMessageAsync(channel, ticket);
+        await TrySendStartMessageAsync(channel, ticket, isAutoApprove ? AutoApproveApology : null);
         await TryUpdateStatusCardAsync(guild, ticket);
         await TryUpdateAuditCardAsync(guild, ticket, ComponentTemplate.ApprovedAuditMessage.ToComponent(
             ticket.Id,
@@ -420,7 +424,7 @@ public sealed class TicketWorkflowService
         return overwrites;
     }
 
-    private async Task TrySendStartMessageAsync(ITextChannel channel, TicketData ticket)
+    private async Task TrySendStartMessageAsync(ITextChannel channel, TicketData ticket, string? apology = null)
     {
         try
         {
@@ -429,8 +433,15 @@ public sealed class TicketWorkflowService
                     ticket.Id, ticket.TicketCreator.UserId, ticket.Content)));
 
             // 组件里的提及不会触发通知，补一条真正的提及
-            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(
-                $"<@{ticket.TicketCreator.UserId}> 工单频道已创建，请在此与管理组沟通。"));
+            var notice = $"<@{ticket.TicketCreator.UserId}> 工单频道已创建，请在此与管理组沟通。";
+
+            // 自动通过的工单没有管理员当场审核，补一句安抚，避免提交人以为被无视
+            if (ticket.IsAutoApprove && !string.IsNullOrWhiteSpace(apology))
+            {
+                notice += $"\n\n{apology}";
+            }
+
+            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(notice));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -557,7 +568,12 @@ public sealed class TicketWorkflowService
         }
     }
 
-    /// <summary>通过私信：绿色 embed + 频道跳转链接。</summary>
+    /// <summary>
+    /// 通过私信：绿色 embed + 频道跳转链接。
+    /// <para>
+    /// 不展示具体审批人：私信面向提交人，暴露管理员身份容易让投诉转向个人。
+    /// </para>
+    /// </summary>
     private static Embed BuildApproveEmbed(SocketGuild guild, TicketData ticket, ulong channelId)
     {
         var auto = ticket.IsAutoApprove ? "\n-# 本次为超时自动通过。" : string.Empty;
@@ -572,7 +588,7 @@ public sealed class TicketWorkflowService
                 [进入工单频道](https://discord.com/channels/{guild.Id}/{channelId}){auto}
                 """)
             .AddField("类型", DescribeTicketType(ticket.TicketType), inline: true)
-            .AddField("审批", ticket.IsAutoApprove ? "系统自动通过" : $"<@{ticket.ApproveInfo?.UserId}>", inline: true)
+            .AddField("审批", ticket.IsAutoApprove ? "系统自动通过" : "管理组", inline: true)
             .WithFooter(guild.Name)
             .WithTimestamp(DateTimeOffset.UtcNow)
             .Build();
@@ -591,14 +607,19 @@ public sealed class TicketWorkflowService
             .Build();
     }
 
-    /// <summary>关闭私信：灰色 embed。</summary>
+    /// <summary>
+    /// 关闭私信：灰色 embed。
+    /// <para>
+    /// 同样不展示具体操作人，只说明处理方。
+    /// </para>
+    /// </summary>
     private static Embed BuildCloseEmbed(SocketGuild guild, TicketData ticket, TicketActor actor)
     {
         return new EmbedBuilder()
             .WithColor(Color.LightGrey)
             .WithTitle("🔒 工单已关闭")
             .WithDescription($"### 🎫 {ticket}\n工单已关闭。如果你的问题仍未解决，可以重新提交一张工单。")
-            .AddField("关闭人", actor.Id == 0 ? "系统" : $"<@{actor.Id}>", inline: true)
+            .AddField("关闭人", actor.Id == 0 ? "系统" : "管理组", inline: true)
             .WithFooter(guild.Name)
             .WithTimestamp(DateTimeOffset.UtcNow)
             .Build();
