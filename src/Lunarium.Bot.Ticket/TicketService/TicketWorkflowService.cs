@@ -97,6 +97,9 @@ public sealed class TicketWorkflowService
     private readonly TicketDeletionQueue _deletions;
     private readonly AsyncRetryPolicy _retryPolicy;
 
+    /// <summary>审计日志：通过/拒绝/关闭/归档等写操作只进 Audit.log。</summary>
+    private readonly ILogger _audit;
+
     public TicketWorkflowService(
         ILogger logger,
         TicketManager ticketManager,
@@ -104,7 +107,8 @@ public sealed class TicketWorkflowService
         TicketArchiveService archiveService,
         TicketDeletionQueue deletions)
     {
-        _logger = logger.ForContext("TicketWorkflowService");
+        _logger = logger.ForContext("TicketService.TicketWorkflowService");
+        _audit = logger.ForContext("Audit.TicketWorkflow");
         _ticketManager = ticketManager;
         _crawler = crawler;
         _archiveService = archiveService;
@@ -147,7 +151,7 @@ public sealed class TicketWorkflowService
         ticket.IsAutoApprove = isAutoApprove;
         await _ticketManager.SaveAsync(ticket);
 
-        _logger.Info("工单已通过: {Ticket} 审批人={ApproverId} 自动={IsAuto} 频道={ChannelId}",
+        _audit.Info("工单已通过: {Ticket} 审批人={ApproverId} 自动={IsAuto} 频道={ChannelId}",
             ticket, approver.Id, isAutoApprove, channel.Id);
 
         await TrySendStartMessageAsync(channel, ticket);
@@ -193,7 +197,7 @@ public sealed class TicketWorkflowService
         ticket.RejectInfo = new RejectInfo(actor.Id, actor.DisplayName, actor.UserName, DateTimeOffset.UtcNow, reason);
         await _ticketManager.SaveAsync(ticket);
 
-        _logger.Info("工单已拒绝: {Ticket} 操作人={ActorId} 原因长度={ReasonLength}",
+        _audit.Info("工单已拒绝: {Ticket} 操作人={ActorId} 原因长度={ReasonLength}",
             ticket, actor.Id, reason.Length);
 
         await TryUpdateStatusCardAsync(guild, ticket);
@@ -237,14 +241,11 @@ public sealed class TicketWorkflowService
         ticket.CloseInfo = new CloseInfo(actor.Id, actor.DisplayName, actor.UserName, DateTimeOffset.UtcNow);
         await _ticketManager.SaveAsync(ticket);
 
-        _logger.Info("工单已关闭: {Ticket} 操作人={ActorId}", ticket, actor.Id);
+        _audit.Info("工单已关闭: {Ticket} 操作人={ActorId}", ticket, actor.Id);
 
         await TrySetCreatorOverwriteAsync(guild, channel, ticket, CreatorReadOnlyPermissions);
 
-        var notice = string.IsNullOrWhiteSpace(reason)
-            ? $"🔒 工单已由 <@{actor.Id}> 关闭，频道已设置为只读。"
-            : $"🔒 工单已由 <@{actor.Id}> 关闭，频道已设置为只读。\n> {reason}";
-        await TrySendChannelNoticeAsync(channel, notice);
+        await TrySendChannelNoticeAsync(channel, BuildCloseNoticeEmbed(ticket, actor, reason));
 
         await TryUpdateStatusCardAsync(guild, ticket);
 
@@ -258,13 +259,17 @@ public sealed class TicketWorkflowService
     }
 
     /// <summary>
-    /// 归档工单：要求状态为 Closed；归档后提交人不可见，频道保留（消息归档导出在 M4 实现）。
+    /// 归档工单：要求状态为 Closed，归档后提交人不可见。
+    /// <paramref name="deleteChannel"/> 为 <c>true</c>（默认）时，按
+    /// <see cref="GuildConfig.ArchiveDeleteCountdownSeconds"/> 倒计时后删除频道；
+    /// 为 <c>false</c> 时保留频道（仅管理组可见）。
     /// </summary>
     public async Task<WorkflowResult> ArchiveAsync(
         SocketGuild guild,
         GuildConfig config,
         TicketData ticket,
-        TicketActor actor)
+        TicketActor actor,
+        bool deleteChannel = true)
     {
         if (ticket.GuildId != guild.Id)
         {
@@ -296,8 +301,8 @@ public sealed class TicketWorkflowService
 
         await _ticketManager.ArchiveAsync(ticket);
 
-        _logger.Info("工单已归档: {Ticket} 操作人={ActorId} ChannelId={ChannelId} 消息数={Messages}",
-            ticket, actor.Id, ticket.ChannelId, ticket.TicketMessages?.Count ?? 0);
+        _audit.Info("工单已归档: {Ticket} 操作人={ActorId} ChannelId={ChannelId} 消息数={Messages} 删除频道={DeleteChannel}",
+            ticket, actor.Id, ticket.ChannelId, ticket.TicketMessages?.Count ?? 0, deleteChannel);
 
         // 打包失败不阻塞归档：用户可在 /管理 获取归档 时重新触发打包
         try
@@ -314,7 +319,7 @@ public sealed class TicketWorkflowService
         {
             await TrySetCreatorOverwriteAsync(guild, channel, ticket, CreatorHiddenPermissions);
 
-            if (config.DeleteChannelOnArchive)
+            if (deleteChannel)
             {
                 var seconds = Math.Clamp(
                     config.ArchiveDeleteCountdownSeconds,
@@ -322,8 +327,7 @@ public sealed class TicketWorkflowService
                     TicketConfigLimits.ArchiveCountdownInclusiveMax);
                 var deleteAt = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
-                await TrySendChannelNoticeAsync(channel,
-                    $"📁 工单已由 <@{actor.Id}> 归档，频道将在 <t:{deleteAt.ToUnixTimeSeconds()}:R> 后删除。");
+                await TrySendChannelNoticeAsync(channel, BuildArchiveNoticeEmbed(ticket, actor, deleteAt));
 
                 // 落盘队列：进程重启后由维护任务继续删除
                 _deletions.Enqueue(guild.Id, channel.Id, ticket.Id, deleteAt);
@@ -338,8 +342,7 @@ public sealed class TicketWorkflowService
             }
             else
             {
-                await TrySendChannelNoticeAsync(channel,
-                    $"📁 工单已由 <@{actor.Id}> 归档，频道已对提交人隐藏。");
+                await TrySendChannelNoticeAsync(channel, BuildArchiveNoticeEmbed(ticket, actor, deleteAt: null));
             }
         }
 
@@ -379,6 +382,9 @@ public sealed class TicketWorkflowService
                 props.CategoryId = config.TicketCategory;
                 props.Topic = $"工单 {ticket} | 提交人 {ticket.TicketCreator.DisplayName}";
                 props.PermissionOverwrites = BuildOverwrites(guild, config, ticket);
+                // 年龄限制频道：Discord 禁止把 NSFW 频道的消息转发到普通频道，
+                // 工单里需要转发敏感内容时，非 NSFW 频道会直接失败
+                props.IsNsfw = true;
             }));
 
             _logger.Info("工单频道已创建: {Ticket} ChannelId={ChannelId} ChannelName={ChannelName}",
@@ -432,11 +438,11 @@ public sealed class TicketWorkflowService
         }
     }
 
-    private async Task TrySendChannelNoticeAsync(ITextChannel channel, string text)
+    private async Task TrySendChannelNoticeAsync(ITextChannel channel, Embed embed)
     {
         try
         {
-            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(text));
+            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(embed: embed));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -594,6 +600,41 @@ public sealed class TicketWorkflowService
             .WithDescription($"### 🎫 {ticket}\n工单已关闭。如果你的问题仍未解决，可以重新提交一张工单。")
             .AddField("关闭人", actor.Id == 0 ? "系统" : $"<@{actor.Id}>", inline: true)
             .WithFooter(guild.Name)
+            .WithTimestamp(DateTimeOffset.UtcNow)
+            .Build();
+    }
+
+    /// <summary>关闭通告（发在工单频道内）：灰色 embed，可选附关闭说明。</summary>
+    private static Embed BuildCloseNoticeEmbed(TicketData ticket, TicketActor actor, string? reason)
+    {
+        var builder = new EmbedBuilder()
+            .WithColor(Color.LightGrey)
+            .WithTitle("📂 工单已关闭")
+            .WithDescription($"### 🎫 {ticket}\n工单已由 <@{actor.Id}> 关闭，频道已设置为只读。")
+            .WithTimestamp(DateTimeOffset.UtcNow);
+
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            builder.AddField("关闭说明", reason.Slice(1020), inline: false);
+        }
+
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// 归档通告（发在工单频道内）：深灰 embed。
+    /// <paramref name="deleteAt"/> 非空时展示删除倒计时，否则说明频道已对提交人隐藏。
+    /// </summary>
+    private static Embed BuildArchiveNoticeEmbed(TicketData ticket, TicketActor actor, DateTimeOffset? deleteAt)
+    {
+        var detail = deleteAt is null
+            ? "频道已对提交人隐藏。"
+            : $"频道将在 <t:{deleteAt.Value.ToUnixTimeSeconds()}:R> 后删除。";
+
+        return new EmbedBuilder()
+            .WithColor(Color.DarkerGrey)
+            .WithTitle("📁 工单已归档")
+            .WithDescription($"### 🎫 {ticket}\n工单已由 <@{actor.Id}> 归档，{detail}")
             .WithTimestamp(DateTimeOffset.UtcNow)
             .Build();
     }

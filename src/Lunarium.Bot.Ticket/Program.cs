@@ -18,7 +18,7 @@ public class Program
         {
             // === 配置日志 ===
             _rootLogger = LogConfigurator.Initialize();
-            ILogger _mainLogger = _rootLogger.ForContext("Main");
+            ILogger _mainLogger = _rootLogger.ForContext("Program");
 
             // === 代理 ===
             var proxyUrl = ProxyUrl.FromEnvironment();

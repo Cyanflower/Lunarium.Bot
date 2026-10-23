@@ -28,7 +28,7 @@ public sealed class TicketEntryHandle : InteractionModuleBase<SocketInteractionC
 
     public TicketEntryHandle(ILogger logger, ConfigLoader<TicketConfig> configLoader)
     {
-        _logger = logger.ForContext("TicketEntryHandle");
+        _logger = logger.ForContext("AppInteraction.TicketEntryHandle");
         _configLoader = configLoader;
     }
 

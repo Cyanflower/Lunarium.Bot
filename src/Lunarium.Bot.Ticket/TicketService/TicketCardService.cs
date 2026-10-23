@@ -50,7 +50,7 @@ public sealed class TicketCardService
         TicketManager ticketManager,
         TicketSuggestionService suggestionService)
     {
-        _logger = logger.ForContext("TicketCardService");
+        _logger = logger.ForContext("TicketService.TicketCardService");
         _ticketManager = ticketManager;
         _suggestionService = suggestionService;
         _retryPolicy = DiscordRetryPolicy.HttpRetryPolicyConfig(_logger);

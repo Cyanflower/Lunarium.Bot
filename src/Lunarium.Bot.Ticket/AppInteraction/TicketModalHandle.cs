@@ -36,7 +36,7 @@ public sealed class TicketModalHandle : InteractionModuleBase<SocketInteractionC
         TicketManager ticketManager,
         TicketCardService ticketCardService)
     {
-        _logger = logger.ForContext("TicketModalHandle");
+        _logger = logger.ForContext("AppInteraction.TicketModalHandle");
         _configLoader = configLoader;
         _ticketManager = ticketManager;
         _ticketCardService = ticketCardService;

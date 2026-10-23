@@ -37,6 +37,7 @@
 **已抽离为独立项目**（独立仓库 + 独立发布 NuGet，源码不在本仓库，详见 §3.3）：
 -   `Lunarium.Logging`: 结构化日志框架（`LogLevel` / `ILogger` / `LoggerBuilder` / `GlobalConfigurator`）。
 -   `Lunarium.Scheduler`: 基于 Cron 表达式的定时任务调度器。
+-   `Lunarium.Common`: 通用工具集（字符集常量 `Alphabet`、UID 生成、防抖、文件缓存），零外部依赖。
 
 **仍在本仓库维护**：
 -   `Lunarium.Bot.Extensions`: 通用扩展与基础工具，详见 §3.4。
@@ -94,23 +95,26 @@
 
 ### 3.3. 外部基础库（独立仓库 + NuGet）
 
-这两个库已从本仓库抽离，各自维护独立仓库并发布 NuGet 包。**需要查阅或修改它们的实现时，请前往本机源码目录，而不是仓库内的遗留副本。**
+这些库已从本仓库抽离，各自维护独立仓库并发布 NuGet 包。**需要查阅或修改它们的实现时，请前往本机源码目录，而不是仓库内的遗留副本。**
 
 | 库 | NuGet 包 | 版本 | 本机源码位置 |
 | --- | --- | --- | --- |
-| Logger | `Lunarium.Logging`、`Lunarium.Logging.Hosting`、`Lunarium.Logging.Configuration`、`Lunarium.Logging.Http` | 1.0.3 | `~/Projects/Lunarium.Logging` |
+| Logger | `Lunarium.Logging`、`Lunarium.Logging.Hosting`、`Lunarium.Logging.Configuration`、`Lunarium.Logging.Http` | 1.1.0 | `~/Projects/Lunarium.Logging` |
 | Scheduler | `Lunarium.Scheduler` | 1.0.0 | `~/Projects/Lunarium.Scheduler` |
+| Common | `Lunarium.Common` | 1.2.1 | `~/Projects/Lunarium.Common` |
 
 -   **Logger**: 目标框架 `net8.0;net9.0;net10.0`。命名空间为 `Lunarium.Logging`（旧仓库内版本是 `Lunarium.Bot.Logger`）。除核心包外均为可选扩展包：`Hosting` 提供 `IHostBuilder`/`ILoggingBuilder` 集成与 MEL 桥接，`Configuration` 提供 `appsettings.json` 热更新，`Http` 提供 Seq/Loki 等批量推送 Sink。
 -   **Scheduler**: 命名空间 `Lunarium.Scheduler`（旧仓库内版本是 `Lunarium.Bot.Scheduler`）。基于 Cronos 实现，支持 DI 创建任务、同步/异步任务与按时区调度。
+-   **Common**: 目标框架 `net8.0;net9.0;net10.0`，零外部 NuGet 依赖（仅 BCL）、AOT 兼容。命名空间按模块划分：`Lunarium.Common`（`Alphabet` 字符集常量）、`Lunarium.Common.UID`（`LocalSnowflake` / `NanoId`）、`Lunarium.Common.Debounce`（`DirtyDebouncer` / `CtsDebouncer` 及 `Debouncer` 工厂）、`Lunarium.Common.Caching`（`CacheStore` 等）。原先在本仓库 `Lunarium.Bot.Extensions` 内维护，现已抽离。
 
 ### 3.4. 仓库内共享库
 
 #### `Lunarium.Bot.Extensions`
-通用扩展与基础工具库，目前包含：
--   基础工具：`HealthMonitoring`、`Debounce`、`CacheStore` 等。
+通用扩展库，**仅保留与 Discord.Net 强耦合及少量通用工具**：
+-   基础工具：`HealthMonitoring`（`HealthMonitor`）、`RateLimiterExtensions`、`TypeExtensionMethod`。
 -   面向 Discord.Net 的扩展（借助 §2.5 的 `InternalsVisibleTo` 访问其内部 API）。
 -   日志依赖为 NuGet `Lunarium.Logging`。
+-   ⚠️ 原先自带的 `Alphabet` / `Debounce` / `CacheStore` / `UID` 已抽离到 NuGet `Lunarium.Common`（见 §3.3），本仓库不再保留这些实现。
 
 ### 3.5. 遗留副本（勿参考，待删除）
 
@@ -141,8 +145,9 @@
 2.  **Archive** — 借助 Extensions 的新工具修复若干问题；日志切换为 NuGet `Lunarium.Logging`（无调度需求，不涉及 Scheduler）。**已完成**
 3.  **DataCenter** —（下一步）① 将 Logger 换成 NuGet `Lunarium.Logging`，将 Scheduler 换成 NuGet `Lunarium.Scheduler`；② 优化业务上 scan 逻辑的性能。
 4.  **SearchBot** — 继续开发。
+5.  **Lunarium.Common** — 把 `Extensions` 中的通用工具（`Alphabet` / `UID` / `Debounce` / `Caching`）抽离为独立库并发布 NuGet；`Extensions` 侧删除对应实现，`Archive` 改用 `Lunarium.Common`（`CacheStore` 从 `Lunarium.Bot.Extensions.CacheStore` 迁至 `Lunarium.Common.Caching`）。**已完成**
 
-因此读代码时请注意：`Extensions` 与 `Archive` 已是"新标准"，`DataCenter` 正在迁移中，其余项目尚未迁移。
+因此读代码时请注意：`Extensions`（现已瘦身）与 `Archive` 已是"新标准"，`DataCenter` 正在迁移中，其余项目尚未迁移。
 
 ## 6. 设计模式与实践
 
@@ -152,6 +157,10 @@
 -   **Partial Class**: 用于将大型服务类（如 `DataProcessService`, `DatabaseService`）按功能拆分到多个文件中，提高代码可读性。
 -   **异步编程**: 广泛使用 `async/await` 和 `Task` 来处理 I/O 密集型操作，保证了应用的高性能和响应能力。
 
+## 7. 参考资料
+
+-   [`LUNARIUM_LOGGING.md`](./LUNARIUM_LOGGING.md)：`Lunarium.Logging` 使用经验——`LoggerName` 与 `Context` 的区别、`ForContext` 叠加规则、`FilterConfig` 前缀匹配语义、初始化顺序约束，以及本仓库 `Ticket` 项目实际采用的审计分层约定。
+
 ***
 
-**速记**：活跃开发请先看 `src/Lunarium.Bot.DataCenter` 与 `src/Lunarium.Bot.Archive`；日志/调度一律使用 NuGet 的 `Lunarium.Logging` / `Lunarium.Scheduler`；`src/Lunarium.Bot.Logger`、`src/Lunarium.Bot.Scheduler` 是过期副本；`src/Lunarium.Bot.ReleaseBot`、`src/Lunarium.Bot.VoteBot`、`src/LunariumProxy`、仓库根目录 `LunariumBot.Net.SearchBot/` 均为冻结项目。
+**速记**：活跃开发请先看 `src/Lunarium.Bot.DataCenter` 与 `src/Lunarium.Bot.Archive`；日志/调度/通用工具一律使用 NuGet 的 `Lunarium.Logging` / `Lunarium.Scheduler` / `Lunarium.Common`；`src/Lunarium.Bot.Logger`、`src/Lunarium.Bot.Scheduler` 是过期副本；`src/Lunarium.Bot.ReleaseBot`、`src/Lunarium.Bot.VoteBot`、`src/LunariumProxy`、仓库根目录 `LunariumBot.Net.SearchBot/` 均为冻结项目。

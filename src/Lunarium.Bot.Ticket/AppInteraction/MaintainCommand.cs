@@ -23,7 +23,7 @@ public sealed class MaintainCommand : InteractionModuleBase<SocketInteractionCon
 
     public MaintainCommand(ILogger logger, ConfigLoader<TicketConfig> configLoader, SessionManager sessionManager)
     {
-        _logger = logger.ForContext("MaintainCommand");
+        _logger = logger.ForContext("AppInteraction.MaintainCommand");
         _configLoader = configLoader;
         _sessionManager = sessionManager;
     }

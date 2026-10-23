@@ -40,7 +40,7 @@ public sealed class AdminCommand : InteractionModuleBase<SocketInteractionContex
         TicketArchiveService archiveService,
         TicketCooldownStore cooldowns)
     {
-        _logger = logger.ForContext("AdminCommand");
+        _logger = logger.ForContext("AppInteraction.AdminCommand");
         _configLoader = configLoader;
         _ticketManager = ticketManager;
         _archiveService = archiveService;

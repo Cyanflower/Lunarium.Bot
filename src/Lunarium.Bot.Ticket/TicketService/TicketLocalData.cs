@@ -36,7 +36,7 @@ public sealed class TicketLocalData
 
     public TicketLocalData(ILogger logger)
     {
-        _logger = logger.ForContext("TicketLocalData");
+        _logger = logger.ForContext("TicketService.TicketLocalData");
 
         _root = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(TicketManager.DataDirectory, AppContext.BaseDirectory));

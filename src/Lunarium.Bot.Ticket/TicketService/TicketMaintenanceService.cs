@@ -42,7 +42,7 @@ public sealed class TicketMaintenanceService : BackgroundService
         TicketCardService cardService,
         TicketDeletionQueue deletions)
     {
-        _logger = logger.ForContext("TicketMaintenanceService");
+        _logger = logger.ForContext("TicketService.TicketMaintenanceService");
         _client = client;
         _configLoader = configLoader;
         _ticketManager = ticketManager;

@@ -20,9 +20,6 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
     protected override string Scope { get; } = "editor";
     private readonly GuildConfig _guildConfig;
 
-    /// <summary>归档后是否删除频道（当前会话值，供面板切换按钮显示）。</summary>
-    public bool DeleteChannelOnArchive => _guildConfig.DeleteChannelOnArchive;
-
     public ConfigEditorSession(string sessionId, DateTimeOffset expiresAt, ConfigEditorContext context)
         : base(sessionId, expiresAt, context)
     {
@@ -177,7 +174,7 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
             ### 自动处理设置
             - 投诉冷却: {(_guildConfig.EnableTicketCd ? $"{_guildConfig.TicketCd} 小时" : "已关闭")}
             - 待审核自动通过: {(_guildConfig.AutoApproveHours > 0 ? $"{_guildConfig.AutoApproveHours} 小时" : "未启用")}
-            - 归档后频道: {(_guildConfig.DeleteChannelOnArchive ? $"{_guildConfig.ArchiveDeleteCountdownSeconds} 秒后删除" : "保留（仅管理组可见）")}
+            - 归档删除倒计时: {_guildConfig.ArchiveDeleteCountdownSeconds} 秒（归档时可选是否删除频道）
             """);
             // 29
             container.WithActionRow(row =>
@@ -212,40 +209,33 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
                     emote: new Emoji("#️⃣"),
                     disabled: IsFinished
                 );
-                // 34
-                row.WithButton(
-                    label: _guildConfig.DeleteChannelOnArchive ? "归档后保留频道" : "归档后删除频道",
-                    customId: CustomId("toggleDeleteChannelOnArchive"),
-                    style: _guildConfig.DeleteChannelOnArchive ? ButtonStyle.Danger : ButtonStyle.Primary,
-                    disabled: IsFinished
-                );
             });
 
-            // 36
+            // 34
             container.WithSeparator();
             if (_isCancel)
             {
-                // 37
+                // 35
                 container.WithTextDisplay("配置编辑已取消");
             }
             else if (_isComplete)
             {
-                // 37
+                // 35
                 container.WithTextDisplay("配置已应用");
             }
             else
             {
-                // 37
+                // 35
                 container.WithActionRow(row =>
                 {
-                    // 38
+                    // 36
                     row.WithButton(
                         label: "应用",
                         customId: CustomId("apply"),
                         style: ButtonStyle.Success,
                         disabled: IsFinished
                     );
-                    // 39
+                    // 37
                     row.WithButton(
                         label: "取消",
                         customId: CustomId("cancel"),
@@ -256,7 +246,7 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
             }
         });
 
-        // 共 38 个组件, discord 上限 40
+        // 共 37 个组件, discord 上限 40
         // 计算方法: 最大可能组合
 
         return component.Build();
@@ -320,10 +310,5 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
     public void SetAutoApproveHours(int hours)
     {
         _guildConfig.AutoApproveHours = hours;
-    }
-
-    public void SetDeleteChannelOnArchive(bool enabled)
-    {
-        _guildConfig.DeleteChannelOnArchive = enabled;
     }
 }

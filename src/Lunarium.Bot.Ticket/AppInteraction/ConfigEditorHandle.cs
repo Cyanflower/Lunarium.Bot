@@ -21,7 +21,7 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
 
     public ConfigEditorHandle(ILogger logger, ConfigLoader<TicketConfig> configLoader, SessionManager sessionManager)
     {
-        _logger = logger.ForContext("ConfigEditorHandle");
+        _logger = logger.ForContext("AppInteraction.ConfigEditorHandle");
         _configLoader = configLoader;
         _sessionManager = sessionManager;
     }
@@ -154,13 +154,6 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
                         label: "自动通过时间（小时）",
                         description: $"待审核工单超过该时长无人处理则自动通过，{TicketConfigLimits.AutoApproveHoursInclusiveMin}–{TicketConfigLimits.AutoApproveHoursInclusiveMax} 小时，0 表示不自动通过",
                         placeholder: "例如 24，填 0 关闭"));
-                    return;
-
-                case "toggleDeleteChannelOnArchive":
-                    track.Info("AppInteraction: {Action} 切换归档后删频道: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    session.SetDeleteChannelOnArchive(!session.DeleteChannelOnArchive);
-                    await UpdatePanelAsync(component, session);
                     return;
 
                 case "apply":

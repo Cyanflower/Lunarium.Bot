@@ -40,7 +40,7 @@ public sealed class TicketAuditHandle : InteractionModuleBase<SocketInteractionC
         TicketManager ticketManager,
         TicketWorkflowService workflow)
     {
-        _logger = logger.ForContext("TicketAuditHandle");
+        _logger = logger.ForContext("AppInteraction.TicketAuditHandle");
         _configLoader = configLoader;
         _ticketManager = ticketManager;
         _workflow = workflow;

@@ -47,7 +47,7 @@ public class TicketManager : IAsyncDisposable
 
     public TicketManager(ILogger logger, TicketLocalData localData, TicketCooldownStore cooldowns)
     {
-        _logger = logger.ForContext("TicketManager");
+        _logger = logger.ForContext("TicketService.TicketManager");
         _localData = localData;
         _cooldowns = cooldowns;
         _cacheStore = new(

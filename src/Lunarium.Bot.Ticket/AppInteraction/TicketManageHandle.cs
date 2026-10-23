@@ -33,7 +33,7 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
         TicketManager ticketManager,
         TicketWorkflowService workflow)
     {
-        _logger = logger.ForContext("TicketManageHandle");
+        _logger = logger.ForContext("AppInteraction.TicketManageHandle");
         _configLoader = configLoader;
         _ticketManager = ticketManager;
         _workflow = workflow;
@@ -131,7 +131,8 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
     }
 
     [SlashCommand("归档", "归档当前工单（需先关闭）")]
-    public async Task ArchiveAsync()
+    public async Task ArchiveAsync(
+        [Summary("删除频道", "归档后是否删除频道，默认删除")] bool deleteChannel = true)
     {
         using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
         try
@@ -173,7 +174,7 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
 
                 await DeferAsync(ephemeral: true);
 
-                var result = await _workflow.ArchiveAsync(guild, resolved.Config!, ticket, TicketActor.From(Context.User));
+                var result = await _workflow.ArchiveAsync(guild, resolved.Config!, ticket, TicketActor.From(Context.User), deleteChannel);
                 await FollowupAsync(
                     components: result.Success
                         ? MessagePrefab.OperateSuccess(result.Message)

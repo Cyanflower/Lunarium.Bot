@@ -21,7 +21,7 @@ public sealed class TicketSuggestionService
 
     public TicketSuggestionService(ILogger logger, IAiClient ai)
     {
-        _logger = logger.ForContext("TicketSuggestionService");
+        _logger = logger.ForContext("TicketService.TicketSuggestionService");
         _ai = ai;
     }
 

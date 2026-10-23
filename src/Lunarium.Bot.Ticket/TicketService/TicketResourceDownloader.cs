@@ -39,7 +39,7 @@ public sealed partial class TicketResourceDownloader
 
     public TicketResourceDownloader(ILogger logger)
     {
-        _logger = logger.ForContext("TicketResourceDownloader");
+        _logger = logger.ForContext("TicketService.TicketResourceDownloader");
     }
 
     /// <summary>抓取图片 URL 的正则（仅 http/https，排除常见尾随字符）。</summary>

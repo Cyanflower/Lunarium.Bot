@@ -74,7 +74,7 @@ public sealed class TicketDeletionQueue
 
     public TicketDeletionQueue(ILogger logger, TicketLocalData localData)
     {
-        _logger = logger.ForContext("TicketDeletionQueue");
+        _logger = logger.ForContext("TicketService.TicketDeletionQueue");
         _filePath = Path.Combine(localData.RootDirectory, "pending-deletions.json");
     }
 

@@ -26,6 +26,9 @@ public sealed partial class TicketArchiveService
     private const string HtmlFileName = "index.html";
     private const string AttachmentRelativePrefix = "attachment/";
 
+    /// <summary>贴纸目录：PNG→JPG 转换会丢掉透明度，必须跳过。</summary>
+    private const string StickerRelativePrefix = "attachment/sticker/";
+
     /// <summary>JPEG 质量：95 对截图/照片基本视觉无损。</summary>
     private const int JpegQuality = 95;
 
@@ -36,7 +39,7 @@ public sealed partial class TicketArchiveService
 
     public TicketArchiveService(ILogger logger, TicketLocalData localData)
     {
-        _logger = logger.ForContext("TicketArchiveService");
+        _logger = logger.ForContext("TicketService.TicketArchiveService");
         _localData = localData;
     }
 
@@ -92,6 +95,7 @@ public sealed partial class TicketArchiveService
                     }
 
                     if (relative.StartsWith(AttachmentRelativePrefix, StringComparison.OrdinalIgnoreCase)
+                        && !relative.StartsWith(StickerRelativePrefix, StringComparison.OrdinalIgnoreCase)
                         && Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
                     {
                         var jpeg = await TryConvertToJpegAsync(file, cancellationToken);
@@ -259,6 +263,36 @@ public sealed partial class TicketArchiveService
                                  padding: 8px 12px; color: #00a8fc; text-decoration: none; }
             .attachments .file span { color: #949ba4; font-size: 12px; }
             .attachments .missing { color: #f23f43; }
+            .cv2 { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+            .cv2-container { background: #2b2d31; border: 1px solid #3f4147; border-radius: 8px;
+                             padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+            .cv2-section { display: flex; gap: 12px; align-items: flex-start; }
+            .cv2-row { display: flex; flex-wrap: wrap; gap: 8px; }
+            .chip { display: inline-flex; align-items: center; gap: 6px; background: #4e5058;
+                    color: #dbdee1; border-radius: 4px; padding: 5px 12px; font-size: 14px;
+                    text-decoration: none; }
+            .chip.select { background: #2b2d31; border: 1px solid #3f4147; }
+            .chip-hint { color: #949ba4; font-size: 12px; }
+            hr.divider { border: 0; border-top: 1px solid #3f4147; margin: 4px 0; width: 100%; }
+            .embed { border-left: 4px solid #4f545c; background: #2b2d31; border-radius: 4px;
+                     padding: 10px 14px; margin-top: 8px; display: grid; gap: 6px; }
+            .embed-title { font-weight: 600; color: #f2f3f5; }
+            .embed-title a { color: #00a8fc; text-decoration: none; }
+            .embed-author { font-size: 13px; color: #f2f3f5; font-weight: 600; }
+            .embed-fields { display: flex; flex-wrap: wrap; gap: 10px; }
+            .embed-field { flex: 1 1 100%; }
+            .embed-field.inline { flex: 1 1 180px; }
+            .embed-field-name { font-weight: 600; color: #f2f3f5; font-size: 13px; }
+            .embed-footer { color: #949ba4; font-size: 12px; }
+            .embed-thumb { max-width: 120px; max-height: 120px; border-radius: 4px; }
+            .forward { border: 1px solid #3f4147; border-radius: 8px; padding: 10px 12px;
+                       margin-top: 8px; background: rgba(43, 45, 49, .5); }
+            .forward-head { display: flex; gap: 10px; align-items: baseline; color: #949ba4; font-size: 12px; }
+            .forward-author { color: #b5bac1; font-size: 13px; margin-top: 4px; }
+            .stickers { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+            .sticker-item { display: flex; flex-direction: column; align-items: center; gap: 2px;
+                            font-size: 11px; color: #949ba4; max-width: 96px; text-align: center; }
+            .sticker-item img { width: 96px; height: 96px; object-fit: contain; }
             .empty { color: #949ba4; padding: 32px 12px; }
             #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none;
                         align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
@@ -307,7 +341,7 @@ public sealed partial class TicketArchiveService
             (() => {
               const box = document.getElementById('lightbox');
               const img = box.querySelector('img');
-              document.querySelectorAll('.attachments .image img').forEach(el => {
+              document.querySelectorAll('.image img').forEach(el => {
                 el.addEventListener('click', e => {
                   e.preventDefault();
                   img.src = el.src;
@@ -351,7 +385,15 @@ public sealed partial class TicketArchiveService
             builder.Append($"<div class=\"reply\">回复消息 {replyTo}</div>");
         }
 
-        builder.Append($"<div class=\"content\">{FormatContent(message.Content)}</div>");
+        if (!string.IsNullOrWhiteSpace(message.Content))
+        {
+            builder.Append($"<div class=\"content\">{FormatContent(message.Content)}</div>");
+        }
+
+        AppendEmbeds(builder, message.Embeds, entryNames);
+        AppendStickers(builder, message.Stickers, entryNames);
+        AppendComponents(builder, message.Components, entryNames);
+        AppendForwards(builder, message.Forwards, entryNames);
 
         if (message.Attachments is { Count: > 0 } attachments)
         {
@@ -364,6 +406,248 @@ public sealed partial class TicketArchiveService
         }
 
         builder.Append("</div></article>");
+    }
+
+    /// <summary>渲染 embed 卡片：标题 / 描述 / 字段 / 图片 / 页脚。</summary>
+    private static void AppendEmbeds(
+        StringBuilder builder,
+        List<TicketEmbed>? embeds,
+        IReadOnlyDictionary<string, string> entryNames)
+    {
+        if (embeds is not { Count: > 0 })
+        {
+            return;
+        }
+
+        foreach (var embed in embeds)
+        {
+            var color = embed.Color is { } raw ? $"#{raw & 0xFFFFFF:X6}" : "#4f545c";
+            builder.Append($"<div class=\"embed\" style=\"border-left-color:{color}\">");
+
+            if (!string.IsNullOrWhiteSpace(embed.AuthorName))
+            {
+                builder.Append($"<div class=\"embed-author\">{Html(embed.AuthorName)}</div>");
+            }
+
+            if (!string.IsNullOrWhiteSpace(embed.Title))
+            {
+                builder.Append(string.IsNullOrWhiteSpace(embed.Url)
+                    ? $"<div class=\"embed-title\">{Html(embed.Title)}</div>"
+                    : $"<div class=\"embed-title\"><a href=\"{Attr(embed.Url)}\" target=\"_blank\" rel=\"noreferrer noopener\">{Html(embed.Title)}</a></div>");
+            }
+
+            if (!string.IsNullOrWhiteSpace(embed.Description))
+            {
+                builder.Append($"<div class=\"content\">{FormatContent(embed.Description)}</div>");
+            }
+
+            if (embed.Fields is { Count: > 0 } fields)
+            {
+                builder.Append("<div class=\"embed-fields\">");
+                foreach (var field in fields)
+                {
+                    builder.Append(field.Inline ? "<div class=\"embed-field inline\">" : "<div class=\"embed-field\">");
+                    builder.Append($"<div class=\"embed-field-name\">{Html(field.Name)}</div>");
+                    builder.Append($"<div class=\"content\">{FormatContent(field.Value)}</div></div>");
+                }
+                builder.Append("</div>");
+            }
+
+            var image = MapPath(embed.ImagePath, entryNames);
+            if (image is not null)
+            {
+                builder.Append($"<a class=\"image\" href=\"{Attr(image)}\" target=\"_blank\">");
+                builder.Append($"<img src=\"{Attr(image)}\" alt=\"\" loading=\"lazy\"></a>");
+            }
+            else if (!string.IsNullOrWhiteSpace(embed.ImageUrl))
+            {
+                builder.Append($"<a class=\"file missing\" href=\"{Attr(embed.ImageUrl)}\" target=\"_blank\" rel=\"noreferrer noopener\">图片（未下载）</a>");
+            }
+
+            var thumbnail = MapPath(embed.ThumbnailPath, entryNames);
+            if (thumbnail is not null)
+            {
+                builder.Append($"<img class=\"embed-thumb\" src=\"{Attr(thumbnail)}\" alt=\"\" loading=\"lazy\">");
+            }
+
+            if (!string.IsNullOrWhiteSpace(embed.FooterText))
+            {
+                builder.Append($"<div class=\"embed-footer\">{Html(embed.FooterText)}</div>");
+            }
+
+            builder.Append("</div>");
+        }
+    }
+
+    /// <summary>渲染贴纸：能预览的显示小图，Lottie 只给原件链接。</summary>
+    private static void AppendStickers(
+        StringBuilder builder,
+        List<TicketSticker>? stickers,
+        IReadOnlyDictionary<string, string> entryNames)
+    {
+        if (stickers is not { Count: > 0 })
+        {
+            return;
+        }
+
+        builder.Append("<div class=\"stickers\">");
+        foreach (var sticker in stickers)
+        {
+            var path = MapPath(sticker.LocalPath, entryNames);
+
+            builder.Append("<div class=\"sticker-item\">");
+            if (path is not null && TicketResourceDownloader.IsImageExtension(Path.GetExtension(path)))
+            {
+                builder.Append($"<img src=\"{Attr(path)}\" alt=\"{Attr(sticker.Name)}\" loading=\"lazy\">");
+            }
+            else if (!string.IsNullOrWhiteSpace(sticker.Url))
+            {
+                builder.Append($"<a class=\"file missing\" href=\"{Attr(sticker.Url)}\" target=\"_blank\" rel=\"noreferrer noopener\">原件</a>");
+            }
+
+            builder.Append($"<span>{Html(sticker.Name)}</span></div>");
+        }
+        builder.Append("</div>");
+    }
+
+    /// <summary>渲染 Components V2 组件树（Container / Section / 文本 / 按钮 / 媒体）。</summary>
+    private static void AppendComponents(
+        StringBuilder builder,
+        List<TicketComponent>? components,
+        IReadOnlyDictionary<string, string> entryNames)
+    {
+        if (components is not { Count: > 0 })
+        {
+            return;
+        }
+
+        builder.Append("<div class=\"cv2\">");
+        foreach (var component in components)
+        {
+            AppendComponent(builder, component, entryNames);
+        }
+        builder.Append("</div>");
+    }
+
+    private static void AppendComponent(
+        StringBuilder builder,
+        TicketComponent component,
+        IReadOnlyDictionary<string, string> entryNames)
+    {
+        switch (component.Kind)
+        {
+            case "text":
+                if (!string.IsNullOrWhiteSpace(component.Text))
+                {
+                    builder.Append($"<div class=\"content\">{FormatContent(component.Text)}</div>");
+                }
+                return;
+
+            case "button":
+            case "link":
+            {
+                var label = Html(component.Text ?? "按钮");
+                builder.Append(string.IsNullOrWhiteSpace(component.Url)
+                    ? $"<span class=\"chip\">{label}</span>"
+                    : $"<a class=\"chip\" href=\"{Attr(component.Url)}\" target=\"_blank\" rel=\"noreferrer noopener\">{label}</a>");
+                return;
+            }
+
+            case "select":
+                builder.Append($"<div class=\"chip select\">{Html(component.Text ?? "下拉菜单")}");
+                if (!string.IsNullOrWhiteSpace(component.Description))
+                {
+                    builder.Append($"<span class=\"chip-hint\">{Html(component.Description)}</span>");
+                }
+                builder.Append("</div>");
+                return;
+
+            case "media":
+            case "file":
+            {
+                var path = MapPath(component.Path, entryNames);
+                if (path is not null && TicketResourceDownloader.IsImageExtension(Path.GetExtension(path)))
+                {
+                    builder.Append($"<a class=\"image\" href=\"{Attr(path)}\" target=\"_blank\">");
+                    builder.Append($"<img src=\"{Attr(path)}\" alt=\"{Attr(component.Text ?? string.Empty)}\" loading=\"lazy\"></a>");
+                }
+                else if (path is not null)
+                {
+                    builder.Append($"<a class=\"file\" href=\"{Attr(path)}\" download>");
+                    builder.Append($"{Html(component.Text ?? Path.GetFileName(path))}</a>");
+                }
+                else if (!string.IsNullOrWhiteSpace(component.Url))
+                {
+                    builder.Append($"<a class=\"file missing\" href=\"{Attr(component.Url)}\" target=\"_blank\" rel=\"noreferrer noopener\">");
+                    builder.Append($"{Html(component.Text ?? component.Url)}（未下载）</a>");
+                }
+                return;
+            }
+
+            case "divider":
+                builder.Append("<hr class=\"divider\">");
+                return;
+
+            default:
+                if (component.Children is { Count: > 0 } children)
+                {
+                    builder.Append($"<div class=\"cv2-{Attr(component.Kind)}\">");
+                    foreach (var child in children)
+                    {
+                        AppendComponent(builder, child, entryNames);
+                    }
+                    builder.Append("</div>");
+                }
+                return;
+        }
+    }
+
+    /// <summary>渲染转发的消息快照。</summary>
+    private static void AppendForwards(
+        StringBuilder builder,
+        List<TicketForward>? forwards,
+        IReadOnlyDictionary<string, string> entryNames)
+    {
+        if (forwards is not { Count: > 0 })
+        {
+            return;
+        }
+
+        foreach (var forward in forwards)
+        {
+            builder.Append("<div class=\"forward\"><div class=\"forward-head\">↪ 转发的消息");
+            if (forward.SentAt is { } sentAt)
+            {
+                builder.Append($"<time datetime=\"{sentAt:O}\">{FormatTime(sentAt)}</time>");
+            }
+            builder.Append("</div>");
+
+            if (!string.IsNullOrWhiteSpace(forward.AuthorDisplayName))
+            {
+                builder.Append($"<div class=\"forward-author\">原作者：{Html(forward.AuthorDisplayName)}</div>");
+            }
+
+            if (!string.IsNullOrWhiteSpace(forward.Content))
+            {
+                builder.Append($"<div class=\"content\">{FormatContent(forward.Content)}</div>");
+            }
+
+            AppendEmbeds(builder, forward.Embeds, entryNames);
+            AppendStickers(builder, forward.Stickers, entryNames);
+            AppendComponents(builder, forward.Components, entryNames);
+
+            if (forward.Attachments is { Count: > 0 } attachments)
+            {
+                builder.Append("<div class=\"attachments\">");
+                foreach (var attachment in attachments)
+                {
+                    AppendAttachment(builder, attachment, entryNames);
+                }
+                builder.Append("</div>");
+            }
+
+            builder.Append("</div>");
+        }
     }
 
     private static void AppendAttachment(

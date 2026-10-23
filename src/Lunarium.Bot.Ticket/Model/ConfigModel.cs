@@ -152,16 +152,8 @@ public sealed class GuildConfig : IValidatableObject
     public int AutoApproveHours { get; set; }
 
     /// <summary>
-    /// 归档后是否删除工单频道。
-    /// <para>
-    /// 默认 <c>false</c>：保留频道并对提交人隐藏（管理组仍可回看）；
-    /// 为 <c>true</c> 时，归档通告发出后按 <see cref="ArchiveDeleteCountdownSeconds"/> 延时删除。
-    /// </para>
-    /// </summary>
-    public bool DeleteChannelOnArchive { get; set; }
-
-    /// <summary>
-    /// 归档后删除频道的倒计时（秒）。仅在 <see cref="DeleteChannelOnArchive"/> 为 <c>true</c> 时生效。
+    /// 归档时选择“删除频道”后的倒计时（秒）：归档通告发出后等待该时长再删频道，
+    /// 让管理组还能看到最后一条通告。是否删除由归档操作当场指定。
     /// </summary>
     public int ArchiveDeleteCountdownSeconds { get; set; } = 60;
 
@@ -193,8 +185,6 @@ public sealed class GuildConfig : IValidatableObject
             TicketCd = TicketCd,
             // int
             AutoApproveHours = AutoApproveHours,
-            // bool
-            DeleteChannelOnArchive = DeleteChannelOnArchive,
             // int
             ArchiveDeleteCountdownSeconds = ArchiveDeleteCountdownSeconds,
             // ulong（Bot 回写，编辑器不得清空）
@@ -218,7 +208,7 @@ public sealed class GuildConfig : IValidatableObject
                 [nameof(AutoApproveHours)]);
         }
 
-        if (DeleteChannelOnArchive && !TicketConfigLimits.IsValidArchiveCountdown(ArchiveDeleteCountdownSeconds))
+        if (!TicketConfigLimits.IsValidArchiveCountdown(ArchiveDeleteCountdownSeconds))
         {
             yield return new ValidationResult(
                 $"删除频道倒计时必须在 {TicketConfigLimits.ArchiveCountdownInclusiveMin} 到 {TicketConfigLimits.ArchiveCountdownInclusiveMax} 秒之间，当前值为 {ArchiveDeleteCountdownSeconds}",

@@ -4,6 +4,32 @@ namespace Lunarium.Bot.Ticket;
 
 public static class LogConfigurator
 {
+    /// <summary>
+    /// 日志上下文的根前缀，与 <see cref="TicketBotService"/> 里 <c>ForContext</c> 的值一致。
+    /// <para>
+    /// 私有 DI 容器注册的是已经带本前缀的 logger，各服务再
+    /// <c>ForContext("TicketService.Xxx")</c> 会被 <c>LoggerWrapper</c>
+    /// 拼接成 <c>TicketBot.TicketService.Xxx</c>。
+    /// </para>
+    /// </summary>
+    public const string RootContext = "TicketBot";
+
+    /// <summary>
+    /// 仅审计：这些上下文只写 <c>Logs/Audit/Audit.log</c>，不重复写 Runtime.log。
+    /// <para>
+    /// <see cref="FilterConfig" /> 的前缀匹配区分大小写且只做 <c>StartsWith</c>，
+    /// 因此这里必须写**完整路径**（含 <see cref="RootContext"/>），不能只写中间那段。
+    /// </para>
+    /// </summary>
+    private static readonly List<string> AuditOnlyPrefixes = [$"{RootContext}.Audit"];
+
+    /// <summary>
+    /// 审计 + 运行时：所有用户/管理交互的日志两边都留——
+    /// Runtime.log 保留完整链路（含 <c>BeginTrack</c> 的追踪 ID）便于排查，
+    /// Audit.log 单独落一份便于按操作人检索。
+    /// </summary>
+    private static readonly List<string> SharedAuditPrefixes = [$"{RootContext}.AppInteraction"];
+
     public static ILogger Initialize()
     {
         // === 配置日志 ===
@@ -25,7 +51,7 @@ public static class LogConfigurator
                 maxFile: 5,
                 FilterConfig: new FilterConfig
                 {
-                    ContextFilterExcludes = ["TicketBotService.CommandAuth", "PerformanceMonitoringService"],
+                    ContextFilterExcludes = AuditOnlyPrefixes,
                     LogMinLevel = fileLogLevel
                 })
             .AddSizedRotatingFileSink(
@@ -34,7 +60,7 @@ public static class LogConfigurator
                 maxFile: 10,
                 FilterConfig: new FilterConfig
                 {
-                    ContextFilterIncludes = ["TicketBotService.CommandAuth"],
+                    ContextFilterIncludes = [.. AuditOnlyPrefixes, .. SharedAuditPrefixes],
                     LogMinLevel = fileLogLevel
                 })
             .AddSizedRotatingFileSink(

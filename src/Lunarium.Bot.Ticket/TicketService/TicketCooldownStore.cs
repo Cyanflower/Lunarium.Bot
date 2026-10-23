@@ -55,7 +55,7 @@ public sealed class TicketCooldownStore
 
     public TicketCooldownStore(ILogger logger, TicketLocalData localData)
     {
-        _logger = logger.ForContext("TicketCooldownStore");
+        _logger = logger.ForContext("TicketService.TicketCooldownStore");
         _filePath = Path.Combine(localData.RootDirectory, "cooldowns.json");
     }
 

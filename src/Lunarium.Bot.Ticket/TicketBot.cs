@@ -33,17 +33,16 @@ public class TicketBotService : IHostedService
     private readonly CommandSynchronizer _commandSynchronizer;
     private readonly TicketManager _ticketManager;
     private readonly TicketMaintenanceService _maintenance;
-
-
     private bool _isFirstTime = true;
 
     public TicketBotService(EnvVar token, ILogger logger, ProxyUrl? proxyUrl)
     {
         _token = token;
-        _logger = logger.ForContext("TicketBotService");
+        _logger = logger.ForContext(LogConfigurator.RootContext);
         _logger.Info("初始化 TicketBotService...");
         // 构建私有DI容器
         _privateServices = ConfigurePrivateServices(proxyUrl, _logger);
+        // 从私有DI容器中取出服务
         _discordLogAdapter = _privateServices.GetRequiredService<DiscordLogAdapter>();
         _configLoader = _privateServices.GetRequiredService<ConfigLoader<TicketConfig>>();
         _client = _privateServices.GetRequiredService<DiscordSocketClient>();
