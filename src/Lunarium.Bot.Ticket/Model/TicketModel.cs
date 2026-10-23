@@ -78,6 +78,45 @@ public sealed class TicketData
     public override string ToString() => FormatId(Id);
 }
 
+/// <summary>一级分类的中文名称（面向人的展示）。</summary>
+public static class TicketTypeExtensions
+{
+    public static string Describe(this TicketType type) => type switch
+    {
+        TicketType.Complaint => "投诉",
+        TicketType.Contact => "联系管理组",
+        TicketType.Help => "帮助/支持",
+        TicketType.ApplyForStaff => "申请管理组",
+        _ => type.ToString(),
+    };
+}
+
+/// <summary>分类的中文名称（面向人的展示，归档 HTML / 日志可用）。</summary>
+public static class TicketCategoryExtensions
+{
+    public static string Describe(this TicketCategory category) => category switch
+    {
+        TicketCategory.Unknown => "未知",
+        TicketCategory.CopyrightInfringement => "侵权盗用",
+        TicketCategory.Commercialization => "商业化与贩售",
+        TicketCategory.HarassmentAndFlaming => "人身攻击与引战",
+        TicketCategory.OtherViolation => "其他违规",
+        TicketCategory.PunishmentAppeal => "处罚申诉",
+        TicketCategory.ModerationDispute => "规则与执法争议",
+        TicketCategory.CommunitySuggestion => "社区建议与反馈",
+        TicketCategory.ChannelOrRoleApplication => "申请频道或身份组",
+        TicketCategory.Other => "其他",
+        TicketCategory.PostAndPermission => "帖子与权限",
+        TicketCategory.BotAndFeatureIssue => "Bot 与功能异常",
+        TicketCategory.AccountAndRoleIssue => "账号与身份组异常",
+        TicketCategory.DisciplineTeam => "风纪组：日常管理",
+        TicketCategory.Reporter => "事务组：记者",
+        TicketCategory.TournamentTeam => "事务组：赛事组",
+        TicketCategory.Maintainer => "事务组：维护员",
+        _ => category.ToString(),
+    };
+}
+
 /// <summary>本地 JSON 的数据结构版本号。</summary>
 public static class TicketSchema
 {
@@ -162,7 +201,7 @@ public enum TicketCategory
     #region 我要投诉 (Complaint)
 
     /// <summary>
-    /// 侵权盗用(二传 / 搬运 / 抄袭 / 盗图)
+    /// 侵权盗用（含二传 / 搬运 / 抄袭 / 盗图）
     /// </summary>
     CopyrightInfringement = 101,
 
@@ -177,9 +216,9 @@ public enum TicketCategory
     HarassmentAndFlaming = 103,
 
     /// <summary>
-    /// 违规内容(涉未成年 / 现实映射 / 分区违规 / 小号规避)
+    /// 其他违规（广告拉群 / 涉未成年 / 现实映射 / 分区违规 / 小号规避等未归入以上三类的违规）
     /// </summary>
-    InappropriateContent = 104,
+    OtherViolation = 104,
 
     #endregion
 
@@ -225,7 +264,7 @@ public enum TicketCategory
     BotAndFeatureIssue = 302,
 
     /// <summary>
-    /// 账号与身份组异常(账号被盗封禁问题 / 身份组未发放)
+    /// 账号与身份组异常（账号异常 / 身份组未发放）
     /// </summary>
     AccountAndRoleIssue = 303,
 

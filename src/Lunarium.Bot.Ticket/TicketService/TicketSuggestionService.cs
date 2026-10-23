@@ -91,8 +91,8 @@ public sealed class TicketSuggestionService
 
         return $"""
             工单编号: {ticket}
-            一级分类: {ticket.TicketType}
-            二级分类: {ticket.TicketCategory}
+            一级分类: {ticket.TicketType.Describe()}
+            二级分类: {ticket.TicketCategory.Describe()}
             提交人: {ticket.TicketCreator.DisplayName} ({ticket.TicketCreator.UserName})
             提交时间: {ticket.CreatedAt:yyyy-MM-dd HH:mm:ss zzz}
 

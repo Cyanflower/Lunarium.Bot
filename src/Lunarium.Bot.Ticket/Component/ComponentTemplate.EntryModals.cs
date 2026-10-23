@@ -14,14 +14,14 @@ public static partial class ComponentTemplate
         public const string ModalCustomId = "modal:complaint:fixed";
 
         /// <summary>
-        /// 二级分类(我要投诉)。括号内为常见示例，便于用户对号入座。
-        /// 归档统计参考：侵权 183 / 商业化 218 / 攻击与引战 175 / 违规内容 146。
+        /// 二级分类(我要投诉)。分类名已简化，细则对照社区守则自行判断。
+        /// 归档统计参考：侵权 183 / 商业化 218 / 攻击与引战 175 / 其他违规 146。
         /// </summary>
         public static List<SelectOption<TicketCategory>> Options = [
-            new("侵权盗用(二传 / 搬运 / 抄袭 / 盗图)", TicketCategory.CopyrightInfringement),
-            new("商业化与贩售(收费定制 / 收费代搭 / 卖 API / 资源贩售)", TicketCategory.Commercialization),
-            new("人身攻击与引战(辱骂 / 挂人 / 骚扰 / 恶意点踩)", TicketCategory.HarassmentAndFlaming),
-            new("违规内容(涉未成年 / 现实映射 / 分区违规)", TicketCategory.InappropriateContent),
+            new("侵权盗用", TicketCategory.CopyrightInfringement),
+            new("商业化与贩售", TicketCategory.Commercialization),
+            new("人身攻击与引战", TicketCategory.HarassmentAndFlaming),
+            new("其他违规", TicketCategory.OtherViolation),
         ];
 
         public static Modal ToModal()
@@ -120,7 +120,7 @@ public static partial class ComponentTemplate
         public static List<SelectOption<TicketCategory>> Options = [
             new("帖子与权限(解锁 / 删除 / 恢复 / 只读)", TicketCategory.PostAndPermission),
             new("Bot与功能异常(Bot 报错 / 搜索失败)", TicketCategory.BotAndFeatureIssue),
-            new("账号与身份组异常( 账号被盗封禁问题 / 身份组未发放 )", TicketCategory.AccountAndRoleIssue)
+            new("账号与身份组异常(账号异常 / 身份组未发放)", TicketCategory.AccountAndRoleIssue)
         ];
 
         public static Modal ToModal()

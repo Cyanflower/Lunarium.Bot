@@ -310,8 +310,8 @@ public sealed partial class TicketArchiveService
         builder.Append("<header>");
         builder.Append($"<h1>{Html(ticket.ToString())}</h1>");
         builder.Append("<dl>");
-        AppendDefinition(builder, "类型", ticket.TicketType.ToString());
-        AppendDefinition(builder, "分类", ticket.TicketCategory.ToString());
+        AppendDefinition(builder, "类型", ticket.TicketType.Describe());
+        AppendDefinition(builder, "分类", ticket.TicketCategory.Describe());
         AppendDefinition(builder, "提交人", $"{ticket.TicketCreator.DisplayName} ({ticket.TicketCreator.UserId})");
         AppendDefinition(builder, "提交时间", FormatTime(ticket.CreatedAt));
         AppendDefinition(builder, "状态", ticket.Status.ToString());

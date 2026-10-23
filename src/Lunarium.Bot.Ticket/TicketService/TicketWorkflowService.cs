@@ -587,7 +587,7 @@ public sealed class TicketWorkflowService
                 ### 🎫 {ticket}
                 [进入工单频道](https://discord.com/channels/{guild.Id}/{channelId}){auto}
                 """)
-            .AddField("类型", DescribeTicketType(ticket.TicketType), inline: true)
+            .AddField("类型", ticket.TicketType.Describe(), inline: true)
             .AddField("审批", ticket.IsAutoApprove ? "系统自动通过" : "管理组", inline: true)
             .WithFooter(guild.Name)
             .WithTimestamp(DateTimeOffset.UtcNow)
@@ -659,13 +659,4 @@ public sealed class TicketWorkflowService
             .WithTimestamp(DateTimeOffset.UtcNow)
             .Build();
     }
-
-    private static string DescribeTicketType(TicketType type) => type switch
-    {
-        TicketType.Complaint => "投诉",
-        TicketType.Contact => "联系管理组",
-        TicketType.Help => "帮助/支持",
-        TicketType.ApplyForStaff => "申请管理组",
-        _ => type.ToString(),
-    };
 }
