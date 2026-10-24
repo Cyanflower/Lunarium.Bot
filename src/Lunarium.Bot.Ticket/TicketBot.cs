@@ -94,7 +94,9 @@ public class TicketBotService : IHostedService
             .AddSingleton<TicketArchiveService>()
             // 归档频道删除队列（跨重启）
             .AddSingleton<TicketDeletionQueue>()
-            // 启动对账 + 自动通过后台任务
+            // 自动通过后的“无人回复”安抚（固定文案，定时驱动）
+            .AddSingleton<TicketSootheService>()
+            // 启动对账 + 自动通过 + 自动安抚后台任务
             .AddSingleton<TicketMaintenanceService>()
             .AddLunariumAi(proxyUrl, option =>
             {

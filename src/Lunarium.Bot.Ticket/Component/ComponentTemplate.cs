@@ -15,6 +15,7 @@ namespace Lunarium.Bot.Ticket.Component;
 ///   <item><c>ComponentTemplate.Audit.cs</c>：审核卡片与拒绝模态窗</item>
 ///   <item><c>ComponentTemplate.EntryModals.cs</c>：四类提交模态窗</item>
 ///   <item><c>ComponentTemplate.Status.cs</c>：投诉记录里的状态卡片</item>
+///   <item><c>ComponentTemplate.Soothe.cs</c>：自动安抚的通知卡片</item>
 /// </list>
 /// </summary>
 public static partial class ComponentTemplate

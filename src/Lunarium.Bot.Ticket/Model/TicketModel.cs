@@ -55,6 +55,12 @@ public sealed class TicketData
     public List<TicketMessage>? TicketMessages { get; set; } = null;
     public LLMSuggestion? LLMSuggestion { get; set; } = null;
 
+    /// <summary>
+    /// 自动安抚的处理记录。为 <see langword="null"/> 表示尚未检查；
+    /// 写入后该工单不再重复扫描（重启幂等依赖此字段）。
+    /// </summary>
+    public SootheInfo? SootheInfo { get; set; } = null;
+
     [JsonIgnore]
     public TicketStatus Status => GetStatus();
 
@@ -125,6 +131,27 @@ public static class TicketSchema
 }
 
 public sealed record TicketCreator(ulong UserId, string DisplayName, string UserName);
+
+/// <summary>
+/// 自动安抚的处理记录（系统自动通过的工单专用）。
+/// </summary>
+public sealed class SootheInfo
+{
+    /// <summary>本次检查的时间（无论最终是否发送）。</summary>
+    public DateTimeOffset CheckedAt { get; set; }
+
+    /// <summary>
+    /// 工单频道内的安抚消息ID。<c>0</c> 表示检查时已有管理组发言，因此没有发送安抚。
+    /// </summary>
+    public ulong MessageId { get; set; }
+
+    /// <summary>通知频道内的提示卡片消息ID；<c>0</c> 表示尚未发出。</summary>
+    public ulong NotifyMessageId { get; set; }
+
+    /// <summary>通知（卡片 + @here）完成的时间；<see langword="null"/> 表示尚未完成，重启后会补发。</summary>
+    public DateTimeOffset? NotifiedAt { get; set; }
+}
+
 public sealed record CloseInfo(ulong UserId, string DisplayName, string UserName, DateTimeOffset ClosedAt);
 public sealed record ArchiveInfo(ulong UserId, string DisplayName, string UserName, DateTimeOffset ArchivedAt);
 public sealed record ApproveInfo(ulong UserId, string DisplayName, string UserName, DateTimeOffset ApprovedAt);

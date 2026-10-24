@@ -14,6 +14,7 @@ namespace Lunarium.Bot.Ticket.TicketService;
 /// <list type="number">
 ///   <item>启动对账：已通过/已关闭但缺频道坐标的工单，按频道名认领；待审核但缺审核卡片的工单重发卡片。</item>
 ///   <item>定时扫描：把到点仍待审核的工单自动通过（复用 <see cref="TicketWorkflowService.ApproveAsync"/>）。</item>
+///   <item>定时扫描：自动通过的工单长时间无管理回复时发送安抚（复用 <see cref="TicketSootheService"/>）。</item>
 /// </list>
 /// <para>
 /// 本服务不在宿主 DI 里，由 <c>TicketBotService</c> 在首次就绪后手动 <c>StartAsync</c>，
@@ -32,6 +33,7 @@ public sealed class TicketMaintenanceService : BackgroundService
     private readonly TicketWorkflowService _workflow;
     private readonly TicketCardService _cardService;
     private readonly TicketDeletionQueue _deletions;
+    private readonly TicketSootheService _soothe;
 
     public TicketMaintenanceService(
         ILogger logger,
@@ -40,7 +42,8 @@ public sealed class TicketMaintenanceService : BackgroundService
         TicketManager ticketManager,
         TicketWorkflowService workflow,
         TicketCardService cardService,
-        TicketDeletionQueue deletions)
+        TicketDeletionQueue deletions,
+        TicketSootheService soothe)
     {
         _logger = logger.ForContext("TicketService.TicketMaintenanceService");
         _client = client;
@@ -49,6 +52,7 @@ public sealed class TicketMaintenanceService : BackgroundService
         _workflow = workflow;
         _cardService = cardService;
         _deletions = deletions;
+        _soothe = soothe;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -71,6 +75,7 @@ public sealed class TicketMaintenanceService : BackgroundService
                 try
                 {
                     await ApproveDueTicketsAsync(stoppingToken);
+                    await SootheSilentTicketsAsync(stoppingToken);
                     await ProcessDeletionsAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -243,6 +248,60 @@ public sealed class TicketMaintenanceService : BackgroundService
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.Error(ex, "自动通过失败: {Ticket}", ticket);
+            }
+            finally
+            {
+                _ticketManager.EndTransition(ticket.Id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 自动通过的工单在约定时间内没有管理组发言时，向提交人发送安抚消息。
+    /// 只做本地条件筛选，真正需要访问 Discord 的工单才占用处理权。
+    /// </summary>
+    private async Task SootheSilentTicketsAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var ticket in _ticketManager.GetActiveTickets())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!_configLoader.Value.DeployGuildConfig.TryGetValue(ticket.GuildId, out var config))
+            {
+                continue;
+            }
+
+            if (!TicketSootheService.ShouldProcess(ticket, config, now))
+            {
+                continue;
+            }
+
+            var guild = _client.GetGuild(ticket.GuildId);
+            if (guild is null)
+            {
+                _logger.Warning("自动安抚跳过：Bot 不在该服务器内: {Ticket} GuildId={GuildId}", ticket, ticket.GuildId);
+                continue;
+            }
+
+            if (!_ticketManager.TryBeginTransition(ticket.Id))
+            {
+                // 正在被管理员处理，下一轮再看
+                continue;
+            }
+
+            try
+            {
+                await _soothe.ProcessAsync(guild, config, ticket, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "自动安抚失败，下一轮重试: {Ticket}", ticket);
             }
             finally
             {

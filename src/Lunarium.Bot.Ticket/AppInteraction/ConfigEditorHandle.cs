@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Discord.Interactions;
 using Discord;
 using Discord.WebSocket;
@@ -54,106 +56,35 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
 
             switch (action)
             {
-                case "editAdminRoleIds":
-                    await RespondWithModalAsync(ModalWindowPrefab.MultiRoleSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑管理身份组",
-                        label: "允许管理投诉的管理组身份组",
-                        description: "可多选，留空表示不限制",
-                        minValues: 0,
-                        maxValues: 25,
-                        required: false));
+                case "editRoles":
+                    await RespondWithModalAsync(BuildRolesModal(
+                        new CustomId("editor", action, session.SessionId), session.Snapshot));
                     return;
 
-                case "editAllowTicketRoleIds":
-                    await RespondWithModalAsync(ModalWindowPrefab.MultiRoleSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑投诉身份组",
-                        label: "允许投诉的身份组",
-                        description: "可多选，留空表示不限制",
-                        minValues: 0,
-                        maxValues: 25,
-                        required: false));
+                case "editChannels":
+                    await RespondWithModalAsync(BuildChannelsModal(
+                        new CustomId("editor", action, session.SessionId), session.Snapshot));
                     return;
 
-                case "editEntryPaneChannel":
-                    await RespondWithModalAsync(ModalWindowPrefab.ChannelSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑投诉入口面板发布频道",
-                        label: "投诉入口面板发布频道",
-                        description: "工单面板所在频道",
-                        channelTypes: [ChannelType.Text, ChannelType.News],
-                        minValues: 1,
-                        maxValues: 1,
-                        required: true));
+                case "editNumbers":
+                    await RespondWithModalAsync(BuildNumbersModal(
+                        new CustomId("editor", action, session.SessionId), session.Snapshot));
                     return;
 
-                case "editNotifierChannel":
-                    await RespondWithModalAsync(ModalWindowPrefab.ChannelSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑工单通知频道",
-                        label: "工单通知频道",
-                        description: "新工单通知/跳转链接发送至此",
-                        channelTypes: [ChannelType.Text, ChannelType.News],
-                        minValues: 1,
-                        maxValues: 1,
-                        required: true));
-                    return;
-
-                case "editTicketLogChannel":
-                    await RespondWithModalAsync(ModalWindowPrefab.ChannelSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑工单日志频道",
-                        label: "工单日志频道",
-                        description: "工单操作记录/日志发送至此",
-                        channelTypes: [ChannelType.Text, ChannelType.News],
-                        minValues: 1,
-                        maxValues: 1,
-                        required: true));
-                    return;
-
-                case "editTicketCategory":
-                    await RespondWithModalAsync(ModalWindowPrefab.ChannelSelectField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑投诉频道分组",
-                        label: "创建投诉频道的分组",
-                        description: "新建投诉频道时放置于此分类",
-                        channelTypes: [ChannelType.Category],
-                        minValues: 1,
-                        maxValues: 1,
-                        required: true));
-                    return;
-
-                case "enableTicketCD":
-                    track.Info("AppInteraction: {Action} 启用投诉冷却时间: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    session.SetEnableTicketCd(true);
+                case "toggleTicketCd":
+                    var cooldownEnabled = !session.Snapshot.EnableTicketCd;
+                    session.SetEnableTicketCd(cooldownEnabled);
+                    track.Info("AppInteraction: {Action} 切换投诉冷却: Enabled={Enabled}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        action, cooldownEnabled, session.Context.Guild.Id, Context.User.Id, session.SessionId);
                     await UpdatePanelAsync(component, session);
                     return;
 
-                case "disableTicketCD":
-                    track.Info("AppInteraction: {Action} 关闭投诉冷却时间: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    session.SetEnableTicketCd(false);
+                case "toggleSoothe":
+                    var sootheEnabled = !session.Snapshot.EnableAutoSoothe;
+                    session.SetEnableAutoSoothe(sootheEnabled);
+                    track.Info("AppInteraction: {Action} 切换自动安抚: Enabled={Enabled}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        action, sootheEnabled, session.Context.Guild.Id, Context.User.Id, session.SessionId);
                     await UpdatePanelAsync(component, session);
-                    return;
-
-                case "editTicketCD":
-                    await RespondWithModalAsync(ModalWindowPrefab.SingleTextField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑投诉冷却时间",
-                        label: "冷却时间（小时）",
-                        description: $"同一用户两次提交投诉之间的最小间隔，{TicketConfigLimits.TicketCdInclusiveMin}–{TicketConfigLimits.TicketCdInclusiveMax} 小时",
-                        placeholder: "例如 24"));
-                    return;
-
-                case "editAutoApprove":
-                    await RespondWithModalAsync(ModalWindowPrefab.SingleTextField(
-                        new CustomId("editor", action, session.SessionId),
-                        title: "编辑待审核自动通过时间",
-                        label: "自动通过时间（小时）",
-                        description: $"待审核工单超过该时长无人处理则自动通过，{TicketConfigLimits.AutoApproveHoursInclusiveMin}–{TicketConfigLimits.AutoApproveHoursInclusiveMax} 小时，0 表示不自动通过",
-                        placeholder: "例如 24，填 0 关闭"));
                     return;
 
                 case "apply":
@@ -212,102 +143,93 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
 
             switch (action)
             {
-                case "editAdminRoleIds":
-                    var adminRoleIds = ParseIds(data, "roles");
+                case "editRoles":
+                    var adminRoleIds = ParseIds(data, "rolesAdmin");
+                    var ticketRoleIds = ParseIds(data, "rolesTicket");
                     session.SetAdminRoleIds(adminRoleIds);
-                    track.Info("AppInteraction: {Action} 更新管理身份组: RoleCount={RoleCount}, RoleIds={RoleIds}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, adminRoleIds.Count, string.Join(',', adminRoleIds), session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    break;
-
-                case "editAllowTicketRoleIds":
-                    var ticketRoleIds = ParseIds(data, "roles");
                     session.SetAllowTicketRoleIds(ticketRoleIds);
-                    track.Info("AppInteraction: {Action} 更新投诉身份组: RoleCount={RoleCount}, RoleIds={RoleIds}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, ticketRoleIds.Count, string.Join(',', ticketRoleIds), session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                    track.Info("AppInteraction: {Action} 更新身份组: AdminRoleCount={AdminRoleCount}, TicketRoleCount={TicketRoleCount}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        action, adminRoleIds.Count, ticketRoleIds.Count, session.Context.Guild.Id, Context.User.Id, session.SessionId);
                     break;
 
-                case "editEntryPaneChannel":
-                    if (!TryParseChannelId(data, "channels", out var entryPaneChannel))
+                case "editChannels":
+                    if (!TryParseChannelId(data, "channelEntryPane", out var entryPaneChannel))
                     {
-                        track.Warning("AppInteraction: {Action} 频道选择无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        track.Warning("AppInteraction: {Action} 投诉入口面板频道无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
                             action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail("请选择一个有效频道", "### 输入无效"), ephemeral: true);
+                        await RespondAsync(components: MessagePrefab.AnyFail("请选择投诉入口面板频道", "### 输入无效"), ephemeral: true);
                         return;
                     }
+                    if (!TryParseChannelId(data, "channelNotifier", out var notifierChannel))
+                    {
+                        track.Warning("AppInteraction: {Action} 工单通知频道无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                        await RespondAsync(components: MessagePrefab.AnyFail("请选择工单通知频道", "### 输入无效"), ephemeral: true);
+                        return;
+                    }
+                    if (!TryParseChannelId(data, "channelLog", out var ticketLogChannel))
+                    {
+                        track.Warning("AppInteraction: {Action} 工单日志频道无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                        await RespondAsync(components: MessagePrefab.AnyFail("请选择工单日志频道", "### 输入无效"), ephemeral: true);
+                        return;
+                    }
+                    if (!TryParseChannelId(data, "channelCategory", out var ticketCategory))
+                    {
+                        track.Warning("AppInteraction: {Action} 工单频道分组无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                        await RespondAsync(components: MessagePrefab.AnyFail("请选择工单频道分组", "### 输入无效"), ephemeral: true);
+                        return;
+                    }
+
                     session.SetEntryPaneChannel(entryPaneChannel);
-                    track.Info("AppInteraction: {Action} 更新投诉入口面板发布频道: ChannelId={ChannelId}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, entryPaneChannel, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    break;
-
-                case "editNotifierChannel":
-                    if (!TryParseChannelId(data, "channels", out var notifierChannel))
-                    {
-                        track.Warning("AppInteraction: {Action} 频道选择无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail("请选择一个有效频道", "### 输入无效"), ephemeral: true);
-                        return;
-                    }
                     session.SetNotifierChannel(notifierChannel);
-                    track.Info("AppInteraction: {Action} 更新工单通知频道: ChannelId={ChannelId}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, notifierChannel, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    break;
-
-                case "editTicketLogChannel":
-                    if (!TryParseChannelId(data, "channels", out var ticketLogChannel))
-                    {
-                        track.Warning("AppInteraction: {Action} 频道选择无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail("请选择一个有效频道", "### 输入无效"), ephemeral: true);
-                        return;
-                    }
                     session.SetTicketLogChannel(ticketLogChannel);
-                    track.Info("AppInteraction: {Action} 更新工单日志频道: ChannelId={ChannelId}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, ticketLogChannel, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    break;
-
-                case "editTicketCategory":
-                    if (!TryParseChannelId(data, "channels", out var ticketCategory))
-                    {
-                        track.Warning("AppInteraction: {Action} 分组选择无效: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                            action, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail("请选择一个有效分组", "### 输入无效"), ephemeral: true);
-                        return;
-                    }
                     session.SetTicketCategory(ticketCategory);
-                    track.Info("AppInteraction: {Action} 更新投诉频道分组: CategoryId={CategoryId}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, ticketCategory, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                    track.Info("AppInteraction: {Action} 更新频道: EntryPane={EntryPane}, Notifier={Notifier}, Log={Log}, Category={Category}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        action, entryPaneChannel, notifierChannel, ticketLogChannel, ticketCategory, session.Context.Guild.Id, Context.User.Id, session.SessionId);
                     break;
 
-                case "editTicketCD":
-                    var raw = data.Components.FirstOrDefault(c => c.CustomId == "text")?.Value;
-                    if (!int.TryParse(raw, out var hours) || !TicketConfigLimits.IsValidTicketCd(hours))
+                case "editNumbers":
+                    // 冷却/安抚关闭时与 GuildConfig.Validate 保持一致：只要求非负，不做区间校验，
+                    // 否则"关闭冷却 + 冷却值 0"的配置改其他数值时会被无故拦住。
+                    if (!TryParseInt(data, "numTicketCd", out var ticketCd) || ticketCd < 0
+                        || (session.Snapshot.EnableTicketCd && !TicketConfigLimits.IsValidTicketCd(ticketCd)))
                     {
-                        track.Warning("AppInteraction: {Action} 冷却时间输入无效: RawValue={RawValue}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                            action, raw, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail(
-                            $"冷却时间必须是 {TicketConfigLimits.TicketCdInclusiveMin}–{TicketConfigLimits.TicketCdInclusiveMax} 之间的整数",
-                            "### 输入无效"), ephemeral: true);
+                        await RespondNumbersFailAsync(track, action, session, "numTicketCd",
+                            session.Snapshot.EnableTicketCd
+                                ? $"投诉冷却必须是 {TicketConfigLimits.TicketCdInclusiveMin}–{TicketConfigLimits.TicketCdInclusiveMax} 之间的整数"
+                                : "投诉冷却必须是 0 或正整数（当前冷却已关闭）");
                         return;
                     }
-                    session.SetTicketCd(hours);
-                    track.Info("AppInteraction: {Action} 更新投诉冷却时间: TicketCd={TicketCd}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, hours, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                    break;
+                    if (!TryParseInt(data, "numAutoApprove", out var autoApproveHours) || !TicketConfigLimits.IsValidAutoApproveHours(autoApproveHours))
+                    {
+                        await RespondNumbersFailAsync(track, action, session, "numAutoApprove",
+                            $"自动通过时间必须是 {TicketConfigLimits.AutoApproveHoursInclusiveMin}–{TicketConfigLimits.AutoApproveHoursInclusiveMax} 之间的整数（0 表示不自动通过）");
+                        return;
+                    }
+                    if (!TryParseInt(data, "numArchiveCountdown", out var archiveCountdown) || !TicketConfigLimits.IsValidArchiveCountdown(archiveCountdown))
+                    {
+                        await RespondNumbersFailAsync(track, action, session, "numArchiveCountdown",
+                            $"归档删除倒计时必须是 {TicketConfigLimits.ArchiveCountdownInclusiveMin}–{TicketConfigLimits.ArchiveCountdownInclusiveMax} 之间的整数（秒）");
+                        return;
+                    }
+                    if (!TryParseInt(data, "numSootheDelay", out var sootheDelay) || sootheDelay < 0
+                        || (session.Snapshot.EnableAutoSoothe && !TicketConfigLimits.IsValidSootheDelayMinutes(sootheDelay)))
+                    {
+                        await RespondNumbersFailAsync(track, action, session, "numSootheDelay",
+                            session.Snapshot.EnableAutoSoothe
+                                ? $"自动安抚延迟必须是 {TicketConfigLimits.SootheDelayMinutesInclusiveMin}–{TicketConfigLimits.SootheDelayMinutesInclusiveMax} 之间的整数（分钟）"
+                                : "自动安抚延迟必须是 0 或正整数（当前自动安抚已关闭）");
+                        return;
+                    }
 
-                case "editAutoApprove":
-                    var rawAutoApprove = data.Components.FirstOrDefault(c => c.CustomId == "text")?.Value;
-                    if (!int.TryParse(rawAutoApprove, out var autoApproveHours) || !TicketConfigLimits.IsValidAutoApproveHours(autoApproveHours))
-                    {
-                        track.Warning("AppInteraction: {Action} 自动通过时间输入无效: RawValue={RawValue}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                            action, rawAutoApprove, session.Context.Guild.Id, Context.User.Id, session.SessionId);
-                        await RespondAsync(components: MessagePrefab.AnyFail(
-                            $"自动通过时间必须是 {TicketConfigLimits.AutoApproveHoursInclusiveMin}–{TicketConfigLimits.AutoApproveHoursInclusiveMax} 之间的整数（0 表示不自动通过）",
-                            "### 输入无效"), ephemeral: true);
-                        return;
-                    }
+                    session.SetTicketCd(ticketCd);
                     session.SetAutoApproveHours(autoApproveHours);
-                    track.Info("AppInteraction: {Action} 更新待审核自动通过时间: AutoApproveHours={AutoApproveHours}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
-                        action, autoApproveHours, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+                    session.SetArchiveDeleteCountdownSeconds(archiveCountdown);
+                    session.SetSootheDelayMinutes(sootheDelay);
+                    track.Info("AppInteraction: {Action} 更新自动化数值: TicketCd={TicketCd}, AutoApproveHours={AutoApproveHours}, ArchiveCountdown={ArchiveCountdown}, SootheDelay={SootheDelay}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                        action, ticketCd, autoApproveHours, archiveCountdown, sootheDelay, session.Context.Guild.Id, Context.User.Id, session.SessionId);
                     break;
 
                 default:
@@ -386,9 +308,10 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
 
         var newConfig = session.BuildConfig();
 
-        track.Info("AppInteraction: apply 开始应用配置: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, EnableTicketCd={EnableTicketCd}, TicketCd={TicketCd}, AutoApproveHours={AutoApproveHours}, EntryPaneChannel={EntryPaneChannel}, NotifierChannel={NotifierChannel}, TicketLogChannel={TicketLogChannel}, TicketCategory={TicketCategory}, AdminRoleCount={AdminRoleCount}, TicketRoleCount={TicketRoleCount}",
+        track.Info("AppInteraction: apply 开始应用配置: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, EnableTicketCd={EnableTicketCd}, TicketCd={TicketCd}, AutoApproveHours={AutoApproveHours}, EnableAutoSoothe={EnableAutoSoothe}, SootheDelayMinutes={SootheDelayMinutes}, ArchiveDeleteCountdownSeconds={ArchiveDeleteCountdownSeconds}, EntryPaneChannel={EntryPaneChannel}, NotifierChannel={NotifierChannel}, TicketLogChannel={TicketLogChannel}, TicketCategory={TicketCategory}, AdminRoleCount={AdminRoleCount}, TicketRoleCount={TicketRoleCount}",
             guildId, Context.User.Id, session.SessionId,
             newConfig.EnableTicketCd, newConfig.TicketCd, newConfig.AutoApproveHours,
+            newConfig.EnableAutoSoothe, newConfig.SootheDelayMinutes, newConfig.ArchiveDeleteCountdownSeconds,
             newConfig.EntryPaneChannel, newConfig.NotifierChannel, newConfig.TicketLogChannel, newConfig.TicketCategory,
             newConfig.AllowManageTicketAdminRoleIds.Count, newConfig.AllowTicketRoleIds.Count);
 
@@ -422,6 +345,161 @@ public sealed class ConfigEditorHandle : InteractionModuleBase<SocketInteraction
 
     private static Task UpdatePanelAsync(SocketMessageComponent component, ConfigEditorSession session)
         => component.UpdateAsync(msg => msg.Components = session.Render());
+
+    /// <summary>
+    /// 身份组模态窗：两个多选合并为一次提交，减少一个按钮与一次往返。
+    /// </summary>
+    private static Modal BuildRolesModal(CustomId customId, GuildConfig config)
+    {
+        return new ModalBuilder()
+            .WithTitle("编辑身份组")
+            .WithCustomId(customId.ToString())
+            .AddSelectMenu(
+                label: "允许管理工单的管理组身份组",
+                customId: "rolesAdmin",
+                minValues: 0,
+                maxValues: 25,
+                required: false,
+                type: ComponentType.RoleSelect,
+                defaultValues: ToRoleDefaults(config.AllowManageTicketAdminRoleIds),
+                description: "拥有工单管理权限")
+            .AddSelectMenu(
+                label: "允许提交工单的身份组",
+                customId: "rolesTicket",
+                minValues: 0,
+                maxValues: 25,
+                required: false,
+                type: ComponentType.RoleSelect,
+                defaultValues: ToRoleDefaults(config.AllowTicketRoleIds),
+                description: "可使用投诉入口面板")
+            .Build();
+    }
+
+    /// <summary>
+    /// 频道模态窗：四项频道配置合并为一次提交。
+    /// </summary>
+    private static Modal BuildChannelsModal(CustomId customId, GuildConfig config)
+    {
+        return new ModalBuilder()
+            .WithTitle("编辑频道配置")
+            .WithCustomId(customId.ToString())
+            .AddSelectMenu(
+                label: "投诉入口面板频道",
+                customId: "channelEntryPane",
+                minValues: 1,
+                maxValues: 1,
+                required: true,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Text, ChannelType.News],
+                defaultValues: ToChannelDefaults(config.EntryPaneChannel),
+                description: "入口面板消息发布至此")
+            .AddSelectMenu(
+                label: "工单通知频道",
+                customId: "channelNotifier",
+                minValues: 1,
+                maxValues: 1,
+                required: true,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Text, ChannelType.News],
+                defaultValues: ToChannelDefaults(config.NotifierChannel),
+                description: "安抚等系统通知发送至此")
+            .AddSelectMenu(
+                label: "工单日志频道",
+                customId: "channelLog",
+                minValues: 1,
+                maxValues: 1,
+                required: true,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Text, ChannelType.News],
+                defaultValues: ToChannelDefaults(config.TicketLogChannel),
+                description: "状态卡片与操作记录发送至此")
+            .AddSelectMenu(
+                label: "工单频道分组",
+                customId: "channelCategory",
+                minValues: 1,
+                maxValues: 1,
+                required: true,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Category],
+                defaultValues: ToChannelDefaults(config.TicketCategory),
+                description: "新建工单频道放置于此")
+            .Build();
+    }
+
+    /// <summary>
+    /// 数值模态窗：四项时间/数值配置合并为一次提交（Discord 上限 5 个组件）。
+    /// </summary>
+    private static Modal BuildNumbersModal(CustomId customId, GuildConfig config)
+    {
+        return new ModalBuilder()
+            .WithTitle("编辑自动化数值")
+            .WithCustomId(customId.ToString())
+            .AddTextInput(
+                label: "投诉冷却（小时）",
+                customId: "numTicketCd",
+                style: TextInputStyle.Short,
+                minLength: 1,
+                maxLength: 3,
+                required: true,
+                value: config.TicketCd.ToString(CultureInfo.InvariantCulture),
+                description: $"{TicketConfigLimits.TicketCdInclusiveMin}–{TicketConfigLimits.TicketCdInclusiveMax}，冷却关闭时忽略")
+            .AddTextInput(
+                label: "自动通过（小时）",
+                customId: "numAutoApprove",
+                style: TextInputStyle.Short,
+                minLength: 1,
+                maxLength: 3,
+                required: true,
+                value: config.AutoApproveHours.ToString(CultureInfo.InvariantCulture),
+                description: $"{TicketConfigLimits.AutoApproveHoursInclusiveMin}–{TicketConfigLimits.AutoApproveHoursInclusiveMax}，0 表示不自动通过")
+            .AddTextInput(
+                label: "归档删除倒计时（秒）",
+                customId: "numArchiveCountdown",
+                style: TextInputStyle.Short,
+                minLength: 1,
+                maxLength: 3,
+                required: true,
+                value: config.ArchiveDeleteCountdownSeconds.ToString(CultureInfo.InvariantCulture),
+                description: $"{TicketConfigLimits.ArchiveCountdownInclusiveMin}–{TicketConfigLimits.ArchiveCountdownInclusiveMax} 秒")
+            .AddTextInput(
+                label: "自动安抚延迟（分钟）",
+                customId: "numSootheDelay",
+                style: TextInputStyle.Short,
+                minLength: 1,
+                maxLength: 5,
+                required: true,
+                value: config.SootheDelayMinutes.ToString(CultureInfo.InvariantCulture),
+                description: $"{TicketConfigLimits.SootheDelayMinutesInclusiveMin}–{TicketConfigLimits.SootheDelayMinutesInclusiveMax}，自动通过后计时")
+            .Build();
+    }
+
+    private static SelectMenuDefaultValue[] ToRoleDefaults(IEnumerable<ulong> ids)
+        => ids.Select(id => new SelectMenuDefaultValue(id, SelectDefaultValueType.Role)).ToArray();
+
+    private static SelectMenuDefaultValue[]? ToChannelDefaults(ulong channelId)
+        => channelId == 0
+            ? null
+            : [new SelectMenuDefaultValue(channelId, SelectDefaultValueType.Channel)];
+
+    /// <summary>数值模态窗校验失败时的统一回执。</summary>
+    private async Task RespondNumbersFailAsync(
+        TrackScope track,
+        string action,
+        ConfigEditorSession session,
+        string field,
+        string message)
+    {
+        track.Warning("AppInteraction: {Action} 数值输入无效: Field={Field}, GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+            action, field, session.Context.Guild.Id, Context.User.Id, session.SessionId);
+        await RespondAsync(components: MessagePrefab.AnyFail(message, "### 输入无效"), ephemeral: true);
+    }
+
+    private static bool TryParseInt(IModalInteractionData data, string customId, out int value)
+    {
+        value = 0;
+        var raw = data.Components.FirstOrDefault(c => c.CustomId == customId)?.Value;
+        return int.TryParse(raw, out value);
+    }
 
     private static List<ulong> ParseIds(IModalInteractionData data, string customId)
     {

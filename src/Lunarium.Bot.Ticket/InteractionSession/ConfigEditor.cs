@@ -35,207 +35,107 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
 
     public override MessageComponent Render()
     {
-        // 1
         var component = new ComponentBuilderV2().WithContainer(container =>
         {
             container.WithAccentColor(Color.Blue);
-            // 2
             container.WithTextDisplay($"""
-            ## 投诉系统配置编辑
+            ## 工单系统配置编辑
             - 服务器: {Context.Guild.Name}
             - Id: {Context.Guild.Id}
             """);
 
-            // 3
+            // ==== 身份组（两项合并为一个模态窗，组内不画分隔线） ====
             container.WithSeparator();
-            // 4
             container.WithTextDisplay($"""
-            ### 允许管理投诉的管理组身份组
-            {_guildConfig.AllowManageTicketAdminRoleIds.JoinRoleMentions()}
+            ### 身份组
+            **允许管理工单**
+            {FormatRoleList(_guildConfig.AllowManageTicketAdminRoleIds)}
+            **允许提交工单**
+            {FormatRoleList(_guildConfig.AllowTicketRoleIds)}
             """);
-            // 5
             container.WithActionRow(row =>
             {
-                // 6
                 row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editAdminRoleIds"),
+                    label: "编辑身份组",
+                    customId: CustomId("editRoles"),
                     style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
+                    emote: new Emoji("👥"),
                     disabled: IsFinished
                 );
             });
 
-            // 7
+            // ==== 频道（四项合并为一个模态窗） ====
             container.WithSeparator();
-            // 8
             container.WithTextDisplay($"""
-            ### 允许投诉的身份组
-            {_guildConfig.AllowTicketRoleIds.JoinRoleMentions()}
+            ### 频道
+            - 投诉入口面板: {FormatChannel(_guildConfig.EntryPaneChannel)}
+            - 工单通知: {FormatChannel(_guildConfig.NotifierChannel)}
+            - 工单日志: {FormatChannel(_guildConfig.TicketLogChannel)}
+            - 工单频道分组: {FormatChannel(_guildConfig.TicketCategory)}
             """);
-            // 9
             container.WithActionRow(row =>
             {
-                // 10
                 row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editAllowTicketRoleIds"),
+                    label: "编辑频道",
+                    customId: CustomId("editChannels"),
                     style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
+                    emote: new Emoji("📁"),
                     disabled: IsFinished
                 );
             });
 
-            // 11
+            // ==== 自动化（数值合并为一个模态窗，开关用按钮原地切换） ====
             container.WithSeparator();
-            // 12
             container.WithTextDisplay($"""
-            ### 投诉入口面板发布频道
-            {_guildConfig.EntryPaneChannel.ToChannelMention()}
-            """);
-            // 13
-            container.WithActionRow(row =>
-            {
-                // 14
-                row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editEntryPaneChannel"),
-                    style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
-                    disabled: IsFinished
-                );
-            });
-
-            // 15
-            container.WithSeparator();
-            // 16
-            container.WithTextDisplay($"""
-            ### 工单通知频道
-            {_guildConfig.NotifierChannel.ToChannelMention()}
-            """);
-            // 17
-            container.WithActionRow(row =>
-            {
-                // 18
-                row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editNotifierChannel"),
-                    style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
-                    disabled: IsFinished
-                );
-            });
-
-            // 19
-            container.WithSeparator();
-            // 20
-            container.WithTextDisplay($"""
-            ### 工单日志频道
-            {_guildConfig.TicketLogChannel.ToChannelMention()}
-            """);
-            // 21
-            container.WithActionRow(row =>
-            {
-                // 22
-                row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editTicketLogChannel"),
-                    style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
-                    disabled: IsFinished
-                );
-            });
-
-            // 23
-            container.WithSeparator();
-            // 24
-            container.WithTextDisplay($"""
-            ### 创建投诉频道的分组
-            {_guildConfig.TicketCategory.ToChannelMention()}
-            """);
-            // 25
-            container.WithActionRow(row =>
-            {
-                // 26
-                row.WithButton(
-                    label: "编辑",
-                    customId: CustomId("editTicketCategory"),
-                    style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
-                    disabled: IsFinished
-                );
-            });
-
-            // 27
-            // 时间类设置合并为一段：Discord 单条消息组件上限 40，拆成两段会超限
-            container.WithSeparator();
-            // 28
-            container.WithTextDisplay($"""
-            ### 自动处理设置
+            ### 自动化
             - 投诉冷却: {(_guildConfig.EnableTicketCd ? $"{_guildConfig.TicketCd} 小时" : "已关闭")}
             - 待审核自动通过: {(_guildConfig.AutoApproveHours > 0 ? $"{_guildConfig.AutoApproveHours} 小时" : "未启用")}
+            - 自动安抚: {(_guildConfig.EnableAutoSoothe ? $"自动通过后 {_guildConfig.SootheDelayMinutes} 分钟无管理回复则发送" : "已关闭")}
             - 归档删除倒计时: {_guildConfig.ArchiveDeleteCountdownSeconds} 秒（归档时可选是否删除频道）
             """);
-            // 29
             container.WithActionRow(row =>
             {
-                // 30
                 row.WithButton(
-                    label: "启用冷却",
-                    customId: CustomId("enableTicketCD"),
-                    style: _guildConfig.EnableTicketCd ? ButtonStyle.Success : ButtonStyle.Primary,
-                    disabled: IsFinished
-                );
-                // 31
-                row.WithButton(
-                    label: "关闭冷却",
-                    customId: CustomId("disableTicketCD"),
-                    style: _guildConfig.EnableTicketCd ? ButtonStyle.Primary : ButtonStyle.Danger,
-                    disabled: IsFinished
-                );
-                // 32
-                row.WithButton(
-                    label: "编辑冷却",
-                    customId: CustomId("editTicketCD"),
+                    label: "编辑数值",
+                    customId: CustomId("editNumbers"),
                     style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
+                    emote: new Emoji("🔢"),
                     disabled: IsFinished
                 );
-                // 33
                 row.WithButton(
-                    label: "编辑自动通过",
-                    customId: CustomId("editAutoApprove"),
-                    style: ButtonStyle.Primary,
-                    emote: new Emoji("#️⃣"),
+                    label: _guildConfig.EnableTicketCd ? "冷却：开" : "冷却：关",
+                    customId: CustomId("toggleTicketCd"),
+                    style: _guildConfig.EnableTicketCd ? ButtonStyle.Success : ButtonStyle.Secondary,
+                    disabled: IsFinished
+                );
+                row.WithButton(
+                    label: _guildConfig.EnableAutoSoothe ? "自动安抚：开" : "自动安抚：关",
+                    customId: CustomId("toggleSoothe"),
+                    style: _guildConfig.EnableAutoSoothe ? ButtonStyle.Success : ButtonStyle.Secondary,
                     disabled: IsFinished
                 );
             });
 
-            // 34
             container.WithSeparator();
+
             if (_isCancel)
             {
-                // 35
                 container.WithTextDisplay("配置编辑已取消");
             }
             else if (_isComplete)
             {
-                // 35
                 container.WithTextDisplay("配置已应用");
             }
             else
             {
-                // 35
                 container.WithActionRow(row =>
                 {
-                    // 36
                     row.WithButton(
                         label: "应用",
                         customId: CustomId("apply"),
                         style: ButtonStyle.Success,
                         disabled: IsFinished
                     );
-                    // 37
                     row.WithButton(
                         label: "取消",
                         customId: CustomId("cancel"),
@@ -246,11 +146,20 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
             }
         });
 
-        // 共 37 个组件, discord 上限 40
-        // 计算方法: 最大可能组合
+        // 按"大分组"组织：身份组 / 频道 / 自动化 各占一个按钮 + 一个多字段模态窗，
+        // 组件总数约 15（Discord 上限 40），为后续配置项留出余量。
 
         return component.Build();
     }
+
+    /// <summary>当前配置的实时视图，供交互层预填模态窗（只读用途）。</summary>
+    public GuildConfig Snapshot => _guildConfig;
+
+    private static string FormatRoleList(IReadOnlyCollection<ulong> ids)
+        => ids.Count == 0 ? "-# 未设置" : ids.JoinRoleMentions();
+
+    private static string FormatChannel(ulong id)
+        => id == 0 ? "-# 未设置" : id.ToChannelMention();
 
     public void Complete()
     {
@@ -310,5 +219,20 @@ public sealed class ConfigEditorSession : BaseInteractionsSession<ConfigEditorCo
     public void SetAutoApproveHours(int hours)
     {
         _guildConfig.AutoApproveHours = hours;
+    }
+
+    public void SetArchiveDeleteCountdownSeconds(int seconds)
+    {
+        _guildConfig.ArchiveDeleteCountdownSeconds = seconds;
+    }
+
+    public void SetEnableAutoSoothe(bool enabled)
+    {
+        _guildConfig.EnableAutoSoothe = enabled;
+    }
+
+    public void SetSootheDelayMinutes(int minutes)
+    {
+        _guildConfig.SootheDelayMinutes = minutes;
     }
 }

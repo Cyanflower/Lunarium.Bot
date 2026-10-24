@@ -31,6 +31,15 @@ public static class TicketConfigLimits
     /// <summary>待审核工单自动通过时间是否合法（0 ≤ hours ≤ 720，<c>0</c> 表示不自动通过）。</summary>
     public static bool IsValidAutoApproveHours(int hours) => hours is >= AutoApproveHoursInclusiveMin and <= AutoApproveHoursInclusiveMax;
 
+    /// <summary>自动安抚延迟下界（含，分钟）。</summary>
+    public const int SootheDelayMinutesInclusiveMin = 5;
+
+    /// <summary>自动安抚延迟上界（含，分钟）。7 天。</summary>
+    public const int SootheDelayMinutesInclusiveMax = 10080;
+
+    /// <summary>自动安抚延迟是否合法（5 ≤ minutes ≤ 10080）。</summary>
+    public static bool IsValidSootheDelayMinutes(int minutes) => minutes is >= SootheDelayMinutesInclusiveMin and <= SootheDelayMinutesInclusiveMax;
+
     /// <summary>归档后删除频道的倒计时下界（含，秒）。</summary>
     public const int ArchiveCountdownInclusiveMin = 5;
 

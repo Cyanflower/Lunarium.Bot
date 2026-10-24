@@ -44,7 +44,7 @@ public sealed class TicketWorkflowService
 {
     /// <summary>自动通过时追加到开场消息的安抚文案。</summary>
     private const string AutoApproveApology =
-        "⏳ 本条工单为系统自动通过，管理组目前较为繁忙、人手有限，可能无法立即回复，请稍安勿躁。";
+        "⏳ 本条工单为系统自动通过，管理组目前较为繁忙、人手有限，可能无法立即回复，请耐心等待。";
 
     /// <summary>工单频道的权限覆盖（提交人）。</summary>
     private static readonly OverwritePermissions CreatorPermissions = new(

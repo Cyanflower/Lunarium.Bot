@@ -152,6 +152,22 @@ public sealed class GuildConfig : IValidatableObject
     public int AutoApproveHours { get; set; }
 
     /// <summary>
+    /// 是否对系统自动通过的工单启用"长时间无管理回复"安抚。
+    /// <para>
+    /// 开启后，自动通过的工单在 <see cref="SootheDelayMinutes"/> 内没有任何管理组发言，
+    /// Bot 会向提交人发送一条固定文案的安抚消息，并在通知频道投递提示卡片与 <c>@here</c>。
+    /// 手动通过的工单不受影响。
+    /// </para>
+    /// </summary>
+    public bool EnableAutoSoothe { get; set; } = true;
+
+    /// <summary>
+    /// 自动通过后等待多久仍无管理组发言就发送安抚消息（分钟）。
+    /// 仅在 <see cref="EnableAutoSoothe"/> 为 <c>true</c> 时生效与校验。
+    /// </summary>
+    public int SootheDelayMinutes { get; set; } = 120;
+
+    /// <summary>
     /// 归档时选择“删除频道”后的倒计时（秒）：归档通告发出后等待该时长再删频道，
     /// 让管理组还能看到最后一条通告。是否删除由归档操作当场指定。
     /// </summary>
@@ -185,6 +201,10 @@ public sealed class GuildConfig : IValidatableObject
             TicketCd = TicketCd,
             // int
             AutoApproveHours = AutoApproveHours,
+            // bool
+            EnableAutoSoothe = EnableAutoSoothe,
+            // int
+            SootheDelayMinutes = SootheDelayMinutes,
             // int
             ArchiveDeleteCountdownSeconds = ArchiveDeleteCountdownSeconds,
             // ulong（Bot 回写，编辑器不得清空）
@@ -206,6 +226,13 @@ public sealed class GuildConfig : IValidatableObject
             yield return new ValidationResult(
                 $"必须在 {TicketConfigLimits.AutoApproveHoursInclusiveMin} 到 {TicketConfigLimits.AutoApproveHoursInclusiveMax} 之间（0 表示不自动通过），当前值为 {AutoApproveHours}",
                 [nameof(AutoApproveHours)]);
+        }
+
+        if (EnableAutoSoothe && !TicketConfigLimits.IsValidSootheDelayMinutes(SootheDelayMinutes))
+        {
+            yield return new ValidationResult(
+                $"必须在 {TicketConfigLimits.SootheDelayMinutesInclusiveMin} 到 {TicketConfigLimits.SootheDelayMinutesInclusiveMax} 分钟之间，当前值为 {SootheDelayMinutes}",
+                [nameof(SootheDelayMinutes)]);
         }
 
         if (!TicketConfigLimits.IsValidArchiveCountdown(ArchiveDeleteCountdownSeconds))
