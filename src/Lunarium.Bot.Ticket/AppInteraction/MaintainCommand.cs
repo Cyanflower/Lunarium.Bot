@@ -132,7 +132,7 @@ public sealed class MaintainCommand : InteractionModuleBase<SocketInteractionCon
     /// <summary>
     /// 密钥输入消息上的按钮：仅部署者/维护者可打开设置模态窗，其他人只收到 ephemeral 拒绝。
     /// </summary>
-    [ComponentInteraction(AiKeyEntry.CustomIdString)]
+    [ComponentInteraction(AiKeyEntry.CustomIdString, ignoreGroupNames: true)]
     public async Task AiKeyEntryButtonAsync()
     {
         using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
@@ -186,7 +186,7 @@ public sealed class MaintainCommand : InteractionModuleBase<SocketInteractionCon
         }
     }
 
-    [ModalInteraction(AiKeyModal.CustomId)]
+    [ModalInteraction(AiKeyModal.CustomId, ignoreGroupNames: true)]
     public async Task SetAiKeyModalAsync(AiKeyModal modal)
     {
         using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
