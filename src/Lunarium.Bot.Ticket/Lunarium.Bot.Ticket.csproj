@@ -5,6 +5,36 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- 同时决定发布出的可执行文件名 -->
+    <AssemblyName>Lunarium.Bot.Ticket</AssemblyName>
+
+    <!--
+      发布外观：
+      服务器（linux-x64）不安装 .NET 运行时，所以 Release 默认按自包含单文件发布，
+      `dotnet publish -c Release` 即可直接产出可上传的二进制。
+      Debug / IDE 构建保持框架依赖，便于本地调试。
+    -->
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">linux-x64</RuntimeIdentifier>
+    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
+
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- 单文件发布不启用裁剪：Discord.Net / STJ 依赖反射，裁剪会到运行时才暴露问题 -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- 不生成 pdb / xml 文档，减小发布体积 -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">None</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <!-- 连引用项目的 pdb / xml 也不复制，保持发布目录只剩二进制与模板 -->
+    <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">.none</AllowedReferenceRelatedFileExtensions>
+    <CopyOutputSymbolsToOutputDirectory Condition="'$(Configuration)' == 'Release'">false</CopyOutputSymbolsToOutputDirectory>
+
+    <!-- 固定发布目录：src/Lunarium.Bot.Ticket/dist/（已被 .gitignore 忽略） -->
+    <PublishDir>dist\</PublishDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,16 +49,18 @@
 
   <ItemGroup>
     <!-- CopyToOutputDirectory 让编译器在构建时复制它们 -->
+    <!-- CopyToPublishDirectory 让它们出现在发布目录里 -->
+    <!-- ExcludeFromSingleFile 避免被嵌进单文件二进制 -->
     <!-- PreserveNewest: 如果文件没变动就不复制 -->
     <Content Include="appsettings.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
     <Content Include="appsettings.health.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <!-- 部署脚本可选：仓库里还没有这个文件时不应阻塞构建 -->
-    <Content Include="start.sh" Condition="Exists('start.sh')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 
