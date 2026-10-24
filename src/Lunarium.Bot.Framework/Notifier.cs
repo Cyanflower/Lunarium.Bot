@@ -12,6 +12,8 @@ using Discord.WebSocket;
 
 using Lunarium.Logging;
 using Lunarium.Bot.Framework.Health;
+using Lunarium.Bot.Framework.Interaction;
+using System.ComponentModel;
 
 namespace Lunarium.Bot.Framework;
 
@@ -150,6 +152,24 @@ public sealed class Notifier
         else
         {
             _logger.Warning("ReadyAsync 出现异常: 配置的 Status 频道({channelId})不是可发消息频道类型(IMessageChannel)", statusChannelId);
+        }
+    }
+
+    public async Task SendKeyEntryMessageAsync(ulong statusChannelId, CustomId customId, string? content = null)
+    {
+        var statusChannel = await _client.GetChannelAsync(statusChannelId);
+        if (statusChannel is IMessageChannel statusMessageChannel)
+        {
+            var message = await statusMessageChannel.SendMessageAsync(
+                components: MessagePrefab.EntryKey(customId, content));
+
+            _logger.Info("已发送密钥输入提示: ChannelId={ChannelId}, MessageId={MessageId}, CustomId={CustomId}",
+                statusChannelId, message.Id, customId);
+        }
+        else
+        {
+            _logger.Warning("无法发送密钥输入提示: 频道({ChannelId})不存在或不是可发消息频道类型(IMessageChannel)",
+                statusChannelId);
         }
     }
 

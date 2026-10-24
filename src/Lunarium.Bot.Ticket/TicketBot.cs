@@ -6,6 +6,7 @@ using Lunarium.Bot.Framework.Configuration;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Ticket.Model;
 using Lunarium.Bot.Ticket.TicketService;
+using Lunarium.Bot.Ticket.AppInteraction;
 using Lunarium.Bot.AI;
 
 using System.Reflection;
@@ -33,6 +34,7 @@ public class TicketBotService : IHostedService
     private readonly CommandSynchronizer _commandSynchronizer;
     private readonly TicketManager _ticketManager;
     private readonly TicketMaintenanceService _maintenance;
+    private readonly IAiClient _aiClient;
     private bool _isFirstTime = true;
 
     public TicketBotService(EnvVar token, ILogger logger, ProxyUrl? proxyUrl)
@@ -52,6 +54,7 @@ public class TicketBotService : IHostedService
         _commandSynchronizer = _privateServices.GetRequiredService<CommandSynchronizer>();
         _ticketManager = _privateServices.GetRequiredService<TicketManager>();
         _maintenance = _privateServices.GetRequiredService<TicketMaintenanceService>();
+        _aiClient = _privateServices.GetRequiredService<IAiClient>();
     }
 
     private IServiceProvider ConfigurePrivateServices(ProxyUrl? proxyUrl, ILogger logger)
@@ -118,14 +121,14 @@ public class TicketBotService : IHostedService
         await _ticketManager.InitializeAsync();
 
         // 明确打印 LLM 状态，避免"审核卡片没有 AI 建议"无从排查
-        if (_privateServices.GetRequiredService<IAiClient>().IsAvailable)
+        if (_aiClient.IsAvailable)
         {
             _logger.Info("LLM 审核建议: 已启用");
         }
         else
         {
             _logger.Warning(
-                "LLM 审核建议: 未启用（未找到 API Key）。请设置环境变量 DEEPSEEK_API_KEY，或在 AddLunariumAi 中配置 AiOptions.ApiKey");
+                "LLM 审核建议: 未启用（未找到 API Key）。请设置环境变量 DEEPSEEK_API_KEY，或使用 /维护 设置ai密钥 在运行期设置");
         }
 
         // 注册事件处理器
@@ -197,6 +200,9 @@ public class TicketBotService : IHostedService
                 await _notifier.SendLoginNotificationAsync(
                     _configLoader.Value.DeployerConfig.StatusChannel,
                     _configLoader.Value.DeployGuildConfig.Keys.ToList());
+
+                // 未配置 AI Key 时，在状态频道留一个仅部署者/维护者可用的输入入口
+                await NotifyAiKeyEntryIfNeededAsync();
             }
             else
             {
@@ -213,6 +219,23 @@ public class TicketBotService : IHostedService
 
     }
 
+    /// <summary>未配置 AI Key 时，在状态频道发一条带"输入"按钮的提示（仅首次就绪）。</summary>
+    private async Task NotifyAiKeyEntryIfNeededAsync()
+    {
+        if (_aiClient.IsAvailable)
+        {
+            return;
+        }
+
+        await _notifier.SendKeyEntryMessageAsync(
+            _configLoader.Value.DeployerConfig.StatusChannel,
+            AiKeyEntry.ButtonCustomId,
+            """
+            LLM 审核建议需要 DeepSeek API Key。
+            仅部署者/维护者可点击下方按钮输入；密钥只保存在进程内存中，重启后会自动回落到环境变量。
+            """);
+    }
+
     private async Task HandleMessageCommandAsync(SocketMessage message)
     {
         try
@@ -227,7 +250,7 @@ public class TicketBotService : IHostedService
             _logger.Error(ex, "处理文本消息命令失败");
         }
     }
-    
+
     private async Task HandleInteractionAsync(SocketInteraction interaction)
     {
         try

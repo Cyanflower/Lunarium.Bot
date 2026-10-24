@@ -33,7 +33,7 @@ public sealed class TicketSuggestionService
     {
         if (!_ai.IsAvailable)
         {
-            _logger.Warning("LLM 未配置 API Key，跳过建议生成: {Ticket}（环境变量 {Variable} 不存在且 AiOptions.ApiKey 为空）",
+            _logger.Warning("LLM 未配置 API Key，跳过建议生成: {Ticket}（环境变量 {Variable} 不存在，AiOptions.ApiKey 为空，且未在运行期设置）",
                 ticket, "DEEPSEEK_API_KEY");
             return null;
         }
