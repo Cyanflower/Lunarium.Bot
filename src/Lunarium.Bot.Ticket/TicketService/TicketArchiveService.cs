@@ -718,7 +718,7 @@ public sealed partial class TicketArchiveService
             : $"{Html(displayName ?? string.Empty)} ({userId}) · {FormatTime(at ?? default)}";
     }
 
-    /// <summary>转义 + 提及还原 + 链接 + 换行。</summary>
+    /// <summary>转义 + 链接 + 换行；提及保持原始 <c>&lt;@id&gt;</c> / <c>&lt;#id&gt;</c> / <c>&lt;@&amp;id&gt;</c> 形式。</summary>
     private static string FormatContent(string content)
     {
         if (string.IsNullOrEmpty(content))
@@ -754,11 +754,9 @@ public sealed partial class TicketArchiveService
             return string.Empty;
         }
 
-        var encoded = WebUtility.HtmlEncode(text);
-        encoded = UserMentionRegex().Replace(encoded, "@用户");
-        encoded = ChannelMentionRegex().Replace(encoded, "#频道");
-        encoded = RoleMentionRegex().Replace(encoded, "@身份组");
-
+        // 昵称提及 <@!id> 归一化为 <@id>；用户/频道/身份组提及全部原样保留
+        var normalized = NicknameMentionRegex().Replace(text, "<@$1>");
+        var encoded = WebUtility.HtmlEncode(normalized);
         return encoded.Replace("\r\n", "\n").Replace("\n", "<br>");
     }
 
@@ -828,12 +826,6 @@ public sealed partial class TicketArchiveService
     [GeneratedRegex(@"https?://[^\s<>""']+", RegexOptions.IgnoreCase)]
     private static partial Regex UrlRegex();
 
-    [GeneratedRegex(@"&lt;@!?\d+&gt;")]
-    private static partial Regex UserMentionRegex();
-
-    [GeneratedRegex(@"&lt;#\d+&gt;")]
-    private static partial Regex ChannelMentionRegex();
-
-    [GeneratedRegex(@"&lt;@&amp;\d+&gt;")]
-    private static partial Regex RoleMentionRegex();
+    [GeneratedRegex(@"<@!(\d+)>")]
+    private static partial Regex NicknameMentionRegex();
 }
