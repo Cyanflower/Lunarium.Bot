@@ -154,8 +154,8 @@ public static partial class ComponentTemplate
                 }
                 container.WithSeparator();
                 container.WithTextDisplay($"""
-                审批人：{(isAutoApprove ? "系统（自动通过）" : $"<@{approverId}>")}
-                工单频道：<#{channelId}>
+                ### 审批人：{(isAutoApprove ? "系统（自动通过）" : $"<@{approverId}>")}
+                ### 工单频道：<#{channelId}>
                 """);
                 container.WithSeparator();
                 container.WithTextDisplay(FormatAutoApproveLine(autoApproveTime));
@@ -220,7 +220,7 @@ public static partial class ComponentTemplate
                 }
                 container.WithSeparator();
                 container.WithTextDisplay($"""
-                审批人：<@{approverId}>
+                ### 审批人：<@{approverId}>
                 """);
                 container.WithTextDisplay($"""
                 原因：{reason}
