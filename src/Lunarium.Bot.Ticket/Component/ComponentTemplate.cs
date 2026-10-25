@@ -3,6 +3,7 @@ using System.Globalization;
 using Discord;
 
 using Lunarium.Bot.Framework;
+using Lunarium.Bot.Ticket.Model;
 
 namespace Lunarium.Bot.Ticket.Component;
 
@@ -49,4 +50,10 @@ public static partial class ComponentTemplate
         autoApproveTime is { } due
             ? $"自动通过时间: <t:{due.ToUnixTimeSeconds()}> | <t:{due.ToUnixTimeSeconds()}:R>"
             : "自动通过: 未启用（需人工审核）";
+
+    /// <summary>
+    ///     工单分类的单行展示（一级 • 二级），用于卡片标题；二级为 <see cref="TicketCategory.Unknown"/> 时显示"未分类"。
+    /// </summary>
+    private static string FormatTicketCategory(TicketType type, TicketCategory category) =>
+        $"{type.Describe()} • {(category == TicketCategory.Unknown ? "未分类" : category.Describe())}";
 }

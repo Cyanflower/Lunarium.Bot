@@ -14,7 +14,7 @@ public static partial class ComponentTemplate
         {
             var embed = new EmbedBuilder()
                 .WithColor(GetColor(ticket.Status))
-                .WithTitle(TicketData.FormatId(ticket.Id))
+                .WithTitle($"{TicketData.FormatId(ticket.Id)}丨{FormatTicketCategory(ticket.TicketType, ticket.TicketCategory)}")
                 .WithDescription($"""
                 来自 <@{ticket.TicketCreator.UserId}> 的工单:
                 {ticket.Content.Slice(150)}{(ticket.SecondaryContent is not null ? $"\n> 额外内容: {ticket.SecondaryContent.Slice(150)}" : "")}

@@ -72,7 +72,7 @@ public sealed class DeployerConfig : IValidatableObject
     /// 状态频道ID(上线/重连等运行状态通知的发送目标，全局唯一，不区分服务器)。
     /// </summary>
     [SnowflakeId]
-    public ulong StatusChannel { get; set; }
+    public ulong StatusChannelId { get; set; }
 
     /// <summary>
     /// 是否允许通过 Discord 交互(斜杠命令/按钮)修改本配置文件。

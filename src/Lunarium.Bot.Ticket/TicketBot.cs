@@ -183,8 +183,6 @@ public class TicketBotService : IHostedService
             _logger.Info("🎉 Bot 已就绪！已连接为: {_client.CurrentUser.Username}#{_client.CurrentUser.Discriminator}", _client.CurrentUser.Username, _client.CurrentUser.Discriminator);
             if (_isFirstTime == true)
             {
-                // 现在 bot 完全就绪，可以安全地同步命令
-
                 // 注册连接事件处理器(否则连接状态队列恒为空)
                 _healthMonitoring.AddConnectEventHandler();
                 _isFirstTime = false;
@@ -198,7 +196,7 @@ public class TicketBotService : IHostedService
 
                 // 登录消息
                 await _notifier.SendLoginNotificationAsync(
-                    _configLoader.Value.DeployerConfig.StatusChannel,
+                    _configLoader.Value.DeployerConfig.StatusChannelId,
                     _configLoader.Value.DeployGuildConfig.Keys.ToList());
 
                 // 未配置 AI Key 时，在状态频道留一个仅部署者/维护者可用的输入入口
@@ -228,7 +226,7 @@ public class TicketBotService : IHostedService
         }
 
         await _notifier.SendKeyEntryMessageAsync(
-            _configLoader.Value.DeployerConfig.StatusChannel,
+            _configLoader.Value.DeployerConfig.StatusChannelId,
             AiKeyEntry.ButtonCustomId,
             """
             LLM 审核建议需要 DeepSeek API Key。

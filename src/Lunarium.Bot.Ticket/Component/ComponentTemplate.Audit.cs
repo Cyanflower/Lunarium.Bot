@@ -15,15 +15,22 @@ public static partial class ComponentTemplate
         public const string RejectPrefix = "audit:reject";
         public const string FastRejectPrefix = "audit:fastReject";
 
-        public static MessageComponent ToComponent(int ticketId, ulong ticketCreatorId, string content, DateTimeOffset? autoApproveTime, LLMSuggestion? suggestion)
+        public static MessageComponent ToComponent(
+            int ticketId,
+            TicketType ticketType,
+            TicketCategory ticketCategory,
+            ulong ticketCreatorId,
+            string content,
+            DateTimeOffset? autoApproveTime,
+            LLMSuggestion? suggestion)
         {
             return new ComponentBuilderV2().WithContainer(container =>
             {
                 container.WithAccentColor(Color.Blue);
                 container.WithTextDisplay($"## 📋 社区服务中心 | {TicketData.FormatId(ticketId)}");
                 container.WithSeparator();
-                container.WithTextDisplay("""
-                ### 🔄 待审核工单
+                container.WithTextDisplay($"""
+                ### 🔄 待审核工单丨{FormatTicketCategory(ticketType, ticketCategory)}
                 @here
                 """);
                 container.WithSeparator();
@@ -92,15 +99,24 @@ public static partial class ComponentTemplate
     /// <summary>审核通过后的卡片（原地替换待审核卡片）。</summary>
     public static class ApprovedAuditMessage
     {
-        public static MessageComponent ToComponent(int ticketId, ulong ticketCreatorId, string content, ulong approverId, DateTimeOffset? autoApproveTime, LLMSuggestion? suggestion, bool isAutoApprove)
+        public static MessageComponent ToComponent(
+            int ticketId,
+            TicketType ticketType,
+            TicketCategory ticketCategory,
+            ulong ticketCreatorId,
+            string content,
+            ulong approverId,
+            DateTimeOffset? autoApproveTime,
+            LLMSuggestion? suggestion,
+            bool isAutoApprove)
         {
             return new ComponentBuilderV2().WithContainer(container =>
             {
                 container.WithAccentColor(Color.Green);
                 container.WithTextDisplay($"## 📋 社区服务中心 | {TicketData.FormatId(ticketId)}");
                 container.WithSeparator();
-                container.WithTextDisplay("""
-                ### ✅ 已通过审核
+                container.WithTextDisplay($"""
+                ### ✅ 已通过审核丨{FormatTicketCategory(ticketType, ticketCategory)}
                 @here
                 """);
                 container.WithSeparator();
@@ -149,15 +165,23 @@ public static partial class ComponentTemplate
     /// <summary>审核拒绝后的卡片（原地替换待审核卡片）。</summary>
     public static class RejectedAuditMessage
     {
-        public static MessageComponent ToComponent(int ticketId, ulong ticketCreatorId, string content, ulong approverId, string reason, LLMSuggestion? suggestion)
+        public static MessageComponent ToComponent(
+            int ticketId,
+            TicketType ticketType,
+            TicketCategory ticketCategory,
+            ulong ticketCreatorId,
+            string content,
+            ulong approverId,
+            string reason,
+            LLMSuggestion? suggestion)
         {
             return new ComponentBuilderV2().WithContainer(container =>
             {
                 container.WithAccentColor(Color.Red);
                 container.WithTextDisplay($"## 📋 社区服务中心 | {TicketData.FormatId(ticketId)}");
                 container.WithSeparator();
-                container.WithTextDisplay("""
-                ### ⛔️ 已拒绝工单
+                container.WithTextDisplay($"""
+                ### ⛔️ 已拒绝工单丨{FormatTicketCategory(ticketType, ticketCategory)}
                 @here
                 """);
                 container.WithSeparator();

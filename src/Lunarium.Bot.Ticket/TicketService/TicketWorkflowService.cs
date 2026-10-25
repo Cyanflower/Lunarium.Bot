@@ -162,6 +162,8 @@ public sealed class TicketWorkflowService
         await TryUpdateStatusCardAsync(guild, ticket);
         await TryUpdateAuditCardAsync(guild, ticket, ComponentTemplate.ApprovedAuditMessage.ToComponent(
             ticket.Id,
+            ticket.TicketType,
+            ticket.TicketCategory,
             ticket.TicketCreator.UserId,
             TicketCardService.BuildAuditContent(ticket),
             approver.Id,
@@ -207,6 +209,8 @@ public sealed class TicketWorkflowService
         await TryUpdateStatusCardAsync(guild, ticket);
         await TryUpdateAuditCardAsync(guild, ticket, ComponentTemplate.RejectedAuditMessage.ToComponent(
             ticket.Id,
+            ticket.TicketType,
+            ticket.TicketCategory,
             ticket.TicketCreator.UserId,
             TicketCardService.BuildAuditContent(ticket),
             actor.Id,

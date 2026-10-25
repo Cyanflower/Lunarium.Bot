@@ -131,6 +131,8 @@ public sealed class TicketCardService
                 channel.SendMessageAsync(
                     components: ComponentTemplate.PendingAuditMessage.ToComponent(
                         ticket.Id,
+                        ticket.TicketType,
+                        ticket.TicketCategory,
                         ticket.TicketCreator.UserId,
                         BuildAuditContent(ticket),
                         ticket.AutoApproveTime,
