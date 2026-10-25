@@ -1,4 +1,7 @@
+using System.Net;
+
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 
 using Lunarium.Bot.Framework.Configuration;
@@ -15,6 +18,7 @@ namespace Lunarium.Bot.Ticket.TicketService;
 ///   <item>启动对账：已通过/已关闭但缺频道坐标的工单，按频道名认领；待审核但缺审核卡片的工单重发卡片。</item>
 ///   <item>定时扫描：把到点仍待审核的工单自动通过（复用 <see cref="TicketWorkflowService.ApproveAsync"/>）。</item>
 ///   <item>定时扫描：自动通过的工单长时间无管理回复时发送安抚（复用 <see cref="TicketSootheService"/>）。</item>
+///   <item>定时扫描：执行到期的归档频道删除，删除前校验工单与频道身份。</item>
 /// </list>
 /// <para>
 /// 本服务不在宿主 DI 里，由 <c>TicketBotService</c> 在首次就绪后手动 <c>StartAsync</c>，
@@ -147,7 +151,10 @@ public sealed class TicketMaintenanceService : BackgroundService
         }
     }
 
-    /// <summary>执行到期的归档频道删除；失败按 5 分钟退避，最多 3 次。</summary>
+    /// <summary>
+    /// 执行到期的归档频道删除。删除前校验频道类型（普通文字频道）、工单一致性与频道身份；
+    /// 校验失败直接丢弃队列项，Discord API 失败则按 5 分钟退避、最多重试 3 次。
+    /// </summary>
     private async Task ProcessDeletionsAsync(CancellationToken cancellationToken)
     {
         var due = _deletions.GetDue(DateTimeOffset.UtcNow);
@@ -165,43 +172,93 @@ public sealed class TicketMaintenanceService : BackgroundService
             var guild = _client.GetGuild(entry.GuildId);
             if (guild is null)
             {
-                _logger.Warning("删除队列：Bot 不在服务器内，丢弃: TicketId={TicketId} GuildId={GuildId}",
-                    entry.TicketId, entry.GuildId);
-                _deletions.Remove(entry.ChannelId);
-                changed = true;
+                Drop(entry, "Bot 不在服务器内");
                 continue;
             }
 
             if (guild.GetChannel(entry.ChannelId) is not ITextChannel channel)
             {
-                _logger.Info("删除队列：频道已不存在，移除: TicketId={TicketId} ChannelId={ChannelId}",
-                    entry.TicketId, entry.ChannelId);
-                _deletions.Remove(entry.ChannelId);
-                changed = true;
+                Drop(entry, "频道已不存在", expected: true);
                 continue;
             }
 
+            // 线程（SocketThreadChannel）与公告（SocketNewsChannel）都实现 ITextChannel，必须显式排除，
+            // 否则队列被篡改时可能删到线程或公告频道
+            if (channel is IThreadChannel or INewsChannel)
+            {
+                Drop(entry, $"频道类型不符（只允许普通文字频道，实际 {channel.GetType().Name}）");
+                continue;
+            }
+
+            // 队列文件只是调度用的磁盘数据，可信源永远是工单本身
+            var ticket = _ticketManager.LoadAny(entry.TicketId);
+            if (ticket is null)
+            {
+                Drop(entry, "找不到对应工单，无法确认删除目标");
+                continue;
+            }
+
+            if (ticket.GuildId != entry.GuildId || ticket.ChannelId != entry.ChannelId)
+            {
+                Drop(entry, $"队列条目与工单不一致（工单 GuildId={ticket.GuildId} ChannelId={ticket.ChannelId}）");
+                continue;
+            }
+
+            if (ticket.Status != TicketStatus.Archived)
+            {
+                Drop(entry, $"工单状态为 {ticket.Status}，不是已归档");
+                continue;
+            }
+
+            var expectedName = TicketWorkflowService.GetChannelName(ticket.Id);
+            if (!string.Equals(channel.Name, expectedName, StringComparison.Ordinal))
+            {
+                Drop(entry, $"频道名不符（期望 {expectedName}，实际 {channel.Name}）");
+                continue;
+            }
+
+            // 分组校验依赖服务器配置；配置缺失时只保留工单 + 频道名校验
+            if (_configLoader.Value.DeployGuildConfig.TryGetValue(entry.GuildId, out var config)
+                && channel.CategoryId != config.TicketCategory)
+            {
+                Drop(entry, $"频道分组不符（期望 {config.TicketCategory}，实际 {channel.CategoryId?.ToString() ?? "无分组"}）");
+                continue;
+            }
+
+            // 删除目标一律以工单为准（entry.ChannelId 已在上面校验过一致性）
+            var channelId = ticket.ChannelId;
+
             try
             {
-                await channel.DeleteAsync();
-                _deletions.Remove(entry.ChannelId);
+                await channel.DeleteAsync(new RequestOptions
+                {
+                    AuditLogReason = $"归档工单 {ticket} 到期删除",
+                });
+
+                _deletions.Remove(channelId);
                 changed = true;
-                _logger.Info("归档频道已删除: TicketId={TicketId} ChannelId={ChannelId}", entry.TicketId, entry.ChannelId);
+                _logger.Info("归档频道已删除: {Ticket} ChannelId={ChannelId}", ticket, channelId);
+            }
+            catch (HttpException ex) when (ex.HttpCode == HttpStatusCode.NotFound)
+            {
+                // 已被管理员手动删除：按成功处理，避免无效的退避重试
+                _deletions.Remove(channelId);
+                changed = true;
+                _logger.Info("归档频道已不存在（可能被手动删除），移除队列项: {Ticket} ChannelId={ChannelId}",
+                    ticket, channelId);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                var abandoned = _deletions.RecordFailure(entry.ChannelId, DateTimeOffset.UtcNow);
+                var abandoned = _deletions.RecordFailure(channelId, DateTimeOffset.UtcNow);
                 changed = true;
 
                 if (abandoned)
                 {
-                    _logger.Error(ex, "删除归档频道连续失败，已放弃: TicketId={TicketId} ChannelId={ChannelId}",
-                        entry.TicketId, entry.ChannelId);
+                    _logger.Error(ex, "删除归档频道连续失败，已放弃: {Ticket} ChannelId={ChannelId}", ticket, channelId);
                 }
                 else
                 {
-                    _logger.Warning(ex, "删除归档频道失败，5 分钟后重试: TicketId={TicketId} ChannelId={ChannelId}",
-                        entry.TicketId, entry.ChannelId);
+                    _logger.Warning(ex, "删除归档频道失败，5 分钟后重试: {Ticket} ChannelId={ChannelId}", ticket, channelId);
                 }
             }
         }
@@ -209,6 +266,24 @@ public sealed class TicketMaintenanceService : BackgroundService
         if (changed)
         {
             await _deletions.SaveAsync(cancellationToken);
+        }
+
+        // 校验失败都是确定性失败，直接丢弃条目；expected 表示属于正常情况（频道本来就已经没了）
+        void Drop(PendingDeletion item, string reason, bool expected = false)
+        {
+            if (expected)
+            {
+                _logger.Info("删除队列：{Reason}，移除条目: TicketId={TicketId} ChannelId={ChannelId} GuildId={GuildId}",
+                    reason, item.TicketId, item.ChannelId, item.GuildId);
+            }
+            else
+            {
+                _logger.Warning("删除队列：{Reason}，跳过删除并移除条目: TicketId={TicketId} ChannelId={ChannelId} GuildId={GuildId}",
+                    reason, item.TicketId, item.ChannelId, item.GuildId);
+            }
+
+            _deletions.Remove(item.ChannelId);
+            changed = true;
         }
     }
 
