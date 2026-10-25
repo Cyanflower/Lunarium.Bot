@@ -167,6 +167,7 @@ public sealed class TicketWorkflowService
             ticket.TicketCreator.UserId,
             TicketCardService.BuildAuditContent(ticket),
             approver.Id,
+            channel.Id,
             ticket.AutoApproveTime,
             ticket.LLMSuggestion,
             isAutoApprove));

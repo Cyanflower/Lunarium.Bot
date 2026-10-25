@@ -34,13 +34,15 @@ public static partial class ComponentTemplate
 
     /// <summary>
     ///     把多行文本逐行转成 Markdown 引用块。
-    ///     Discord 的 <c>&gt;</c> 只对当前行生效，不逐行处理的话第二行起会掉出引用块。
+    ///     Discord 的 <c>&gt;</c> 只对当前行生效，不逐行处理的话第二行起会掉出引用块；
+    ///     空行直接丢弃——写成裸 <c>&gt;</c> 会在卡片里留下一条孤立的空引用行。
     /// </summary>
     private static string QuoteLines(string text)
     {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         return string.Join('\n', normalized.Split('\n')
-            .Select(line => line.Length == 0 ? ">" : $"> {line}"));
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => $"> {line}"));
     }
 
     /// <summary>

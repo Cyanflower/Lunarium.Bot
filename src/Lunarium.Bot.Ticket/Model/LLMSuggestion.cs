@@ -240,7 +240,7 @@ public sealed record LLMSuggestion
         - Respond with ONE valid JSON object and nothing else. No markdown, no code fences, no explanations, no leading or trailing text.
         - Use exactly these property names and casing: "Suggestion", "Emoji", "RejectReason".
         - "Suggestion": required, non-empty. State the recommended decision for the staff and the reason behind it.
-          Format it as multiple lines: the first line is the decision, then an empty line, then up to 3 bullet points starting with "- ".
+          Format it as multiple lines: the first line is the decision, then up to 3 bullet points starting with "- ".
           Inside the JSON string, line breaks MUST be written as the two-character escape \n (backslash + n), never as a real newline.
         - "Emoji": required. Exactly one emoji character summarizing the decision.
         - "RejectReason": the message that will be sent back to the ticket creator. Required when rejecting, omitted (or null) when approving.
@@ -264,7 +264,7 @@ public sealed record LLMSuggestion
 
         EXAMPLE JSON OUTPUT When Approve (evidence is expected later):
         {
-            "Suggestion": "通过 - 提交人报告了具体的盗图行为，证据会在工单频道内补充。\n\n建议核实：\n- 原图与盗图的对比截图\n- 涉嫌盗图者的用户主页或帖子链接",
+            "Suggestion": "通过 - 提交人报告了具体的盗图行为，证据会在工单频道内补充。\n\n**建议核实：**\n- 原图与盗图的对比截图\n- 涉嫌盗图者的用户主页或帖子链接",
             "Emoji": "✅"
         }
         </instruction>
