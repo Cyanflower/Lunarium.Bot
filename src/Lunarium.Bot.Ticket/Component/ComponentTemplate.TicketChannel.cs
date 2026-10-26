@@ -48,4 +48,45 @@ public static partial class ComponentTemplate
             .Build();
         }
     }
+
+    /// <summary>关闭工单通告上的归档按钮：删除频道 / 保留频道。</summary>
+    public static class CloseNotice
+    {
+        public const string ArchiveDeletePrefix = "close:archive:delete";
+        public const string ArchiveKeepPrefix = "close:archive:keep";
+
+        /// <summary>可点击的归档选项：删除频道（危险）/ 保留频道（中性）。</summary>
+        public static MessageComponent ToArchiveComponents(int ticketId) => new ComponentBuilder()
+            .WithButton(
+                label: "归档并删除频道",
+                customId: $"{ArchiveDeletePrefix}:{ticketId}",
+                style: ButtonStyle.Danger)
+            .WithButton(
+                label: "归档并保留频道",
+                customId: $"{ArchiveKeepPrefix}:{ticketId}",
+                style: ButtonStyle.Secondary)
+            .Build();
+
+        /// <summary>
+        /// 归档完成后的禁用态，保留操作痕迹。
+        /// <paramref name="deleteChannel"/> 为 <see langword="null"/> 时表示归档方式未知（例如已被斜杠命令归档）。
+        /// </summary>
+        public static MessageComponent ToArchivedComponents(int ticketId, bool? deleteChannel = null)
+        {
+            var label = deleteChannel switch
+            {
+                true => "已归档 · 频道将删除",
+                false => "已归档 · 频道已保留",
+                null => "已归档",
+            };
+
+            return new ComponentBuilder()
+                .WithButton(
+                    label: label,
+                    customId: $"close:archived:{ticketId}",
+                    style: ButtonStyle.Secondary,
+                    disabled: true)
+                .Build();
+        }
+    }
 }

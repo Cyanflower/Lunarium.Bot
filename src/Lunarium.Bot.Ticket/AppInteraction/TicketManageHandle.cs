@@ -189,6 +189,141 @@ public sealed class TicketManageHandle : InteractionModuleBase<SocketInteraction
         }
     }
 
+    /// <summary>关闭通告上的「归档并删除频道」按钮。</summary>
+    [ComponentInteraction("close:archive:delete:*", ignoreGroupNames: true)]
+    public Task ArchiveDeleteFromNoticeAsync(string ticketId)
+        => HandleCloseNoticeArchiveAsync(ticketId, deleteChannel: true);
+
+    /// <summary>关闭通告上的「归档并保留频道」按钮。</summary>
+    [ComponentInteraction("close:archive:keep:*", ignoreGroupNames: true)]
+    public Task ArchiveKeepFromNoticeAsync(string ticketId)
+        => HandleCloseNoticeArchiveAsync(ticketId, deleteChannel: false);
+
+    /// <summary>
+    /// 关闭通告上的归档按钮：与 <c>/工单 归档</c> 等价。
+    /// 按钮对提交人可见，所以必须重新鉴权；工单号以 customId 为准，并校验按钮所在频道就是工单频道。
+    /// </summary>
+    private async Task HandleCloseNoticeArchiveAsync(string ticketIdText, bool deleteChannel)
+    {
+        using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
+        try
+        {
+            if (!int.TryParse(ticketIdText, out var ticketId))
+            {
+                await RespondAsync(components: MessagePrefab.FunctionFail("按钮参数无效"), ephemeral: true);
+                return;
+            }
+
+            if (Context.Guild is not SocketGuild guild)
+            {
+                await RespondAsync(components: MessagePrefab.FunctionFail("解析服务器信息失败"), ephemeral: true);
+                return;
+            }
+
+            if (!_configLoader.Value.DeployGuildConfig.TryGetValue(guild.Id, out var config))
+            {
+                await RespondAsync(components: MessagePrefab.ConfigFail("当前配置中并无本服务器配置"), ephemeral: true);
+                return;
+            }
+
+            // customId 里的工单号可能被复用到其它频道，必须用频道交叉校验；
+            // LoadAny 在归档后仍能读到磁盘数据，便于识别“已归档”并自我修复按钮状态
+            var ticket = _ticketManager.LoadAny(ticketId);
+            if (ticket is null
+                || ticket.GuildId != guild.Id
+                || ticket.ChannelId != Context.Channel.Id)
+            {
+                await RespondAsync(
+                    components: MessagePrefab.AnyFail("按钮与当前工单不匹配", "### 无法操作"),
+                    ephemeral: true);
+                return;
+            }
+
+            var failure = await ValidateAdminAsync(config);
+            if (failure is not null)
+            {
+                await RespondAsync(components: failure, ephemeral: true);
+                return;
+            }
+
+            if (ticket.Status == TicketStatus.Archived)
+            {
+                await TryMarkCloseNoticeArchivedAsync(ticketId, deleteChannel: null);
+                await RespondAsync(
+                    components: MessagePrefab.AnyNotifier($"工单 {ticket} 已归档，无需重复操作", "### 已归档"),
+                    ephemeral: true);
+                return;
+            }
+
+            if (!_ticketManager.TryBeginTransition(ticket.Id))
+            {
+                await RespondAsync(
+                    components: MessagePrefab.AnyNotifier("该工单正在被处理，请稍后重试", "### 请稍候"),
+                    ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                if (ticket.Status != TicketStatus.Closed)
+                {
+                    await RespondAsync(
+                        components: MessagePrefab.AnyNotifier(
+                            $"工单当前状态为 {ticket.Status}，需先关闭才能归档", "### 状态不符"),
+                        ephemeral: true);
+                    return;
+                }
+
+                await DeferAsync(ephemeral: true);
+                await TryUpdateProgressAsync("正在抓取工单对话并打包归档，请稍候…", "### 处理中");
+
+                var result = await _workflow.ArchiveAsync(
+                    guild, config, ticket, TicketActor.From(Context.User), deleteChannel);
+
+                if (result.Success)
+                {
+                    await TryMarkCloseNoticeArchivedAsync(ticketId, deleteChannel);
+                }
+
+                await TrySendResultAsync(result);
+            }
+            finally
+            {
+                _ticketManager.EndTransition(ticket.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            track.Error(ex, "关闭通告归档按钮处理失败");
+            await TryReportFailureAsync("归档工单时发生内部错误");
+        }
+    }
+
+    /// <summary>
+    /// 把关闭通告上的按钮改为禁用状态（保留操作痕迹）。
+    /// <para>
+    /// 此时已经 <c>DeferAsync</c>，<c>SocketMessageComponent.UpdateAsync</c> 会因交互已响应而失败，
+    /// 所以必须走 REST 的 <c>Message.ModifyAsync</c>。
+    /// </para>
+    /// </summary>
+    private async Task TryMarkCloseNoticeArchivedAsync(int ticketId, bool? deleteChannel)
+    {
+        if (Context.Interaction is not SocketMessageComponent component)
+        {
+            return;
+        }
+
+        try
+        {
+            var components = ComponentTemplate.CloseNotice.ToArchivedComponents(ticketId, deleteChannel);
+            await component.Message.ModifyAsync(props => props.Components = components);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "更新关闭通告按钮状态失败: TicketId={TicketId}", ticketId);
+        }
+    }
+
     /// <summary>按当前频道反查工单；命令只能在工单频道内使用。</summary>
     private ResolvedTicket ResolveFromChannel()
     {

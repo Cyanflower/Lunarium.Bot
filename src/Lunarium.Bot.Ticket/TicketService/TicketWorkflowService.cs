@@ -254,7 +254,10 @@ public sealed class TicketWorkflowService
 
         await TrySetCreatorOverwriteAsync(guild, channel, ticket, CreatorReadOnlyPermissions);
 
-        await TrySendChannelNoticeAsync(channel, BuildCloseNoticeEmbed(ticket, actor, reason));
+        await TrySendChannelNoticeAsync(
+            channel,
+            BuildCloseNoticeEmbed(ticket, actor, reason),
+            ComponentTemplate.CloseNotice.ToArchiveComponents(ticket.Id));
 
         await TryUpdateStatusCardAsync(guild, ticket);
 
@@ -454,11 +457,14 @@ public sealed class TicketWorkflowService
         }
     }
 
-    private async Task TrySendChannelNoticeAsync(ITextChannel channel, Embed embed)
+    private async Task TrySendChannelNoticeAsync(
+        ITextChannel channel,
+        Embed embed,
+        MessageComponent? components = null)
     {
         try
         {
-            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(embed: embed));
+            await _retryPolicy.ExecuteAsync(() => channel.SendMessageAsync(embed: embed, components: components));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -636,7 +642,7 @@ public sealed class TicketWorkflowService
         var builder = new EmbedBuilder()
             .WithColor(Color.LightGrey)
             .WithTitle("📂 工单已关闭")
-            .WithDescription($"### 🎫 {ticket}\n工单已由 <@{actor.Id}> 关闭，频道已设置为只读。")
+            .WithDescription($"### 🎫 {ticket}\n工单已由 <@{actor.Id}> 关闭，频道已设置为只读。\n管理组可在下方选择归档方式（删除频道 / 保留频道）。")
             .WithTimestamp(DateTimeOffset.UtcNow);
 
         if (!string.IsNullOrWhiteSpace(reason))
