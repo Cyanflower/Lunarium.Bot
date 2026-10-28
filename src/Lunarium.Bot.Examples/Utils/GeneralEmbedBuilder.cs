@@ -2,7 +2,7 @@
 using Discord;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 
 namespace Lunarium.Bot.Examples.Utils;
 

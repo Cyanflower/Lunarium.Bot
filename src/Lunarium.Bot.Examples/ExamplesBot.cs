@@ -23,7 +23,7 @@ using Discord.WebSocket;
 
 // 解决方案内引用项目
 using Lunarium.Bot.Logger;
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 
 // 项目内命名空间 (请确保创建 Model 和 AppInteractionService 文件夹及相应文件)
 using Lunarium.Bot.Examples.Model;
