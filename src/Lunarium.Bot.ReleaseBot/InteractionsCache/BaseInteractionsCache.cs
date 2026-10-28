@@ -31,5 +31,4 @@ public abstract class BaseInteractionsCache<T> : IInteractionsCache where T : cl
     #region 渲染 (Query) - 根据当前状态生成视图
     public abstract MessageComponent Render();
     #endregion
-
 }
