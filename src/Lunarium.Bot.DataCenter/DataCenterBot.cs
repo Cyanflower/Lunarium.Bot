@@ -1,5 +1,4 @@
 // .NET 核心库
-using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
@@ -15,11 +14,11 @@ using Polly.Retry;
 using Discord;
 using Discord.Interactions;
 using Discord.Net;
-using Discord.Net.Rest;
-using Discord.Net.WebSockets;
 using Discord.WebSocket;
 
 // 解决方案内引用项目
+using Lunarium.Common;
+using Lunarium.Common.Net;
 using Lunarium.Logging;
 using Lunarium.Logging.Extensions;
 using Lunarium.Scheduler;
@@ -40,7 +39,7 @@ namespace Lunarium.Bot.DataCenter;
 
 public class DataCenterBotService : IHostedService
 {
-    private readonly string _token;
+    private readonly EnvVar _token;
     private readonly ILogger _logger;
     private readonly ConfigLoader _configLoader;
 
@@ -74,7 +73,7 @@ public class DataCenterBotService : IHostedService
 
     // ======================================================================================
     #region 构造函数
-    public DataCenterBotService(string token, ILogger runtimeRootLogger, ProxyConfig proxyConfig)
+    public DataCenterBotService(EnvVar token, ILogger runtimeRootLogger, ProxyUrl? proxyUrl)
     {
         _token = token;
         // 本地日志上下文
@@ -88,7 +87,7 @@ public class DataCenterBotService : IHostedService
         _dbRetryPolicy = DbRetryPolicy();
 
         // 构建私有DI容器
-        _privateServices = ConfigurePrivateServices(proxyConfig, _logger);
+        _privateServices = ConfigurePrivateServices(proxyUrl, _logger);
 
         // 3. 从私有容器中解析出核心服务以方便使用
         _configLoader = _privateServices.GetRequiredService<ConfigLoader>();
@@ -111,7 +110,7 @@ public class DataCenterBotService : IHostedService
     // ======================================================================================
     #region DI 容器构建
     // 封装的私有服务配置方法
-    private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, Lunarium.Logging.ILogger logger)
+    private IServiceProvider ConfigurePrivateServices(ProxyUrl? proxyUrl, Lunarium.Logging.ILogger logger)
     {
         _logger.Info("配置 DataCenterBot 的私有服务容器...");
 
@@ -120,31 +119,11 @@ public class DataCenterBotService : IHostedService
             // ==================== BOT 基础功能与配置 ====================
             // 注册日志
             .AddSingleton(logger)
-            .AddSingleton(proxyConfig)
 
-            // 注册 Discord 客户端，并使用从全局传入的代理配置
-            .AddSingleton<DiscordSocketClient>(provider =>
+            // 注册 Discord 客户端（代理由 Framework 统一处理）
+            .AddDiscordSocketClient(proxyUrl, config =>
             {
-                _logger.Info("创建 DiscordSocketClient... 代理启用: {proxyConfig.Enable}", proxyConfig.Enable);
-                if (proxyConfig.Enable && !string.IsNullOrEmpty(proxyConfig.ProxyUrl))
-                {
-                    var proxy = new WebProxy(proxyConfig.ProxyUrl);
-                    var config = new DiscordSocketConfig
-                    {
-                        RestClientProvider = DefaultRestClientProvider.Create(useProxy: true, webProxy: proxy),
-                        WebSocketProvider = DefaultWebSocketProvider.Create(proxy),
-                        GatewayIntents = GatewayIntents.All
-                    };
-                    return new DiscordSocketClient(config);
-                }
-                else
-                {
-                    var config = new DiscordSocketConfig
-                    {
-                        GatewayIntents = GatewayIntents.All
-                    };
-                    return new DiscordSocketClient(config);
-                }
+                config.GatewayIntents = GatewayIntents.All;
             })
 
             // 注册 ConfigLoader
@@ -169,8 +148,17 @@ public class DataCenterBotService : IHostedService
             .AddKeyedSingleton("DbPolicy", _dbRetryPolicy)
             // 注册数据库服务
             .AddSingleton<DatabaseService>()
-            // 注册数据库处理服务
-            .AddSingleton<DataProcessService>()
+            // 注册数据库处理服务（需要可空代理，DI 无法注入 null，故显式构造）
+            .AddSingleton(provider => new DataProcessService(
+                provider.GetRequiredService<ILogger>(),
+                provider.GetRequiredService<ConfigLoader>(),
+                provider.GetRequiredService<DatabaseService>(),
+                provider.GetRequiredService<DiscordSocketClient>(),
+                proxyUrl,
+                provider.GetRequiredService<RateLimiter>(),
+                provider.GetRequiredService<RequestOptions>(),
+                provider.GetRequiredKeyedService<AsyncRetryPolicy>("HttpPolicy"),
+                provider.GetRequiredKeyedService<AsyncRetryPolicy>("DbPolicy")))
             .AddSingleton<UrlSignedInfoCacheService>()
 
             // ==== [服务] ====
@@ -352,7 +340,7 @@ public class DataCenterBotService : IHostedService
         _logger.Info($"\n{_scheduler.GetAllJobsInfo()}");
 
         // 登录和启动
-        await _client.LoginAsync(TokenType.Bot, _token);
+        await _client.LoginAsync(TokenType.Bot, _token.Value);
         await _client.StartAsync();
 
         _logger.Info("DataCenterBot 服务已启动，等待连接完成...");

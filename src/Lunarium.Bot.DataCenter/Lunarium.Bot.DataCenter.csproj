@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="SixLabors.ImageSharp" />
     <PackageReference Include="System.Threading.RateLimiting" />
+    <PackageReference Include="Lunarium.Common" />
     <PackageReference Include="Lunarium.Logging" />
     <PackageReference Include="Lunarium.Logging.Hosting" />
     <PackageReference Include="Lunarium.Scheduler" />
@@ -37,11 +38,6 @@
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
     <Content Include="appsettings.health.template.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-    </Content>
-    <Content Include="start.sh">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
