@@ -1,0 +1,26 @@
+# build-deploy-tools/config.toml
+
+[host.BotCenterVPS]
+ssh_host = "BotCenterVPS"
+remote_lum_base_path = "/root/services/cyanflower/Lunarium.Bot"
+
+[local_artifact]
+configuration = "Release"
+staging_root = "build-deploy-tools/.staging"
+exclude = ["appsettings.json", "appsettings.health.json"]
+
+[projects.Ticket]
+host = "BotCenterVPS"
+csproj = "src/Lunarium.Bot.Ticket/Lunarium.Bot.Ticket.csproj"
+service = "lunariumbot-ticket"
+restart_timeout = 180
+
+[projects.Archive]
+host = "BotCenterVPS"
+csproj = "src/Lunarium.Bot.Archive/Lunarium.Bot.Archive.csproj"
+service = "lunariumbot-archive"
+
+[projects.DataCenter]
+host = "BotCenterVPS"
+csproj = "src/Lunarium.Bot.DataCenter/Lunarium.Bot.DataCenter.csproj"
+service = "lunariumbot-datacenter"
