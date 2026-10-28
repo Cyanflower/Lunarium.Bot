@@ -1,12 +1,10 @@
-﻿// NuGet 包依赖
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-
-// 解决方案内引用项目
+using Lunarium.Common;
+using Lunarium.Common.Net;
 using Lunarium.Logging;
 using Lunarium.Logging.Extensions;
 
-// 项目内命名空间
 using Lunarium.Bot.Archive.Model;
 
 namespace Lunarium.Bot.Archive;
@@ -20,97 +18,15 @@ public class Program
         try
         {
             // === 配置日志 ===
-            // 读取环境变量
-            var envFileLogLevel = Environment.GetEnvironmentVariable("FILE_LOG_LEVEL");
-            var fileLogLevel = LogLevel.Info;
-            if (!string.IsNullOrEmpty(envFileLogLevel) && 
-                Enum.TryParse<LogLevel>(envFileLogLevel, true, out var parsedFileLevel))
-            {
-                fileLogLevel = parsedFileLevel;
-            }
-            var envConsoleLogLevel = Environment.GetEnvironmentVariable("CONSOLE_LOG_LEVEL");
-            var consoleLogLevel = LogLevel.Info;
-            if (!string.IsNullOrEmpty(envConsoleLogLevel) &&
-                Enum.TryParse<LogLevel>(envConsoleLogLevel, true, out var parsedConsoleLevel))
-            {
-                consoleLogLevel = parsedConsoleLevel;
-            }
-            GlobalConfigurator.Configure()
-                .UseLocalTimeZone()
-                .UseJsonISO8601Timestamp()
-                .UseTextCustomTimestamp("yyyy-MM-dd HH:mm:ss.fff zzz")
-                .EnableAutoDestructuring()
-                .Apply();
-            // === 构建日志 ===
-            _rootLogger = new LoggerBuilder()
-                .SetLoggerName("Runtime")
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/Runtime/Runtime.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    FilterConfig: new FilterConfig
-                    {
-                        ContextFilterExcludes = ["ArchiveBotService.CommandAuth", "PerformanceMonitoringService"],
-                        LogMinLevel = fileLogLevel
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/CommandAuth/CommandAuth.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 10,
-                    FilterConfig: new FilterConfig
-                    {
-                        ContextFilterIncludes = ["ArchiveBotService.CommandAuth"],
-                        LogMinLevel = fileLogLevel
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/EW/Error.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    FilterConfig: new FilterConfig
-                    {
-                        LogMinLevel = LogLevel.Error
-                    })
-                .AddSizedRotatingFileSink(
-                    logFilePath: "Logs/EW/Warning.log",
-                    maxFileSizeMB: 10,
-                    maxFile: 5,
-                    FilterConfig: new FilterConfig
-                    {
-                        LogMinLevel = LogLevel.Warning,
-                        LogMaxLevel = LogLevel.Warning
-                    })
-                .AddConsoleSink(
-                    FilterConfig: new FilterConfig
-                    {
-                        LogMinLevel = consoleLogLevel
-                    })
-                .Build();
+            _rootLogger = LogConfigurator.Initialize();
             // Main 上下文包装器
             ILogger _mainLogger = _rootLogger.ForContext("Main");
 
             // === 代理 ===
-            // 从环境变量中获取代理
-            var proxyUrl = Environment.GetEnvironmentVariable("http_proxy") ?? Environment.GetEnvironmentVariable("HTTP_PROXY");
-            var proxyConfig = new ProxyConfig { };
-            if (!string.IsNullOrEmpty(proxyUrl))
-            {
-                proxyConfig.Enable = true;
-                proxyConfig.ProxyUrl = proxyUrl;
-            }
-            else
-            {
-                proxyConfig.Enable = false;
-                proxyConfig.ProxyUrl = "";
-            }
+            var proxyUrl = ProxyUrl.FromEnvironment();
 
-            // === Token 读取 ===
-            var token = Environment.GetEnvironmentVariable("ARCHIVE_BOT_TOKEN");
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                var ex = new InvalidOperationException();
-                _mainLogger.Critical("环境变量 ARCHIVE_BOT_TOKEN 未设置！");
-                throw ex;
-            }
+            // === Bot Token ===
+            var token = EnvVar.GetRequired("ARCHIVE_BOT_TOKEN");
 
             // 配置主机服务
             var host = Host.CreateDefaultBuilder(args)
@@ -127,30 +43,15 @@ public class Program
                         {
                             opts.ShutdownTimeout = TimeSpan.FromSeconds(120);
                         })
-                        // 添加代理配置到容器
-                        .AddSingleton(proxyConfig)
-                        // 添加日志实例到容器
-                        .AddSingleton(_rootLogger)
-                        // 添加 Bot 服务
                         .AddHostedService<ArchiveBotService>(provider =>
-                        {
-                            var logger = provider.GetRequiredService<ILogger>();
-                            var proxy = provider.GetRequiredService<ProxyConfig>();
-                            return new ArchiveBotService(token, logger, proxy);
+                        {;
+                            return new ArchiveBotService(token, _rootLogger, proxyUrl);
                         });
                 })
                 .Build();
 
             _mainLogger.Info("🚀 服务启动中...");
-
-            if (proxyConfig.Enable)
-            {
-                _mainLogger.Info("🔗 代理已启用: {proxyConfig.ProxyUrl}", proxyConfig.ProxyUrl);
-            }
-            else
-            {
-                _mainLogger.Info("🔗 代理未启用");
-            }
+            _mainLogger.Info("🔗 代理: {ProxyUrl}", proxyUrl?.ToString() ?? "未启用");
 
             // 注册全局未捕获异常处理器
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>

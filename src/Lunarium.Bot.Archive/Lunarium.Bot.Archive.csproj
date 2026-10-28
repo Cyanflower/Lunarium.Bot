@@ -30,10 +30,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Lunarium.Common" Version="1.4.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="Polly" Version="8.6.2" />
+    <PackageReference Include="Polly" Version="8.8.0" />
     <PackageReference Include="System.Threading.RateLimiting" Version="9.0.11" />
-    <PackageReference Include="Lunarium.Logging" Version="1.0.3" />
+    <PackageReference Include="Lunarium.Logging" Version="1.1.0" />
     <PackageReference Include="Lunarium.Logging.Hosting" Version="1.0.3" />
   </ItemGroup>
 
@@ -43,17 +44,27 @@
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
-    <ProjectReference Include="../Lunarium.Bot.Extensions/Lunarium.Bot.Extensions.csproj" />
+    <ProjectReference Include="../Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- CopyToOutputDirectory 让编译器在构建时复制它们 -->
-    <!-- PreserveNewest: 如果文件没变动就不复制 -->
-    <Content Include="appsettings.template.jsonc">
+    <!-- CopyToPublishDirectory 让它们出现在发布目录里 -->
+    <!-- ExcludeFromSingleFile 避免被嵌进单文件二进制 -->
+    <Content Include="appsettings.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
-    <Content Include="start.sh">
+    <Content Include="appsettings.health.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="appsettings.health.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 
