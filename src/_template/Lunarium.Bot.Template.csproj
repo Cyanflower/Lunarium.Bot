@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bot 发布形态（Release 自包含单文件 linux-x64、去 pdb/xml）由 build/Bot.props 提供。
+    这一行本身就是「这是一个会部署的 bot」的声明，不要删。
+  -->
+  <Import Project="../../build/Bot.props" />
+
+  <ItemGroup>
+    <!-- vendored Discord.Net（四个都要，缺 Rest/WebSocket 无法登录） -->
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Core/Discord.Net.Core.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
+    <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
+    <!-- 共享库 -->
+    <ProjectReference Include="../Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 版本由 src/Directory.Packages.props 统一管理，此处不写 Version -->
+    <PackageReference Include="Lunarium.Common" />
+    <PackageReference Include="Lunarium.Logging" />
+    <PackageReference Include="Lunarium.Logging.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 配置模板必须 ExcludeFromSingleFile：否则会被嵌进单文件二进制，远端改配置无效 -->
+    <Content Include="appsettings.template.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="appsettings.health.template.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+
+</Project>

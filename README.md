@@ -299,12 +299,13 @@ Bot 基础设施的唯一来源。按目录划分：
 
 ## 5. 新 Bot 脚手架清单
 
-按以下顺序落地，可直接对着 Ticket 抄：
+**先复制骨架** `src/_template/`（一个能 `dotnet build` 通过的最小 bot），占位符替换步骤见
+[`src/_template/README.md`](./src/_template/README.md)。下面是骨架没覆盖、需要自己写的部分：
 
-1. **csproj**（`net10.0`）
+1. **csproj**（骨架已给，通常只需改项目名）
+   - 首行 `<Import Project="../../build/Bot.props" />` 决定发布形态，不能删
    - `ProjectReference`：`Lunarium.Bot.Framework` + vendored Discord.Net 的 4 个项目（Core / Interactions / Rest / WebSocket）
-   - `PackageReference`：`Lunarium.Common`、`Lunarium.Logging`、`Lunarium.Logging.Hosting`、`Microsoft.Extensions.Hosting`
-   - 需要 LLM 时再加 `Lunarium.Bot.AI`
+   - `PackageReference` 不写 `Version`，由 `src/Directory.Packages.props` 统一管理；需要 LLM 时再加 `Lunarium.Bot.AI`
 2. **`Program.cs`**：四段式（§2.2）
 3. **`LogConfigurator.cs`**：`RootContext` + 审计前缀 + sink（§2.8）
 4. **`XxxBotService.cs`**
