@@ -35,9 +35,8 @@
 | `Lunarium.Bot.Archive` | 应用 | 🚧 迁移中 | 已切到 Framework，现代化改造尚未完成 |
 | `Lunarium.Bot.DataCenter` | 应用 | 🚧 部分迁移 | 已用 Framework 的扩展与健康监控，但配置 / 日志 / 调度仍是旧实现 |
 | `Lunarium.Bot.SearchBot` | 应用 | ⚠️ 旧架构 | NuGet Discord.Net 3.18.0 + 仓库内 Logger / Scheduler；仍在开发 |
-| `Lunarium.Bot.Examples` | 应用 | ⚠️ 旧架构 | 同上；**不要当模板** |
 | `Lunarium.Bot.Lum` | 应用 | 🧪 本机实验 | 已入库，`slnx` 中已登记；尚未迁移到 Framework |
-| `Lunarium.Bot.Logger` / `Lunarium.Bot.Scheduler` | 遗留副本 | � 已删除 | 2026-10-29 移除；`SearchBot` / `Examples` 仍引用它们，**当前无法编译**（待迁移到 NuGet） |
+| `Lunarium.Bot.Logger` / `Lunarium.Bot.Scheduler` | 遗留副本 | 🗑 已删除 | 2026-10-29 移除；`SearchBot` 仍引用它们，**当前无法编译**（待迁移到 NuGet） |
 | `ReleaseBot` / `VoteBot` / `LunariumProxy` | 应用 | 🗑 已移出 | 2026-10-29 移出仓库：源码见提交 `97d4c89`；`LunariumProxy` 未曾入库（现位于 `~/Projects/LunariumProxy`） |
 | 旧 SearchBot 副本 | 应用 | ❌ 废弃 | 仓库根目录 `LunariumBot.Net.SearchBot/`，已停止维护并移除中 |
 
@@ -288,7 +287,8 @@ Bot 基础设施的唯一来源。按目录划分：
 ### 4.4 旧架构项目
 
 - `Lunarium.Bot.SearchBot`：搜索机器人，仍在开发，但仍是 NuGet Discord.Net 3.18.0 + 自带 `ConfigLoader` + 仓库内 Logger / Scheduler
-- `Lunarium.Bot.Examples`：示例项目，同样未迁移；**当前不适合作为模板**
+
+> 原 `Lunarium.Bot.Examples` 已于 2026-10-29 移除（新项目请直接复制 `src/_template/`）。
 
 ### 4.5 冻结 / 废弃
 

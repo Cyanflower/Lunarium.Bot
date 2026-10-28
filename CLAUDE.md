@@ -6,8 +6,8 @@
 ## 硬约束
 
 - **新代码 / 重构照 `src/Lunarium.Bot.Ticket`**；共享设施只加到 `Lunarium.Bot.Framework` / `Lunarium.Bot.AI`。
-- **不要引用已删除的工程**：`Lunarium.Bot.Extensions`、`Lunarium.Bot.Logger`、`Lunarium.Bot.Scheduler`（2026-10-29 删除，统一用 NuGet `Lunarium.Logging` / `Lunarium.Scheduler`）；`SearchBot` / `Examples` 仍引用后两者，**当前无法编译**。
-- **不要引用已移出仓库的项目**：`ReleaseBot`、`VoteBot`、`LunariumProxy`（2026-10-29 移出，源码见提交 `97d4c89`）；也不要参考 `SearchBot` / `Examples` 的架构。
+- **不要引用已删除的工程**：`Lunarium.Bot.Extensions`、`Lunarium.Bot.Logger`、`Lunarium.Bot.Scheduler`（2026-10-29 删除，统一用 NuGet `Lunarium.Logging` / `Lunarium.Scheduler`）；`SearchBot` 仍引用后两者，**当前无法编译**。
+- **不要引用已移出仓库的项目**：`ReleaseBot`、`VoteBot`、`LunariumProxy`、`Examples`（2026-10-29 移出，前三个见提交 `97d4c89`，Examples 见 `3ea8a1d`）；也不要参考 `SearchBot` 的架构。
 - **配置文件**：`appsettings.json` 是本地运行配置，**不入库**；只提交 `appsettings.template.json`。`appsettings.health.json` 可入库。
 - **配置写回**只能走 `ConfigLoader<T>.TryUpdate`；不要直接改 `.Value` 上的属性。
 - **鉴权**用 `RuleEngine` + `BaseRuleSet`；不要新写 `AuthUtils`。

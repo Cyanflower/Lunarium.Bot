@@ -18,7 +18,6 @@ Lunarium.Bot/
 ├── src/
 │   ├── Lunarium.Bot.Archive/
 │   ├── Lunarium.Bot.DataCenter/
-│   ├── Lunarium.Bot.Examples/
 │   └── ...
 └── tests/
 ```
@@ -78,7 +77,6 @@ REMOTE_BASE_PATH = "~/services/cyanflower/Lunarium.Bot"  # 服务器基础路径
 |--------|---------------|-----------|
 | Lunarium.Bot.Archive | ARCHIVE_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Archive |
 | Lunarium.Bot.DataCenter | DATACENTER_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.DataCenter |
-| Lunarium.Bot.Examples | EXAMPLEBOT_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.Examples |
 | Lunarium.Bot.SearchBot | SEARCHBOT_BOT_TOKEN | ~/services/cyanflower/Lunarium.Bot/Lunarium.Bot.SearchBot |
 
 ## 生成的脚本说明

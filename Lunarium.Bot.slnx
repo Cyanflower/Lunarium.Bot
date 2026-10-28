@@ -16,7 +16,6 @@
     <Project Path="src/Lunarium.Bot.AI/Lunarium.Bot.AI.csproj" />
     <Project Path="src/Lunarium.Bot.Archive/Lunarium.Bot.Archive.csproj" />
     <Project Path="src/Lunarium.Bot.DataCenter/Lunarium.Bot.DataCenter.csproj" />
-    <Project Path="src/Lunarium.Bot.Examples/Lunarium.Bot.Examples.csproj" />
     <Project Path="src/Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
     <Project Path="src/Lunarium.Bot.Lum/Lunarium.Bot.Lum.csproj" />
     <Project Path="src/Lunarium.Bot.SearchBot/Lunarium.Bot.SearchBot.csproj" />
