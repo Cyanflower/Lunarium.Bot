@@ -22,4 +22,7 @@
     <Project Path="src/Lunarium.Bot.SearchBot/Lunarium.Bot.SearchBot.csproj" />
     <Project Path="src/Lunarium.Bot.Ticket/Lunarium.Bot.Ticket.csproj" />
   </Folder>
+  <Folder Name="/src/_template/">
+    <Project Path="src/_template/Lunarium.Bot.Template.csproj" />
+  </Folder>
 </Solution>
