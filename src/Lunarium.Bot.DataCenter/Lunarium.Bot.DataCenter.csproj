@@ -27,13 +27,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Polly" Version="8.6.2" />
+    <PackageReference Include="Polly" Version="8.8.0" />
     <PackageReference Include="Npgsql" Version="9.0.4" />
     <PackageReference Include="JiebaNet.Segmenter" Version="1.0.6" />
     <PackageReference Include="Dapper" Version="2.1.66" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     <PackageReference Include="System.Threading.RateLimiting" Version="9.0.11" />
+    <PackageReference Include="Lunarium.Logging" Version="1.0.3" />
+    <PackageReference Include="Lunarium.Logging.Hosting" Version="1.0.3" />
+    <PackageReference Include="Lunarium.Scheduler" Version="1.1.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,15 +44,23 @@
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.Rest/Discord.Net.Rest.csproj" />
     <ProjectReference Include="../../Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
-    <ProjectReference Include="../Lunarium.Bot.Extensions/Lunarium.Bot.Extensions.csproj" />
-    <ProjectReference Include="../Lunarium.Bot.Logger/Lunarium.Bot.Logger.csproj" />
-    <ProjectReference Include="../Lunarium.Bot.Scheduler/Lunarium.Bot.Scheduler.csproj" />
+    <ProjectReference Include="../Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- CopyToOutputDirectory 让编译器在构建时复制它们 -->
     <!-- PreserveNewest: 如果文件没变动就不复制 -->
     <Content Include="appsettings.template.jsonc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="appsettings.health.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="appsettings.health.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>

@@ -10,7 +10,7 @@ using Discord;
 using Discord.Interactions;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.DataFetcher;
@@ -18,7 +18,7 @@ using Lunarium.Bot.DataCenter.Scheduler;
 using Lunarium.Bot.DataCenter.Utils;
 using Lunarium.Bot.DataCenter.Models;
 using System.Text;
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 using Lunarium.Bot.DataCenter.UrlSignedInfoCache;
 
 namespace Lunarium.Bot.DataCenter.AppInteractionService;
@@ -114,7 +114,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             }
             catch (Exception ex)
             {
-                _logger.Error("获取分析报告时发生严重错误！", ex);
+                _logger.Error(ex, "获取分析报告时发生严重错误！");
                 await FollowupAsync(embed: EmbedUtils.FailedEmbed("哎呀，出错了！", "生成报告的过程中遇到了一个意想不到的问题，请检查日志。"), ephemeral: false);
             }
         }
@@ -133,7 +133,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             }
             catch (Exception ex)
             {
-                _logger.Error("获取分析报告时发生严重错误！", ex);
+                _logger.Error(ex, "获取分析报告时发生严重错误！");
                 await FollowupAsync(embed: EmbedUtils.FailedEmbed("哎呀，出错了！", "执行分析的过程中遇到了一个意想不到的问题，请检查日志。"), ephemeral: false);
             }
         }
@@ -169,7 +169,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         {
             
             reporter.AppendLine($"同步扫描捕获异常: {ex.Message.Slice(1500)}");
-            _logger.Error("扫描失败, 原因:", ex);
+            _logger.Error(ex, "扫描失败, 原因:");
             success = false;
         }
         finally
@@ -213,7 +213,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         catch (Exception ex)
         {
             await FollowupAsync(embed: EmbedUtils.FailedEmbed("重载配置失败", ex.ToString()));
-            _logger.Error("重载配置命令失败, 原因:", ex);
+            _logger.Error(ex, "重载配置命令失败, 原因:");
         }
     }
 
@@ -235,7 +235,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         catch (Exception ex)
         {
             await FollowupAsync(embed: EmbedUtils.FailedEmbed("url缓存更新检查失败", ex.ToString()));
-            _logger.Error("url缓存更新检查失败, 原因:", ex);
+            _logger.Error(ex, "url缓存更新检查失败, 原因:");
         }
     }
 
@@ -265,7 +265,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         catch (Exception ex)
         {
             reporter.AppendLine($"❌ 同步失败: {ex.Message.Slice(500)}");
-            _logger.Error("同步用户与身份组信息失败, 原因:", ex);
+            _logger.Error(ex, "同步用户与身份组信息失败, 原因:");
             success = false;
         }
         finally

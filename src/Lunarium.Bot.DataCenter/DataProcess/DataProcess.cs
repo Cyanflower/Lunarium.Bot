@@ -8,7 +8,7 @@ using Discord.Net;
 using Polly;
 using Polly.Retry;
 
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Bot.DataCenter.Models;

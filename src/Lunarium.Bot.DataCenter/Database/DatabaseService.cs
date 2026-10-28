@@ -5,7 +5,7 @@ using System.Data;
 using System.Text.Json;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Models;

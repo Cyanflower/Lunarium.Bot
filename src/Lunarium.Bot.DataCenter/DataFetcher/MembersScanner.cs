@@ -13,16 +13,15 @@ using Polly;
 using Polly.Retry;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Extensions;
-using Lunarium.Bot.Extensions.DiscordNetExtension;
+using Lunarium.Logging;
+using Lunarium.Bot.Framework;
+using Lunarium.Bot.Framework.OpenAPI;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.DataProcess;
 using Lunarium.Bot.DataCenter.Models;
 using Lunarium.Bot.DataCenter.Utils;
 using Lunarium.Bot.DataCenter.AppInteractionService;
-using Lunarium.Bot.Scheduler;
 
 namespace Lunarium.Bot.DataCenter.DataFetcher;
 

@@ -6,8 +6,8 @@ using Discord.Net;
 using Discord.WebSocket;
 
 using Lunarium.Bot.DataCenter.Database;
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Scheduler.Interfaces;
+using Lunarium.Logging;
+using Lunarium.Scheduler.Interfaces;
 
 namespace Lunarium.Bot.DataCenter.Scheduler;
 

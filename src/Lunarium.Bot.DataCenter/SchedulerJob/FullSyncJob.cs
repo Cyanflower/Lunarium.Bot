@@ -4,9 +4,9 @@ using Discord.WebSocket;
 using Lunarium.Bot.DataCenter.DataFetcher;
 using Lunarium.Bot.DataCenter.Utils;
 
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Scheduler;
-using Lunarium.Bot.Scheduler.Interfaces;
+using Lunarium.Logging;
+using Lunarium.Scheduler;
+using Lunarium.Scheduler.Interfaces;
 
 namespace Lunarium.Bot.DataCenter.Scheduler;
 public class FullSyncAsyncJob : IAsyncJob
@@ -56,7 +56,7 @@ public class FullSyncAsyncJob : IAsyncJob
         }
         catch (Exception ex)
         {
-            _logger.Error("FullSyncJob 执行时发生未处理的异常:", ex);
+            _logger.Error(ex, "FullSyncJob 执行时发生未处理的异常:");
         }
     }
 }

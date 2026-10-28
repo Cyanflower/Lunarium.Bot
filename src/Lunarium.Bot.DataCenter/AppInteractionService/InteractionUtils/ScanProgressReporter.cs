@@ -9,7 +9,7 @@ using Polly;
 using Polly.Retry;
 
 using Lunarium.Bot.DataCenter.Utils;
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 namespace Lunarium.Bot.DataCenter.AppInteractionService;
 

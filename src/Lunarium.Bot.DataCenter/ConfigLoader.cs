@@ -2,7 +2,7 @@
 using System.Text.Json;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Utils;
@@ -57,7 +57,7 @@ public class ConfigLoader
             }
             catch (Exception ex)
             {
-                _logger.Critical("配置加载失败: {ex}", ex);
+                _logger.Critical(ex, "配置加载失败");
                 throw;
             }
         }

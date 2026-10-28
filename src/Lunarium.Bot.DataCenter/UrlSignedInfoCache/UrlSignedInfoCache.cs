@@ -1,7 +1,7 @@
 using System.Text;
 
 using Lunarium.Bot.DataCenter.Models;
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 namespace Lunarium.Bot.DataCenter.UrlSignedInfoCache;
 

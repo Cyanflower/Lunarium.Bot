@@ -6,7 +6,7 @@ using Npgsql;
 using Dapper;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Models;
@@ -53,7 +53,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Critical("数据库迁移过程遭遇无法恢复的错误。", ex);
+            _logger.Critical(ex, "数据库迁移过程遭遇无法恢复的错误。");
             throw;
         }
     }
@@ -126,7 +126,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error("检查数据库迁移时发生错误。", ex);
+            _logger.Error(ex, "检查数据库迁移时发生错误。");
             throw;
         }
     }
@@ -218,7 +218,7 @@ public partial class DatabaseService
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error("应用迁移 v{Version} 时发生错误，事务已回滚。", ex, version);
+                        _logger.Error(ex, "应用迁移 v{Version} 时发生错误，事务已回滚。", version);
                         await transaction.RollbackAsync();
 
                         // 遇到错误，直接跳出循环
@@ -228,7 +228,7 @@ public partial class DatabaseService
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error("处理迁移 v{Version} 时发生严重错误。", ex, version);
+                    _logger.Error(ex, "处理迁移 v{Version} 时发生严重错误。", version);
                     allSuccess = false;
                     break;
                 }
@@ -238,7 +238,7 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Critical("执行数据库迁移时发生无法恢复的错误。", ex);
+            _logger.Critical(ex, "执行数据库迁移时发生无法恢复的错误。");
             return (false, latestInfo);
         }
     }

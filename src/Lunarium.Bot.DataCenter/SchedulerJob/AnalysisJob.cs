@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Text;
 using Discord;
 using Discord.WebSocket;
-using Lunarium.Bot.Logger;
+using Lunarium.Logging;
 using Lunarium.Bot.DataCenter.Utils;
-using Lunarium.Bot.Scheduler.Interfaces;
+using Lunarium.Scheduler.Interfaces;
 
 namespace Lunarium.Bot.DataCenter.Scheduler;
 

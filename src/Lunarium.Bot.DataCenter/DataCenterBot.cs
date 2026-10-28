@@ -20,10 +20,11 @@ using Discord.Net.WebSockets;
 using Discord.WebSocket;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Logger.Extensions;
-using Lunarium.Bot.Scheduler;
-using Lunarium.Bot.Extensions;
+using Lunarium.Logging;
+using Lunarium.Logging.Extensions;
+using Lunarium.Scheduler;
+using Lunarium.Bot.Framework;
+using Lunarium.Bot.Framework.Health;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Database;
@@ -110,7 +111,7 @@ public class DataCenterBotService : IHostedService
     // ======================================================================================
     #region DI 容器构建
     // 封装的私有服务配置方法
-    private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, Lunarium.Bot.Logger.ILogger logger)
+    private IServiceProvider ConfigurePrivateServices(ProxyConfig proxyConfig, Lunarium.Logging.ILogger logger)
     {
         _logger.Info("配置 DataCenterBot 的私有服务容器...");
 
@@ -194,7 +195,7 @@ public class DataCenterBotService : IHostedService
             {
                 return new LunariumScheduler(provider, logger.ToMicrosoftLogger("Scheduler"));
             })
-            .AddSingleton<HealthMonitor>()
+            .AddHealthMonitor()
 
             // 构建 DI 容器
             .BuildServiceProvider();
@@ -458,8 +459,8 @@ public class DataCenterBotService : IHostedService
                         """)
                     .Build();
                 // 获取监控日志字符串
-                var latencysLog = _healthMonitoring.GetLatencysLog();
-                var connectStatesLog = _healthMonitoring.GetConnectStatesLog();
+                var latencysLog = string.Join(Environment.NewLine, _healthMonitoring.GetLatencyLogs());
+                var connectStatesLog = string.Join(Environment.NewLine, _healthMonitoring.GetConnectStateLogs());
 
                 // 把字符串转换成内存流
                 using var latencyStream = new MemoryStream(Encoding.UTF8.GetBytes(latencysLog));
@@ -479,7 +480,7 @@ public class DataCenterBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("ReadyAsync 出现异常:", ex);
+            _logger.Error(ex, "ReadyAsync 出现异常:");
         }
 
     }
@@ -494,7 +495,7 @@ public class DataCenterBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("处理交互时发生错误。", ex);
+            _logger.Error(ex, "处理交互时发生错误。");
         }
     }
     #endregion
@@ -588,7 +589,7 @@ public class DataCenterBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("执行重新注册命令时发生错误。", ex);
+            _logger.Error(ex, "执行重新注册命令时发生错误。");
             await userMessage.Channel.SendMessageAsync("执行重新注册命令时发生错误。");
         }
     }
@@ -631,7 +632,7 @@ public class DataCenterBotService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.Error("❌ 同步命令时发生错误", ex);
+            _logger.Error(ex, "❌ 同步命令时发生错误");
         }
     }
     #endregion

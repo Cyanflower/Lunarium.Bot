@@ -3,9 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 // 解决方案内引用项目
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Logger.Models;
-using Lunarium.Bot.Logger.Extensions;
+using Lunarium.Logging;
+using Lunarium.Logging.Extensions;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Models;
@@ -44,12 +43,12 @@ public class Program
                 .Apply();
             // === 构建日志 ===
             _rootLogger = new LoggerBuilder()
-                .LoggerName("Runtime")
+                .SetLoggerName("Runtime")
                 .AddSizedRotatingFileSink(
                     logFilePath: "Logs/Runtime/Runtime.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         ContextFilterExcludes = ["DataCenterBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel,
@@ -58,7 +57,7 @@ public class Program
                     logFilePath: "Logs/CommandAuth/CommandAuth.log",
                     maxFileSizeMB: 10,
                     maxFile: 10,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         ContextFilterIncludes = ["DataCenterBotService.CommandAuth"],
                         LogMinLevel = fileLogLevel
@@ -67,7 +66,7 @@ public class Program
                     logFilePath: "Logs/Scan/Scan.log",
                     maxFileSizeMB: 10,
                     maxFile: 10,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         ContextFilterIncludes = ["DataCenterBotService.Scan"],
                         LogMinLevel = fileLogLevel
@@ -76,7 +75,7 @@ public class Program
                     logFilePath: "Logs/EW/Error.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = LogLevel.Error
                     })
@@ -84,13 +83,13 @@ public class Program
                     logFilePath: "Logs/EW/Warning.log",
                     maxFileSizeMB: 10,
                     maxFile: 5,
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = LogLevel.Warning,
                         LogMaxLevel = LogLevel.Warning
                     })
                 .AddConsoleSink(
-                    sinkConfiguration: new SinkConfiguration
+                    FilterConfig: new FilterConfig
                     {
                         LogMinLevel = consoleLogLevel
                     })
@@ -166,12 +165,12 @@ public class Program
             // 注册全局未捕获异常处理器
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
-                _mainLogger.Error("💥 发生未捕获的致命异常", e.ExceptionObject as Exception);
+                _mainLogger.Error(e.ExceptionObject as Exception, "💥 发生未捕获的致命异常");
             };
             // 捕获全局并行任务异常
             TaskScheduler.UnobservedTaskException += (sender, e) =>
             {
-                _mainLogger.Error("⚠️ 检测到未观察的任务异常", e.Exception);
+                _mainLogger.Error(e.Exception, "⚠️ 检测到未观察的任务异常");
                 e.SetObserved(); // 标记为已处理，防止程序崩溃
             };
 
@@ -185,7 +184,7 @@ public class Program
             // 否则，退回到用 Console.Write
             if (_rootLogger is not null)
             {
-                _rootLogger.ForContext("Program").Critical("💥 服务启动失败", ex);
+                _rootLogger.ForContext("Program").Critical(ex, "💥 服务启动失败");
             }
             else
             {
@@ -196,11 +195,11 @@ public class Program
         finally
         {
             // 在 finally 块里调用关闭方法
-            if (_rootLogger is IAsyncDisposable disposableLogger)
+            if (_rootLogger is not null)
             {
                 // 在程序退出时确保日志被完全写入文件
                 Console.WriteLine("⏳ 正在关闭日志系统...");
-                await disposableLogger.DisposeAsync();
+                await _rootLogger.DisposeAsync();
                 Console.WriteLine("✅ 日志系统已关闭。");
             }
         }

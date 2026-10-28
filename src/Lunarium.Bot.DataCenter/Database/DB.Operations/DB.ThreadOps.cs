@@ -4,7 +4,7 @@ using Dapper;
 
 using Lunarium.Bot.DataCenter.Models;
 using Lunarium.Bot.DataCenter.Models.Database;
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 using Discord;
 
 namespace Lunarium.Bot.DataCenter.Database;

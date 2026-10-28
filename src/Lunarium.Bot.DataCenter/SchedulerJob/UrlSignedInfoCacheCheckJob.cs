@@ -12,9 +12,9 @@ using Discord.Net;
 using Discord.Rest;
 using Discord.WebSocket;
 
-using Lunarium.Bot.Logger;
-using Lunarium.Bot.Scheduler.Interfaces;
-using Lunarium.Bot.Extensions;
+using Lunarium.Logging;
+using Lunarium.Scheduler.Interfaces;
+using Lunarium.Bot.Framework;
 
 using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Bot.DataCenter.UrlSignedInfoCache;
@@ -235,7 +235,7 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
         }
         catch (Exception ex)
         {
-            _logger.Error("UrlSignedInfoCacheCheckJob 执行时发生未处理的异常:", ex);
+            _logger.Error(ex, "UrlSignedInfoCacheCheckJob 执行时发生未处理的异常:");
         }
     }
 

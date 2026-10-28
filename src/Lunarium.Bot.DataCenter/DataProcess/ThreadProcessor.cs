@@ -8,7 +8,7 @@ using Discord.Rest;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Models;

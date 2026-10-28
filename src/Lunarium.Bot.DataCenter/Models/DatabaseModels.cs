@@ -2,7 +2,7 @@ using System.Text.Json;
 
 using Lunarium.Bot.DataCenter.Models;
 using Lunarium.Bot.DataCenter.Utils;
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 
 namespace Lunarium.Bot.DataCenter.Models.Database;
 // ============================================

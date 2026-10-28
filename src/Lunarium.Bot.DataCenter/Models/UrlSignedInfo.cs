@@ -2,7 +2,7 @@
 using System.Web;
 using System.Globalization;
 using System.Text.Json;
-using Lunarium.Bot.Extensions;
+using Lunarium.Bot.Framework;
 
 namespace Lunarium.Bot.DataCenter.Models;
 
