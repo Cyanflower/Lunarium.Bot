@@ -3,16 +3,16 @@
   <Import Project="../../build/Bot.props" />
 
   <ItemGroup>
-    <PackageReference Include="Polly" Version="8.8.0" />
-    <PackageReference Include="Npgsql" Version="9.0.4" />
-    <PackageReference Include="JiebaNet.Segmenter" Version="1.0.6" />
-    <PackageReference Include="Dapper" Version="2.1.66" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
-    <PackageReference Include="System.Threading.RateLimiting" Version="9.0.11" />
-    <PackageReference Include="Lunarium.Logging" Version="1.0.3" />
-    <PackageReference Include="Lunarium.Logging.Hosting" Version="1.0.3" />
-    <PackageReference Include="Lunarium.Scheduler" Version="1.1.0" />
+    <PackageReference Include="Polly" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="JiebaNet.Segmenter" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="System.Threading.RateLimiting" />
+    <PackageReference Include="Lunarium.Logging" />
+    <PackageReference Include="Lunarium.Logging.Hosting" />
+    <PackageReference Include="Lunarium.Scheduler" />
   </ItemGroup>
 
   <ItemGroup>

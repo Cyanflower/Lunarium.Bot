@@ -1,0 +1,47 @@
+<Project>
+
+  <!--
+    中央包版本管理（CPM）。
+    csproj 里只写 <PackageReference Include="X" />，版本统一在这里维护。
+    新增包时：先在此处加 <PackageVersion>，否则 restore 会报 NU1010。
+
+    版本策略：同名包一律取仓库内已出现的最高版本。
+
+    ⚠️ 为什么放在 src/ 而不是仓库根：根目录的 Directory.Packages.props 会向上查找
+       并管辖 vendored 的 Discord.Net/（那 5 个项目自带 Version=，会直接 NU1008）。
+       若将来在 tests/ 下建测试项目，需另建一份，或把本文件上移至根并给
+       Discord.Net 注入 ManagePackageVersionsCentrally=false。
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup Label="内部包">
+    <PackageVersion Include="Lunarium.Common" Version="1.4.0" />
+    <PackageVersion Include="Lunarium.Logging" Version="1.1.0" />
+    <PackageVersion Include="Lunarium.Logging.Hosting" Version="1.0.3" />
+    <PackageVersion Include="Lunarium.Scheduler" Version="1.1.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="其余第三方">
+    <PackageVersion Include="Dapper" Version="2.1.66" />
+    <PackageVersion Include="Discord.Net" Version="3.18.0" />
+    <PackageVersion Include="JiebaNet.Segmenter" Version="1.0.6" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <PackageVersion Include="Nanoid" Version="3.1.0" />
+    <PackageVersion Include="Npgsql" Version="9.0.4" />
+    <PackageVersion Include="Polly" Version="8.8.0" />
+    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.11" />
+    <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.11" />
+    <PackageVersion Include="Tokenizers.DotNet" Version="1.4.1" />
+    <PackageVersion Include="Tokenizers.DotNet.runtime.linux-x64" Version="1.4.1" />
+  </ItemGroup>
+
+</Project>

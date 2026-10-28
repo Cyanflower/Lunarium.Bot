@@ -34,13 +34,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Lunarium.Common" Version="1.4.0" />
-    <PackageReference Include="Lunarium.Logging" Version="1.1.0" />
-    <PackageReference Include="Lunarium.Logging.Hosting" Version="1.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="Polly" Version="8.8.0" />
+    <PackageReference Include="Lunarium.Common" />
+    <PackageReference Include="Lunarium.Logging" />
+    <PackageReference Include="Lunarium.Logging.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Polly" />
     <!-- 归档打包时把 PNG 转成高质量 JPEG（只处理内存，不改磁盘原件） -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
 </Project>
