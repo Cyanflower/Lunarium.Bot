@@ -82,12 +82,11 @@ Discord.Net/
 stathmi/
 
 # === Other ===
+Reference/
 # 无关的环境文件
 .env
 [/d].md
 docker-manual.md
-src/LunariumProxy/
-
 
 # ==============================================================================
 # 编辑器 / IDE / AI Agent 配置产物（本地专属，不入库）
@@ -134,3 +133,8 @@ note.md
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Lunarium.Bot.Ticket 运行时数据 / 旧数据迁移 ---
+src/Lunarium.Bot.Ticket/storage/
+src/Lunarium.Bot.Ticket/old-data/
+src/Lunarium.Bot.Ticket/Logs/

@@ -1,190 +1,368 @@
-# Lunarium.Bot 项目概况
+# Lunarium.Bot 开发指南
 
-## 1. 简介
+> 本文件是仓库的架构事实来源。**新代码、重构与评审一律以 `src/Lunarium.Bot.Ticket` 为模板。**
+> 功能进度以 `git log` 为准；本文只描述架构代际，不承诺某个 bot 的功能完成度。
 
-`Lunarium.Bot` 是一个基于 .NET 10.0 构建的现代化、模块化的 Discord Bot 解决方案。该项目旨在提供一个健壮、可扩展的框架，用于开发功能复杂的 Discord 机器人。整个解决方案围绕着清晰的架构原则、分层依赖注入和可重用的共享库构建，目前包含了多个功能独立的机器人应用。
+## 1. 从哪里开始
 
-该项目的最新架构标准参考 `DataCenter`、`Archive` 和 `Extensions` 项目（`Examples` 尚未同步到该标准，见 §3.1）。
+### 1.1 三个层次
 
-> **命名提示**：本机仓库目录仍沿用旧名 `LunariumBot.Net`，但解决方案名、项目名与命名空间已统一为 `Lunarium.Bot`。如果代码里出现 `LunariumBot.Net.*`，说明该处停留在停工前的旧命名。
+| 层次 | 位置 | 职责 |
+| --- | --- | --- |
+| 应用 | `src/Lunarium.Bot.*` | 各 bot 的业务实现，独立进程、独立部署 |
+| 仓库内基础设施 | `src/Lunarium.Bot.Framework`、`src/Lunarium.Bot.AI` | Bot 通用基建（DI / 配置 / 鉴权 / 会话 / 通知 / 健康监控）与 LLM 客户端 |
+| 通用基础库（NuGet） | `Lunarium.Common`、`Lunarium.Logging`、`Lunarium.Scheduler` | 与 Discord 无关，独立仓库维护并发布 |
 
-## 2. 核心架构原则
+**参考实现**：`src/Lunarium.Bot.Ticket`。它是最新从头开发、且完整走通上述三层协作的项目。
 
-本项目遵循一系列现代 .NET 开发的最佳实践，以确保代码的可维护性、可测试性和可扩展性。
+### 1.2 判定“已是新标准”的硬判据
 
-### 2.1. .NET Generic Host 托管模型
-所有机器人应用都构建在 .NET Generic Host 之上。核心业务逻辑被封装在实现 `IHostedService` 接口的服务中（如 `DataCenterBotService`, `ArchiveBotService`），由主机统一管理其生命周期（启动、停止、优雅关机）。
+- `Program.cs` 约 100 行，只有四段职责（见 §2.2）
+- 不手写 `new DiscordSocketClient(...)`，用 `AddDiscordSocketClient(...)`
+- 不出现 `AuthUtils`，鉴权走 `RuleEngine.ValidateAsync(...)`
+- 配置模型实现 `IValidatableObject`，读写走 `ConfigLoader<T>`
+- 消息用 `MessagePrefab` / `ModalWindowPrefab`，不手拼 `EmbedBuilder`
+- 日志有独立的 `LogConfigurator.cs`，且有审计分流
+- 引用 `Lunarium.Bot.Framework`，不引用 `Lunarium.Bot.Extensions`、`src/Lunarium.Bot.Logger`、`src/Lunarium.Bot.Scheduler`
 
-### 2.2. 双层依赖注入 (DI) 模式
-这是一个关键的设计模式，用于实现应用级服务和机器人核心服务的解耦：
-1.  **主机 DI 容器 (`Program.cs`)**: 负责管理全局的、与具体机器人业务无关的应用级服务，例如：
-    *   **日志系统**（外部 NuGet 包 `Lunarium.Logging`，见 §3.3）
-    *   **网络代理配置** (`ProxyConfig`)
-2.  **私有 DI 容器 (`*BotService.cs`)**: 每个机器人服务内部都维护一个自己的 DI 容器。它负责管理仅与该机器人相关的服务，例如：
-    *   `DiscordSocketClient` 和 `InteractionService`
-    *   配置加载器 (`ConfigLoader`)
-    *   业务逻辑服务 (如 `DataProcessService`, `ArchiverService`)
-    *   命令模块和工具类 (如 `AuthUtils`)
+### 1.3 项目状态
 
-这种模式使得每个机器人的核心逻辑高度内聚和独立，可以轻松地被移植或复用。
+| 项目 | 类型 | 架构状态 | 说明 |
+| --- | --- | --- | --- |
+| `Lunarium.Bot.Ticket` | 应用 | ✅ 标准 | 参考实现；工单提交 / 审批 / 归档 / LLM 建议 / 自动通过 / 安抚 |
+| `Lunarium.Bot.Framework` | 共享库 | ✅ 标准 | 仓库内 bot 基础设施的唯一来源（原 `Lunarium.Bot.Extensions`） |
+| `Lunarium.Bot.AI` | 共享库 | ✅ 新增 | DeepSeek Responses 无状态推理客户端，按需接入 |
+| `Lunarium.Bot.Archive` | 应用 | 🚧 迁移中 | 已切到 Framework，现代化改造尚未完成 |
+| `Lunarium.Bot.DataCenter` | 应用 | 🚧 部分迁移 | 已用 Framework 的扩展与健康监控，但配置 / 日志 / 调度仍是旧实现 |
+| `Lunarium.Bot.SearchBot` | 应用 | ⚠️ 旧架构 | NuGet Discord.Net 3.18.0 + 仓库内 Logger / Scheduler；仍在开发 |
+| `Lunarium.Bot.Examples` | 应用 | ⚠️ 旧架构 | 同上；**不要当模板** |
+| `Lunarium.Bot.Lum` | 应用 | 🧪 本机实验 | 已入库，`slnx` 中已登记；尚未迁移到 Framework |
+| `Lunarium.Bot.Logger` / `Lunarium.Bot.Scheduler` | 遗留副本 | 🗄 待删除 | 已从解决方案注释掉，勿修改、勿新增引用 |
+| `ReleaseBot` / `VoteBot` / `LunariumProxy` | 应用 | 🗑 已移出 | 2026-10-29 移出仓库：源码见提交 `97d4c89`；`LunariumProxy` 未曾入库（现位于 `~/Projects/LunariumProxy`） |
+| 旧 SearchBot 副本 | 应用 | ❌ 废弃 | 仓库根目录 `LunariumBot.Net.SearchBot/`，已停止维护并移除中 |
 
-### 2.3. 配置分离
--   **敏感数据**: Bot Token 和代理地址等敏感信息通过**环境变量**加载，遵循十二要素应用（Twelve-Factor App）原则，增强了安全性。
--   **业务配置**: 机器人的行为配置（如管理员角色 ID、部署的服务器列表等）通过 `appsettings.jsonc` 文件管理，支持注释，便于修改和维护。
+> **命名**：本机仓库目录仍叫 `LunariumBot.Net`，但解决方案、项目、命名空间已统一为 `Lunarium.Bot`。代码里出现 `LunariumBot.Net.*` 即表示停留在停工前的旧命名。
 
-### 2.4. 共享核心库
+## 2. 架构标准（Ticket 范式）
 
-**已抽离为独立项目**（独立仓库 + 独立发布 NuGet，源码不在本仓库，详见 §3.3）：
--   `Lunarium.Logging`: 结构化日志框架（`LogLevel` / `ILogger` / `LoggerBuilder` / `GlobalConfigurator`）。
--   `Lunarium.Scheduler`: 基于 Cron 表达式的定时任务调度器。
+### 2.1 进程模型
 
-**仍在本仓库维护**：
--   `Lunarium.Bot.Extensions`: 通用扩展与基础工具，详见 §3.4。
+所有 bot 都是 Generic Host 应用：`Program.Main` 只负责装配，业务实现在实现 `IHostedService` 的 `*BotService` 中，由 Host 管理启动、停止与优雅关机。
 
-> ⚠️ 仓库内还留着 `src/Lunarium.Bot.Logger` 与 `src/Lunarium.Bot.Scheduler` 两个**停工前的遗留副本**，已被上述独立项目取代。**不要修改它们，也不要照着它们写代码**——其 API 与现行 NuGet 版本已不一致（Logger 变动最大）。详见 §3.5。
+- `HostOptions.ShutdownTimeout = 120s`（归档、下载等长任务需要排空时间）
+- `StopAsync` 必须：取消事件订阅 → 停掉后台任务 → `StopAsync` Discord 客户端 → 释放私有 DI 容器
+- 全局异常兜底：`AppDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException`
 
-### 2.5. 本地 vendored Discord.Net
+### 2.2 `Program.cs` 四段式
 
-本项目**不通过 NuGet 引用 Discord.Net**，而是在仓库内维护一份官方源码的检出：`./Discord.Net`（当前 3.20.2）。
--   它**不是 submodule**：父仓库不记录 gitlink，`Discord.Net/` 已在 `.gitignore` 中忽略——对 git 来说它就是一个普通文件夹。
--   其内容由 `Discord.Net.Local/sync-discordnet.sh` 维护：按 `Discord.Net.Local/discordnet.version` 里的 tag 克隆/切换官方仓库（`github.com/discord-net/Discord.Net`，零本地改动），再把 `Discord.Net.Local/Directory.Build.props` 注入到检出根目录。
--   该 props 注入 `InternalsVisibleTo → Lunarium.Bot.Extensions` 并关闭强签名，因此 `Lunarium.Bot.Extensions` 可以直接调用 Discord.Net 的内部 API（这也是 Extensions 与 Discord.Net 强耦合的原因）。
--   `src` 下各项目通过 `ProjectReference` 引用 `Discord.Net/src/...`。
+```csharp
+public static async Task Main(string[] args)
+{
+    // ① 日志引导（失败时退回 Console）
+    var rootLogger = LogConfigurator.Initialize();
 
-> ⚠️ 全新 clone 之后必须先跑一次 `Discord.Net.Local/sync-discordnet.sh`，否则 `Discord.Net/` 不存在，项目无法编译。升级版本的做法：改 `discordnet.version`，再跑一次脚本。
+    // ② 环境变量：代理 + Token
+    var proxyUrl = ProxyUrl.FromEnvironment();
+    var token = EnvVar.GetRequired("TICKET_BOT_TOKEN");
 
-## 3. 解决方案组件 (项目)
+    // ③ Host 装配（只注册日志与 BotService）
+    var host = Host.CreateDefaultBuilder(args)
+        .ConfigureLogging((_, logging) => logging.AddLunariumLogger(rootLogger))
+        .ConfigureServices(services => services
+            .Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(120))
+            .AddHostedService<TicketBotService>(_ =>
+                new TicketBotService(token, rootLogger, proxyUrl)))
+        .Build();
 
-### 3.1. 活跃的应用机器人 (Executable Projects)
+    // ④ 全局异常兜底，然后 RunAsync
+    await host.RunAsync();
+}
+```
 
-#### `Lunarium.Bot.DataCenter`
-**职责**: 核心数据中心，负责从 Discord 收集、处理、存储和分析数据。
--   **数据采集**: 通过 `Listener` 实时监听 Discord 事件（消息、帖子创建/更新等），并通过 `Scanner` 定期全量扫描服务器数据，确保数据完整性。
--   **数据处理**: `DataProcessService` 负责处理原始数据，包括使用 `JiebaNet.Segmenter` 对中文内容进行分词以便于全文搜索。
--   **数据持久化**: 使用 `DatabaseService` 将处理后的数据存入 PostgreSQL 数据库。采用 Dapper 作为 ORM，并包含一套数据库迁移 (`DB.Migration.cs`) 逻辑。
--   **数据分析与报告**: `DataAnalysis` 服务和 `AnalysisJob` 定时任务负责生成服务器的活动报告，并通过 `DisplayEmbedBuilder` 将其格式化为 Discord Embed 消息。
--   **迁移状态**: 仍在使用仓库内的 Logger / Scheduler，正在迁移到 NuGet 版本（见 §5）。
+约束：
 
-#### `Lunarium.Bot.Archive`
-**职责**: 一个专门的工具机器人，用于自动管理 Discord 论坛和线程的生命周期。
--   **自动归档**: `ArchiverService` 定期检查所有活跃线程，根据服务器配置的活跃线程上限，将最不活跃的帖子自动归档。
--   **置顶帖维护**: 自动维持被标记为“置顶”的帖子处于活跃状态，防止其被意外归档。
--   **优先归档**: 支持一个可配置的优先归档列表 (`PriorityArchiveDataLoader`)，可以为特定帖子设置归档权重。
--   **迁移状态**: 已完成，使用 NuGet `Lunarium.Logging`（无调度需求，不涉及 Scheduler）。
+- 主机 DI 容器**只放**日志与 `IHostedService`；业务对象一律进私有容器
+- Token / 代理只从环境变量读，不写进配置文件
+- 结束时 `await ((IAsyncDisposable)rootLogger).DisposeAsync()`，确保日志落盘
 
-#### `Lunarium.Bot.SearchBot`
-**职责**: 搜索机器人，采用**旧架构**（未按 §2.2 双层 DI 标准组织），但属于继续开发的项目。
--   仍在引用仓库内的 Logger / Scheduler / Extensions。
--   ⚠️ 仓库根目录下的 `LunariumBot.Net.SearchBot/` 是另一份**已废弃的旧副本**（见 §3.2），不要与 `src/Lunarium.Bot.SearchBot` 混淆。
+### 2.3 双层 DI
 
-#### `Lunarium.Bot.Examples`
-**职责**: 示例项目。
--   ⚠️ **尚未同步到当前架构标准**：仍引用仓库内 Logger、Discord.Net 仍用 NuGet 包（3.18.0）而非 vendored 版本，因此目前**不适合作为"最佳实践模板"**。待其迁移后再恢复模板定位。
+**主机容器**（`Program.cs`）：日志、Host 选项、BotService 本身。
 
-### 3.2. 冻结项目（不再开发，请勿参考）
+**私有容器**（`*BotService.ConfigurePrivateServices`）：该 bot 的全部运行时依赖。注册顺序即释放逆序，推荐：
 
-以下项目**已冻结**：不打算继续开发，保留在仓库中仅作存档。请不要在其上叠加功能，也不要参照其架构——它们大多停留在旧标准（仓库内 Logger/Scheduler、Discord.Net 走 NuGet 包、命名空间仍为 `LunariumBot.Net.*`）。
+```csharp
+new ServiceCollection()
+    .AddSingleton(logger)                    // 已带 RootContext 前缀
+    .AddSingleton<ConfigLoader<TConfig>>()   // 业务配置
+    .AddDiscordSocketClient(proxyUrl, cfg => ...)
+    .AddInteractionService()
+    .AddDiscordLogAdapter()                  // 以下均为可选能力
+    .AddStatusNotifier()
+    .AddCommandSynchronizer()
+    .AddHealthMonitor()
+    .AddSessionManager()
+    // ↓ 业务单例
+    .AddSingleton<XxxService>()
+    .BuildServiceProvider();
+```
+
+- `ConfigLoader<T>`、`CacheStore` 等被业务服务依赖的对象必须注册在业务单例**之前**
+- `InteractionService` 的模块加载与交互执行都要传 `_privateServices`，保证命令模块能解析到业务服务
+- 私有容器用 `BuildServiceProvider()` 创建，`StopAsync` 中显式 `DisposeAsync`
+
+### 2.4 配置：`ConfigLoader<T>`
+
+**文件分工**
+
+| 文件 | 内容 | 是否入库 |
+| --- | --- | --- |
+| `appsettings.json` | 业务配置（部署 guild、频道、角色、阈值） | 否，只提交 `appsettings.template.json` |
+| `appsettings.health.json` | 运维配置（健康监控端口、心跳） | 是（无敏感信息），另有 `.template.json` |
+
+**读取规则**
+
+- 严格 JSON：属性名大小写不敏感，**未知键直接报错**（防止“配了却不生效”）
+- 定位顺序：`Directory.GetCurrentDirectory()` → `AppContext.BaseDirectory`，兼容 `dotnet run` 与发布后启动
+- 启动时校验失败即抛 `ConfigValidationException`，**这是预期行为**，不要吞掉
+
+**模型约束**
+
+```csharp
+public sealed class TicketConfig : IValidatableObject
+{
+    public DeployerConfig DeployerConfig { get; set; } = new();
+    public Dictionary<ulong, GuildConfig> DeployGuildConfig { get; set; } = new();
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext context) { ... }
+}
+```
+
+- 模型必须 `class` + 无参构造 + 实现 `IValidatableObject`
+- 校验工具：`ConfigValidation.Check` / `CheckIdList`，ID 字段加 `[SnowflakeId]`
+- 业务规则写在模型自己身上，`ConfigLoader<T>` 不含任何业务判断
+
+**写回契约**
+
+| 成员 | 语义 |
+| --- | --- |
+| `Value` | 当前快照，整对象替换，读取无需加锁 |
+| `TryUpdate(Action<T>)` | 以**磁盘当前内容**为基线修改 → 校验 → 原子写回（临时文件 + Move）；失败返回错误列表且文件不变 |
+| `TryReload()` | 从磁盘重载；失败保留旧配置，返回 `false` |
+| `OnConfigApplied(T)` | 派生类覆写，用于重建派生状态（如重设定时器、刷新频道集合） |
+| `Validate(T)` | 离线校验候选配置（测试 / `--check-config`） |
+
+- **禁止**直接修改 `ConfigLoader.Value` 上的属性——会绕过校验与写回
+- 所有写回必须走 `TryUpdate`，它天然支持“手工改文件 + 运行期更新”共存
+
+### 2.5 鉴权：`RuleEngine`
+
+```csharp
+var failure = await RuleEngine.ValidateAsync(
+    Context,
+    new BaseRuleSet.MaintainerBypass(deployerIds),
+    new BaseRuleSet.RequireInGuild(guildIds),
+    new BaseRuleSet.RequireAdminRole(adminRoleIds));
+
+if (failure is not null)
+{
+    await FollowupAsync(components: failure, ephemeral: true);
+    return;
+}
+```
+
+- 返回 `null` 表示通过；返回 `MessageComponent` 表示失败，直接回给用户
+- 顺序语义（**先命中先返回**）：`Bypass` → 放行；`Fail` → 拒绝；`Success` → 继续
+- 因此顺序固定为：**绕过规则 → 环境约束 → 权限规则**
+- 内置规则：`RequireAdminUser`、`RequireAdminRole`、`RequireRole`、`RequireInGuild`、`RequireInAnyGuild`、`RequireInChannel`、`RequireMaintainer`、`MaintainerBypass`
+- 交互与文本消息两条路径都支持（`IAuthRule` / `IMsgBasedAuthRule`）
+- 交互命令在 `BeforeExecuteAsync` 里 `DeferAsync(ephemeral: true)`，鉴权失败用 `FollowupAsync` 回复
+
+### 2.6 交互会话：`SessionManager`
+
+用于跨多次交互的表单 / 面板（如配置编辑器）：
+
+- 注册：`AddSessionManager(alphabet, expiresHours)`，默认 `Alphabet.Base` + 1 小时
+- 会话继承 `BaseInteractionsSession<TContext>`，实现 `Scope`、`Render()`
+- `CustomId(action)` 统一生成 `scope:action:sessionId`，不要手拼
+- 回调用 `HasPrefixSessionId.TryParse` 解析，并校验 `Context.User.Id` 是否为会话创建者
+- 过期即失效；`RefreshExpiration` 可在有效操作后延长
+
+### 2.7 消息与模态窗：Prefab
+
+- `MessagePrefab`：`AnyFail` / `AnySuccess` / `AnyNotifier` / `AuthFail` / `FunctionFail` / `ConfigFail` / `OperateSuccess` / `EntryKey` / `AfterEntryKey`
+- `ModalWindowPrefab`：`SingleTextField` / `MultiRoleSelectField` / `ChannelSelectField`
+- 新代码使用 Component V2（`ComponentBuilderV2` + `TextDisplay`），不受 Embed 描述 4096 字符限制
+- 旧项目里的 `EmbedUtils` / `GeneralEmbedBuilder` 不再扩散，改到时顺手替换
+
+### 2.8 日志：`LogConfigurator` 与审计分层
+
+日志配置是**每个 bot 自己的一份 `LogConfigurator.cs`**，不进 Framework（各 bot 的 sink 与上下文不同）。
+
+- 定义 `RootContext` 常量（如 `"TicketBot"`），私有容器注册的 logger 已带此前缀
+- 各服务 `ForContext("TicketService.Xxx")` 会被拼成 `RootContext.TicketService.Xxx`
+- 审计分流：`AuditOnlyPrefixes`（只写 Audit）与 `SharedAuditPrefixes`（Audit + Runtime）
+- 过滤器按 `StartsWith` 匹配且**区分大小写**，必须写完整路径，不能只写中间段
+- 默认 sink：`Logs/Runtime`、`Logs/Audit`、`Logs/EW/Error`、`Logs/EW/Warning`、Console
+- 级别可用 `FILE_LOG_LEVEL` / `CONSOLE_LOG_LEVEL` 覆盖
+- 详细语义与踩坑见 [`LUNARIUM_LOGGING.md`](./LUNARIUM_LOGGING.md)
+
+### 2.9 可选能力
+
+| 能力 | 注册方法 | 说明 |
+| --- | --- | --- |
+| Discord 日志桥接 | `AddDiscordLogAdapter()` | `_client.Log += _adapter.Handle` |
+| 上线 / 重连 / 审计通知 | `AddStatusNotifier()` | `Notifier.SendLoginNotificationAsync` / `ReConnect` / `SendAuditMessageTo*` / `SendKeyEntryMessageAsync` |
+| 文本命令 | `AddCommandSynchronizer()` | `重新注册` / `在本服务器重新注册` |
+| 健康监控 | `AddHealthMonitor()` | 读取 `appsettings.health.json`；HTTP 端口 / 心跳 |
+| 交互会话 | `AddSessionManager()` | 见 §2.6 |
+| LLM | `AddLunariumAi(proxyUrl, options)` | 见 §3.2；未配置 Key 时 `IsAvailable == false`，调用方需降级 |
+
+## 3. 共享库
+
+### 3.1 `Lunarium.Bot.Framework`（仓库内）
+
+Bot 基础设施的唯一来源。按目录划分：
+
+| 目录 / 类型 | 内容 |
+| --- | --- |
+| `Configuration/` | `ConfigLoader<T>`、`ConfigFilePaths`、`ConfigValidation`、`ConfigValidationException`、`JsonConfigOptions`、`SnowflakeIdAttribute` |
+| `AuthRuleEngine/` | `RuleEngine`、`IAuthRule` / `IMsgBasedAuthRule`、`BaseRuleSet`、`ValidateResult` |
+| `Interaction/` | `SessionManager`、`BaseInteractionsSession<T>`、`IInteractionSession`、`CustomId`、`HasPrefixSessionId` |
+| `Health/` | `HealthMonitor`、`HealthMonitorConfig`、`HealthMonitorRemote` |
+| 根目录 | `ServiceCollectionExtensions`（`AddDiscordSocketClient` / `AddInteractionService` / `AddDiscordLogAdapter` / `AddStatusNotifier` / `AddCommandSynchronizer` / `AddHealthMonitor` / `AddSessionManager`） |
+| 消息 | `MessagePrefab`、`ModalWindowPrefab`、`Notifier`、`SelectMenuOption` |
+| 其他 | `CommandSynchronizer`、`DiscordLogAdapter`、`RateLimiterExtensions`、`RetryPolicy`、`TypeExtensionMethod`、`OpenAPI/` |
+
+依赖：`Lunarium.Common`、`Lunarium.Logging`、`Lunarium.Scheduler`、`Polly`、`System.Threading.RateLimiting`，以及 vendored Discord.Net（依赖其 `InternalsVisibleTo`，见 §7）。
+
+> ⚠️ 版本收敛：Framework 目前锁定的 Common / Logging 版本比 Ticket 低。**改动 Framework 时顺带对齐**，但不要把“升级依赖”混进业务提交。
+
+### 3.2 `Lunarium.Bot.AI`（仓库内）
+
+无状态、单次、非流式的 LLM 推理客户端：
+
+- 接口：`IAiClient.CompleteAsync`，以及按 JSON Schema 反序列化的扩展方法
+- 实现：DeepSeek Responses API
+- 注册：`services.AddLunariumAi(proxyUrl, o => { o.DefaultModel = ...; o.BaseUrl = ...; o.ApiKeyEnvironmentVariable = ...; })`
+- 运行期可注入 Key：`IAiKeyConfigurator`（默认仅存内存，重启回落到环境变量）
+- **明确不做**：会话历史、工具调用、MCP、流式输出、本地 token 估算
+
+### 3.3 NuGet 基础库（独立仓库）
+
+| 库 | 包 | 本机源码 |
+| --- | --- | --- |
+| Common | `Lunarium.Common` | `~/Projects/Lunarium.Common` |
+| Logger | `Lunarium.Logging`、`.Hosting`、`.Configuration`、`.Http` | `~/Projects/Lunarium.Logging` |
+| Scheduler | `Lunarium.Scheduler` | `~/Projects/Lunarium.Scheduler` |
+
+- **Common**：零外部依赖、AOT 兼容。模块：`Lunarium.Common`（`Alphabet`）、`.UID`（`LocalSnowflake` / `NanoId`）、`.Debounce`（`DirtyDebouncer` / `CtsDebouncer` / 工厂）、`.Caching`（`CacheStore` / `JsonDocumentStore`）、`.Net`（`ProxyUrl` / `EnvUrl`）、`EnvVar`
+- **Logger**：`Lunarium.Logging` 命名空间；`Hosting` 提供 Host / MEL 桥接，`Configuration` 提供 `appsettings.json` 热更新，`Http` 提供 Seq / Loki Sink
+- **Scheduler**：`Lunarium.Scheduler`，基于 Cronos，支持 DI 创建任务、同步 / 异步任务、按时区调度
+
+> 版本号不在本文锁定——**以各 `*.csproj` 为准**。目前各项目存在版本漂移，属于已知待收敛项。
+
+### 3.4 遗留副本（勿参考）
+
+`src/Lunarium.Bot.Logger` 与 `src/Lunarium.Bot.Scheduler` 是停工前留在仓库内的旧版本，已被 §3.3 的 NuGet 包取代，且已从 `Lunarium.Bot.slnx` 注释掉。
+
+- 其 API 与现行 NuGet 版本**不一致**（Logger 变动最大）
+- 不要修改、不要新增引用
+- 目前仍引用它们的项目：`SearchBot`、`Examples`（`DataCenter` 已迁到 NuGet 包）
+
+## 4. 应用项目
+
+### 4.1 `Lunarium.Bot.Ticket`（参考实现）
+
+工单机器人：提交入口 → 审核（可选 LLM 建议）→ 建频道 / 生命周期 → 归档（HTML + 附件 ZIP）→ 删除队列；支持自动通过、无人回复安抚、运行期设置 AI Key。
+
+阅读顺序建议：`Program.cs` → `TicketBot.cs` → `LogConfigurator.cs` → `Model/ConfigModel.cs` → `AppInteraction/` → `TicketService/`。
+
+### 4.2 `Lunarium.Bot.Archive`（迁移中）
+
+论坛 / 线程生命周期管理：按上限自动归档最不活跃帖子（仅在超限时才逐帖取最后活跃时间），每轮向状态频道维护一条归档报告。已切到 Framework；旧优先归档与置顶监控均已移除，配置走 `/维护 编辑配置` 面板，全局间隔用 `/维护 重设间隔`。
+
+### 4.3 `Lunarium.Bot.DataCenter`（部分迁移）
+
+数据采集 / 分词 / PostgreSQL 持久化 / 活动分析。已使用 Framework 的扩展与健康监控，但仍自带 `ConfigLoader`、仓库内 Logger / Scheduler，属于迁移中间态。
+
+### 4.4 旧架构项目
+
+- `Lunarium.Bot.SearchBot`：搜索机器人，仍在开发，但仍是 NuGet Discord.Net 3.18.0 + 自带 `ConfigLoader` + 仓库内 Logger / Scheduler
+- `Lunarium.Bot.Examples`：示例项目，同样未迁移；**当前不适合作为模板**
+
+### 4.5 冻结 / 废弃
 
 | 项目 | 位置 | 说明 |
 | --- | --- | --- |
-| ReleaseBot | `src/Lunarium.Bot.ReleaseBot` | 发布助手机器人；2025-12 起无改动，已从解决方案中注释掉 |
-| VoteBot | `src/Lunarium.Bot.VoteBot` | 投票机器人；2026-03 创建后再无改动，已从解决方案中注释掉 |
-| LunariumProxy | `src/LunariumProxy` | Blazor + YARP 的代理/面板实验；**未纳入 git 跟踪**（见 `.gitignore`），已从解决方案中注释掉 |
-| 旧 SearchBot 副本 | `LunariumBot.Net.SearchBot/`（仓库根目录） | 重组前遗留的独立副本，命名空间与依赖仍指向**已不存在**的 `LunariumBot.Net.Logger/Scheduler`，无法编译；现行项目是 `src/Lunarium.Bot.SearchBot` |
+| ReleaseBot / VoteBot / LunariumProxy | 已移出仓库（2026-10-29） | 源码可 `git checkout 97d4c89 -- <path>` 恢复；本地配置备份在 `~/Projects/Lunarium.Bot.removed/`；`LunariumProxy` 未曾入库，现位于 `~/Projects/LunariumProxy` |
+| 旧 SearchBot 副本 | `LunariumBot.Net.SearchBot/` | 重组前遗留，已停止维护并移除中；现行项目是 `src/Lunarium.Bot.SearchBot` |
 
-### 3.3. 外部基础库（独立仓库 + NuGet）
+## 5. 新 Bot 脚手架清单
 
-这两个库已从本仓库抽离，各自维护独立仓库并发布 NuGet 包。**需要查阅或修改它们的实现时，请前往本机源码目录，而不是仓库内的遗留副本。**
+按以下顺序落地，可直接对着 Ticket 抄：
 
-| 库 | NuGet 包 | 版本 | 本机源码位置 |
-| --- | --- | --- | --- |
-| Logger | `Lunarium.Logging`、`Lunarium.Logging.Hosting`、`Lunarium.Logging.Configuration`、`Lunarium.Logging.Http` | 1.0.3 | `~/Projects/Lunarium.Logging` |
-| Scheduler | `Lunarium.Scheduler` | 1.0.0 | `~/Projects/Lunarium.Scheduler` |
+1. **csproj**（`net10.0`）
+   - `ProjectReference`：`Lunarium.Bot.Framework` + vendored Discord.Net 的 4 个项目（Core / Interactions / Rest / WebSocket）
+   - `PackageReference`：`Lunarium.Common`、`Lunarium.Logging`、`Lunarium.Logging.Hosting`、`Microsoft.Extensions.Hosting`
+   - 需要 LLM 时再加 `Lunarium.Bot.AI`
+2. **`Program.cs`**：四段式（§2.2）
+3. **`LogConfigurator.cs`**：`RootContext` + 审计前缀 + sink（§2.8）
+4. **`XxxBotService.cs`**
+   - 构造函数：`EnvVar token`、`ILogger`、`ProxyUrl?`
+   - `ConfigurePrivateServices`：按 §2.3 的顺序注册
+   - `StartAsync`：加载本地数据 → 挂事件 → `AddModulesAsync` → `LoginAsync` → `StartAsync`
+   - `ReadyAsync`：首次注册命令 / 发上线通知；重连走 `Notifier.ReConnect`
+   - `StopAsync`：按 §2.1 的顺序收尾
+5. **配置**
+   - `Model/ConfigModel.cs`：`XxxConfig` / `DeployerConfig` / `GuildConfig`，实现 `IValidatableObject`
+   - `appsettings.json` + `appsettings.template.json`
+   - `appsettings.health.json` + `appsettings.health.template.json`
+6. **交互层**
+   - 命令：`InteractionModuleBase<SocketInteractionContext>`，`BeforeExecuteAsync` 里 defer
+   - 鉴权：`RuleEngine` + `BaseRuleSet`（§2.5）
+   - 面板 / 表单：`SessionManager` + `BaseInteractionsSession<T>`（§2.6）
+   - 消息：`MessagePrefab` / `ModalWindowPrefab`（§2.7）
+7. **本地数据**：运行时数据放 `storage/` 或 `data/`，确认已加入 `.gitignore`
+8. **文档**：在本文件 §1.3 状态表登记；需要时补 `README` / 运维说明
 
--   **Logger**: 目标框架 `net8.0;net9.0;net10.0`。命名空间为 `Lunarium.Logging`（旧仓库内版本是 `Lunarium.Bot.Logger`）。除核心包外均为可选扩展包：`Hosting` 提供 `IHostBuilder`/`ILoggingBuilder` 集成与 MEL 桥接，`Configuration` 提供 `appsettings.json` 热更新，`Http` 提供 Seq/Loki 等批量推送 Sink。
--   **Scheduler**: 命名空间 `Lunarium.Scheduler`（旧仓库内版本是 `Lunarium.Bot.Scheduler`）。基于 Cronos 实现，支持 DI 创建任务、同步/异步任务与按时区调度。
+**不要做的事**：手写 `DiscordSocketClient` 构造、自己写 `AuthUtils`、在业务里直接 `File.WriteAllText` 配置、复制 `Logger` / `Scheduler` 旧副本、把业务服务塞进主机容器。
 
-### 3.4. 仓库内共享库
+## 6. 数据持久化现状
 
-#### `Lunarium.Bot.Extensions`
-通用扩展与基础工具库，目前包含：
--   基础工具：`HealthMonitoring`、`Debounce`、`CacheStore` 等。
--   面向 Discord.Net 的扩展（借助 §2.5 的 `InternalsVisibleTo` 访问其内部 API）。
--   日志依赖为 NuGet `Lunarium.Logging`。
+没有统一持久层，按项目选择：
 
-### 3.5. 遗留副本（勿参考，待删除）
+- **DataCenter**：PostgreSQL + Dapper；`DBMigrations/*.pgsql` 启动时自动迁移；schema 用触发器维护一致性
+- **Ticket**：本地文件（`storage/`）+ 归档 ZIP；无数据库
+- **Archive**：状态报告消息 id 落 `CacheStore`（重启后认领并原地编辑）
 
-#### `src/Lunarium.Bot.Logger` / `src/Lunarium.Bot.Scheduler`
-停工前留在仓库内的旧版本，已被 §3.3 的独立项目取代，且已从解决方案中注释掉。
+新项目没有强制 ORM 要求；需要关系型数据时参考 DataCenter，简单状态优先本地文件 + `CacheStore` / `JsonDocumentStore`。
 
-> ⚠️ 它们的 API 与现行 NuGet 版本**已不一致**（Logger 变动最大），照着它们写代码会出错。不要修改、不要新增对它们的引用。
+## 7. vendored Discord.Net
 
-当前仍引用它们的项目：`DataCenter`、`SearchBot`、`Examples`（另 `ReleaseBot` / `VoteBot` / `LunariumProxy` 已冻结）。待这些活跃项目全部迁移到 NuGet 之后，这两个目录会被删除。
+- 版本：`3.20.2`，由 `Discord.Net.Local/discordnet.version` 锁定
+- **不是 submodule**：`Discord.Net/` 被 `.gitignore` 忽略，对 git 只是一个普通目录
+- 维护脚本：`Discord.Net.Local/sync-discordnet.sh`（按 tag 克隆 / 切换官方仓库，再注入 `Directory.Build.props`）
+- `Directory.Build.props` 做两件事：`InternalsVisibleTo → Lunarium.Bot.Framework`、关闭强签名
+- 全新 clone 后**必须**先跑一次同步脚本，否则项目无法编译；升级版本改 `discordnet.version` 后重跑
+- 标准项目通过 `ProjectReference` 引用 `Discord.Net/src/*`，不走 NuGet；`SearchBot` / `Examples` 仍是 NuGet 3.18.0（见 §4.4）
 
-## 4. 数据持久化 (Database)
+## 8. 当前状态与已知不一致
 
-`Lunarium.Bot.DataCenter` 项目依赖于 **PostgreSQL** 数据库。
--   **ORM**: 使用 **Dapper** 进行数据访问，提供了高性能和灵活性。
--   **数据模型**: `Models` 目录下定义了清晰的领域模型 (`DomainModels.cs`) 和数据库模型 (`DatabaseModels.cs`)，实现了业务逻辑与数据存储的解耦。
--   **数据库迁移**: 项目包含一套简单的数据库迁移系统 (`DB.Migration.cs`)，它会检查 `DBMigrations` 目录下的 `.pgsql` 脚本，并在应用启动时自动更新数据库结构到最新版本。
--   **高级特性**: 数据库 schema (`v1.initial_schema.pgsql`) 利用了 PostgreSQL 的触发器（Triggers）来自动维护数据一致性，例如自动更新标签使用次数、自动生成全文搜索向量等。
+> 快照：2026-10-24。架构信息以本文为准，功能进度以 `git log` 为准。
 
-## 5. 当前状态与规划
+- Ticket 已建成并作为标准；Framework 完成从 Extensions 的更名与重构
+- Archive 正在按 Ticket 范式改造，尚未完成
+- DataCenter / SearchBot / Examples 尚未完成迁移
 
-> 快照时间：2026-10-13。此节**容易过期**，如需权威信息请以 `git log` 为准。
+已知待收敛项：
 
-项目约在 2026 年初停工，2026-10 起复工。两个基础库（`Lunarium.Logging`、`Lunarium.Scheduler`）的抽离发生在停工期间，早于本次复工。
+1. Framework 的 Common / Logging 版本低于 Ticket，统一依赖版本
+2. 仓库根目录旧 SearchBot 副本仍在清理中
+3. `tests/` 已清空，暂无测试项目
 
-本次复工的进度与规划：
+## 9. 参考资料
 
-1.  **Extensions** — 新增基础工具（`HealthMonitoring` / `Debounce` / `CacheStore` 等）；日志依赖由仓库内 Logger 改为 NuGet `Lunarium.Logging`。**已完成**
-2.  **Archive** — 借助 Extensions 的新工具修复若干问题；日志切换为 NuGet `Lunarium.Logging`（无调度需求，不涉及 Scheduler）。**已完成**
-3.  **DataCenter** —（下一步）① 将 Logger 换成 NuGet `Lunarium.Logging`，将 Scheduler 换成 NuGet `Lunarium.Scheduler`；② 优化业务上 scan 逻辑的性能。
-4.  **SearchBot** — 继续开发。
-
-因此读代码时请注意：`Extensions` 与 `Archive` 已是"新标准"，`DataCenter` 正在迁移中，其余项目尚未迁移。
-
-## 6. 设计模式与实践
-
--   **依赖注入 (DI)**: 贯穿整个解决方案，用于解耦组件。
--   **IHostedService**: 用于管理后台服务的生命周期。
--   **Builder 模式**: `LoggerBuilder`（来自外部 NuGet 包 `Lunarium.Logging`）用于流畅地配置日志系统。
--   **Partial Class**: 用于将大型服务类（如 `DataProcessService`, `DatabaseService`）按功能拆分到多个文件中，提高代码可读性。
--   **异步编程**: 广泛使用 `async/await` 和 `Task` 来处理 I/O 密集型操作，保证了应用的高性能和响应能力。
-
-***
-
-**速记**：活跃开发请先看 `src/Lunarium.Bot.DataCenter` 与 `src/Lunarium.Bot.Archive`；日志/调度一律使用 NuGet 的 `Lunarium.Logging` / `Lunarium.Scheduler`；`src/Lunarium.Bot.Logger`、`src/Lunarium.Bot.Scheduler` 是过期副本；`src/Lunarium.Bot.ReleaseBot`、`src/Lunarium.Bot.VoteBot`、`src/LunariumProxy`、仓库根目录 `LunariumBot.Net.SearchBot/` 均为冻结项目。
-
-
-Discord.Net.Local/Directory.Build.props
-（由 `Discord.Net.Local/sync-discordnet.sh` 复制到 `Discord.Net/` 根目录后生效）
-```
-<Project>
-  <!-- 
-    这个文件会自动被子项目加载。
-    在这里做的配置会应用到 Discord.Net 的所有项目 (Rest, WebSocket, Core 等)。
-  -->
-
-  <ItemGroup>
-    <!-- 
-      核心：注入 InternalsVisibleTo 属性。
-      _Parameter1 是你的项目程序集名称（注意：是程序集名称，通常与 .csproj 文件名一致）。
-      如果有多个项目需要访问，就复制多行。
-    -->
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Lunarium.Bot.Extensions</_Parameter1>
-    </AssemblyAttribute>
-  </ItemGroup>
-
-  <PropertyGroup>
-    <!-- 
-      重要：禁用强签名 (Strong Naming)。
-      默认情况下 Discord.Net 是开启签名的, 如果程序集已签名, InternalsVisibleTo 必须包含公钥
-    -->
-    <SignAssembly>false</SignAssembly>
-    <AssemblyOriginatorKeyFile></AssemblyOriginatorKeyFile>
-  </PropertyGroup>
-
-</Project>
-```
+- [`LUNARIUM_LOGGING.md`](./LUNARIUM_LOGGING.md)：日志上下文、过滤前缀、初始化顺序与审计分层
+- [`Discord.Net.Local/Directory.Build.props`](./Discord.Net.Local/Directory.Build.props)：vendored Discord.Net 的注入配置
+- 外部库源码：`~/Projects/Lunarium.Common`、`~/Projects/Lunarium.Logging`、`~/Projects/Lunarium.Scheduler`

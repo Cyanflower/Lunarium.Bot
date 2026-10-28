@@ -13,18 +13,15 @@
     <Project Path="Discord.Net/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Lunarium.Bot.AI/Lunarium.Bot.AI.csproj" />
     <Project Path="src/Lunarium.Bot.Archive/Lunarium.Bot.Archive.csproj" />
     <Project Path="src/Lunarium.Bot.DataCenter/Lunarium.Bot.DataCenter.csproj" />
     <Project Path="src/Lunarium.Bot.Examples/Lunarium.Bot.Examples.csproj" />
-    <Project Path="src/Lunarium.Bot.Extensions/Lunarium.Bot.Extensions.csproj" />
+    <Project Path="src/Lunarium.Bot.Framework/Lunarium.Bot.Framework.csproj" />
+    <Project Path="src/Lunarium.Bot.Lum/Lunarium.Bot.Lum.csproj" />
     <!-- <Project Path="src/Lunarium.Bot.Logger/Lunarium.Bot.Logger.csproj" /> -->
-    <!-- <Project Path="src/Lunarium.Bot.ReleaseBot/Lunarium.Bot.ReleaseBot.csproj" /> -->
     <!-- <Project Path="src/Lunarium.Bot.Scheduler/Lunarium.Bot.Scheduler.csproj" /> -->
     <Project Path="src/Lunarium.Bot.SearchBot/Lunarium.Bot.SearchBot.csproj" />
-    <!-- <Project Path="src/Lunarium.Bot.VoteBot/Lunarium.Bot.VoteBot.csproj" /> -->
-    <!-- <Project Path="src/LunariumProxy/LunariumProxy.csproj" /> -->
-  </Folder>
-  <Folder Name="/tests/">
-    <!-- <Project Path="tests/Lunarium.Bot.LoggerParser/Lunarium.Bot.Logger.Test.csproj" /> -->
+    <Project Path="src/Lunarium.Bot.Ticket/Lunarium.Bot.Ticket.csproj" />
   </Folder>
 </Solution>
