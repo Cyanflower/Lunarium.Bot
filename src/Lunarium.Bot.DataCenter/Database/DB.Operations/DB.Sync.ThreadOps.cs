@@ -7,6 +7,7 @@ using Lunarium.Bot.Framework;
 
 using Lunarium.Bot.DataCenter.Models;
 using Lunarium.Bot.DataCenter.Models.Database;
+using Lunarium.Bot.DataCenter.Utils;
 
 namespace Lunarium.Bot.DataCenter.Database;
 
@@ -104,6 +105,8 @@ public partial class DatabaseService
 
         try
         {
+            LogNulThreads(allThreads);
+
             var allThreadsDb = allThreads.Select(ThreadDataDb.FromDomain).ToList();
 
             // 准备帖子标签关联数据 (Junction)
@@ -160,8 +163,39 @@ public partial class DatabaseService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ SyncAllThreadsAsync: 批量同步帖子数据到数据库的写入更新失败");
+            _logger.Error(ex,
+                "❌ SyncAllThreadsAsync: 批量同步帖子数据到数据库的写入更新失败。批次 ThreadIds: {ThreadIds}",
+                string.Join(',', allThreads.Select(t => t.ThreadId)));
             throw;
+        }
+    }
+
+    /// <summary>
+    /// 记录本批次中含 NUL 的帖子，便于定位脏数据来源。
+    /// NUL 已在 <see cref="ThreadDataDb.FromDomain"/> 清洗，这里只做告警（Discord 消息正文可以携带 U+0000）。
+    /// </summary>
+    private void LogNulThreads(List<ThreadData> threads)
+    {
+        var hits = threads
+            .Where(t =>
+                PgText.ContainsNul(t.Title) ||
+                PgText.ContainsNul(t.FirstMessageContent) ||
+                PgText.ContainsNul(t.TitleTokenized) ||
+                PgText.ContainsNul(t.ContentTokenized) ||
+                PgText.ContainsNul(t.ChannelName) ||
+                PgText.ContainsNul(t.GuildName) ||
+                PgText.ContainsNul(t.JumpUrl) ||
+                PgText.ContainsNul(t.UpdatedJumpUrl) ||
+                PgText.ContainsNul(t.Tags))
+            .Select(t => t.ThreadId)
+            .ToArray();
+
+        if (hits.Length > 0)
+        {
+            _logger.Warning(
+                "⚠️ 本批次 {Count} 条帖子文本含 NUL，已清洗后入库。ThreadIds: {ThreadIds}",
+                hits.Length,
+                string.Join(',', hits));
         }
     }
     

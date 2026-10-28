@@ -38,9 +38,9 @@ internal class ChannelDataDb
     public static ChannelDataDb FromDomain(ChannelData domain) => new()
     {
         ChannelId = domain.ChannelId.ToDbId(),
-        ChannelName = DbString.SanitizeOrEmpty(domain.ChannelName),
+        ChannelName = PgText.SanitizeOrEmpty(domain.ChannelName),
         GuildId = domain.GuildId.ToDbId(),
-        GuildName = DbString.SanitizeOrEmpty(domain.GuildName)
+        GuildName = PgText.SanitizeOrEmpty(domain.GuildName)
     };
 
     public ChannelData ToDomain() => new()
@@ -91,31 +91,31 @@ internal class ThreadDataDb
         FirstMessageId = domain.FirstMessageId.ToDbId(),
         AuthorId = domain.AuthorId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
-        ChannelName = DbString.SanitizeOrEmpty(domain.ChannelName),
+        ChannelName = PgText.SanitizeOrEmpty(domain.ChannelName),
         GuildId = domain.GuildId.ToDbId(),
-        GuildName = DbString.SanitizeOrEmpty(domain.GuildName),
+        GuildName = PgText.SanitizeOrEmpty(domain.GuildName),
         CreatedAt = domain.CreatedAt.ToUniversalTime(),
         ReactionCount = domain.ReactionCount,
         ReplyCount = domain.ReplyCount,
         LastActiveAt = domain.LastActiveAt.ToUniversalTime(),
-        JumpUrl = DbString.SanitizeOrEmpty(domain.JumpUrl),
+        JumpUrl = PgText.SanitizeOrEmpty(domain.JumpUrl),
         AttachmentUrls = domain.AttachmentUrls is { Count: > 0 } attachmentUrls
-            ? DbString.SanitizeList(attachmentUrls)
+            ? PgText.SanitizeList(attachmentUrls)
             : null,
         UpdatedAt = domain.UpdatedAt?.ToUniversalTime(),
-        UpdatedJumpUrl = DbString.Sanitize(domain.UpdatedJumpUrl),
+        UpdatedJumpUrl = PgText.Sanitize(domain.UpdatedJumpUrl),
         UpdateCount = domain.UpdateCount,
-        Tags = DbString.Sanitize(domain.Tags),
+        Tags = PgText.Sanitize(domain.Tags),
         TagsId = domain.TagsId.Select(id => id.ToDbId()).ToList(),
         IsValid = domain.IsValid,
         IsLocked = domain.IsLocked,
         IsDeleted = domain.IsDeleted,
         InForum = domain.InForum,
         DeleteAt = domain.DeleteAt?.ToUniversalTime(),
-        Title = DbString.SanitizeOrEmpty(domain.Title),
-        FirstMessageContent = DbString.Sanitize(domain.FirstMessageContent),
-        TitleTokenized = DbString.SanitizeOrEmpty(domain.TitleTokenized),
-        ContentTokenized = DbString.Sanitize(domain.ContentTokenized)
+        Title = PgText.SanitizeOrEmpty(domain.Title),
+        FirstMessageContent = PgText.Sanitize(domain.FirstMessageContent),
+        TitleTokenized = PgText.SanitizeOrEmpty(domain.TitleTokenized),
+        ContentTokenized = PgText.Sanitize(domain.ContentTokenized)
     };
 
     public ThreadData ToDomain()
@@ -176,7 +176,7 @@ internal class MessageDataDb
         GuildId = domain.GuildId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
         ThreadId = domain.ThreadId?.ToDbId(),
-        MessageJumpUrl = DbString.SanitizeOrEmpty(domain.MessageJumpUrl),
+        MessageJumpUrl = PgText.SanitizeOrEmpty(domain.MessageJumpUrl),
         IsCreateThread = domain.IsCreateThread,
         IsUpdate = domain.IsUpdate
     };
@@ -216,10 +216,10 @@ internal class UserDataDb
     public static UserDataDb FromDomain(UserData domain) => new()
     {
         UserId = domain.UserId.ToDbId(),
-        UserUsername = DbString.SanitizeOrEmpty(domain.UserUsername),
-        UserNikcname = DbString.Sanitize(domain.UserNikcname),
-        UserGlobalName = DbString.Sanitize(domain.UserGlobalName),
-        UserAvatarUrl = DbString.Sanitize(domain.UserAvatarUrl),
+        UserUsername = PgText.SanitizeOrEmpty(domain.UserUsername),
+        UserNikcname = PgText.Sanitize(domain.UserNikcname),
+        UserGlobalName = PgText.Sanitize(domain.UserGlobalName),
+        UserAvatarUrl = PgText.Sanitize(domain.UserAvatarUrl),
         UserRoles = domain.UserRoles.Select(id => id.ToDbId()).ToList(),
         UserThreadCountDelta = domain.UserThreadCountDelta,
         UserMessageCountDelta = domain.UserMessageCountDelta,
@@ -307,9 +307,9 @@ internal class TagDataDb
     {
         TagId = domain.TagId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
-        TagName = DbString.SanitizeOrEmpty(domain.TagName),
-        ChannelName = DbString.SanitizeOrEmpty(domain.ChannelName),
-        GuildName = DbString.SanitizeOrEmpty(domain.GuildName),
+        TagName = PgText.SanitizeOrEmpty(domain.TagName),
+        ChannelName = PgText.SanitizeOrEmpty(domain.ChannelName),
+        GuildName = PgText.SanitizeOrEmpty(domain.GuildName),
         UsageCount = domain.UsageCount
     };
 
@@ -355,29 +355,29 @@ internal class PostDisplayModelDb
     public static PostDisplayModelDb FromDomain(PostDisplayModel domain) => new()
     {
         ThreadId = domain.ThreadId.ToDbId(),
-        Title = DbString.Sanitize(domain.Title),
-        JumpUrl = DbString.Sanitize(domain.JumpUrl),
+        Title = PgText.Sanitize(domain.Title),
+        JumpUrl = PgText.Sanitize(domain.JumpUrl),
         AttachmentUrls = domain.AttachmentUrls is { Count: > 0 } displayAttachmentUrls
-            ? DbString.SanitizeList(displayAttachmentUrls)
+            ? PgText.SanitizeList(displayAttachmentUrls)
             : null,
         FirstMessageId = domain.FirstMessageId.ToDbId(),
         AuthorId = domain.AuthorId.ToDbId(),
         ChannelId = domain.ChannelId.ToDbId(),
-        ChannelName = DbString.Sanitize(domain.ChannelName),
+        ChannelName = PgText.Sanitize(domain.ChannelName),
         GuildId = domain.GuildId.ToDbId(),
-        GuildName = DbString.Sanitize(domain.GuildName),
+        GuildName = PgText.Sanitize(domain.GuildName),
         CreatedAt = domain.CreatedAt,
         MemberCount = domain.MemberCount,
         ReactionCount = domain.ReactionCount,
         ReplyCount = domain.ReplyCount,
         LastActiveAt = domain.LastActiveAt,
-        Content = DbString.Sanitize(domain.Content),
-        Tags = DbString.Sanitize(domain.Tags),
+        Content = PgText.Sanitize(domain.Content),
+        Tags = PgText.Sanitize(domain.Tags),
         AddedAt = domain.AddedAt,
         IsFallbackData = domain.IsFallbackData,
-        FavoriteAS = DbString.Sanitize(domain.FavoriteAS),
+        FavoriteAS = PgText.Sanitize(domain.FavoriteAS),
         UpdatedAt = domain.UpdatedAt,
-        MessageJumpUrl = DbString.SanitizeOrEmpty(domain.MessageJumpUrl)
+        MessageJumpUrl = PgText.SanitizeOrEmpty(domain.MessageJumpUrl)
     };
 
     public PostDisplayModel ToDomain() => new()
@@ -423,10 +423,10 @@ public class RoleDataDb
     public static RoleDataDb FromDomain(RoleData roleData) => new()
     {
         RoleId = roleData.RoleId.ToDbId(),
-        RoleName = DbString.SanitizeOrEmpty(roleData.RoleName),
+        RoleName = PgText.SanitizeOrEmpty(roleData.RoleName),
         RolePosition = roleData.RolePosition,
-        RoleIconUrl = DbString.Sanitize(roleData.RoleIconUrl),
-        RoleEmoji = DbString.Sanitize(roleData.RoleEmoji),
+        RoleIconUrl = PgText.Sanitize(roleData.RoleIconUrl),
+        RoleEmoji = PgText.Sanitize(roleData.RoleEmoji),
         RolePrimaryColor = roleData.RolePrimaryColor?.ToDbId(),
         RoleSecondaryColor = roleData.RoleSecondaryColor?.ToDbId(),
         RoleTertiaryColor = roleData.RoleTertiaryColor?.ToDbId(),

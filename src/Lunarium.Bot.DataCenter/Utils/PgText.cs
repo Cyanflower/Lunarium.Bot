@@ -8,7 +8,7 @@ namespace Lunarium.Bot.DataCenter.Utils;
 /// 统一剥除，避免一条脏数据让整批事务回滚。
 /// </para>
 /// </summary>
-public static class DbString
+public static class PgText
 {
     /// <summary>
     /// 移除 NUL 字符。<see langword="null"/> 原样返回；不含 NUL 时返回原实例（不额外分配）。
