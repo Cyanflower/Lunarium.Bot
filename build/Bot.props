@@ -1,0 +1,44 @@
+<Project>
+
+  <!--
+    Bot 项目的统一发布形态。
+    用法：在 bot 的 csproj 顶部显式 Import —— import 本身就表示「这是一个会部署的 bot」：
+
+      <Project Sdk="Microsoft.NET.Sdk">
+        <Import Project="../../build/Bot.props" />
+        ...
+      </Project>
+
+    ⚠️ 不要改成 Directory.Build.props 里的 Condition 判定：它在该 csproj 之前求值，
+       届时 csproj 里声明的标记属性还不存在（已在 .NET 10 实测，条件会静默不成立）。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- Discord.Net / System.Text.Json 依赖反射，裁剪的问题只在运行时才暴露 -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- 不产出 pdb / xml，保持发布目录只剩二进制与模板 -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <CopyOutputSymbolsToOutputDirectory>false</CopyOutputSymbolsToOutputDirectory>
+  </PropertyGroup>
+
+  <!--
+    服务器上没有安装 .NET 运行时，Release 必须自包含单文件；
+    Debug 保持框架依赖，便于本地运行与 IDE 调试。
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <!-- 连引用项目的 pdb / xml 也不复制 -->
+    <AllowedReferenceRelatedFileExtensions>.none</AllowedReferenceRelatedFileExtensions>
+  </PropertyGroup>
+
+</Project>

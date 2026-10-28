@@ -1,5 +1,20 @@
 <Project>
+
+  <!-- ============================================================
+       A 类：仓库内所有项目完全一致的属性（无条件生效）
+       Bot 专属的发布形态见 build/Bot.props，由各 bot 项目显式 Import
+       ============================================================ -->
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <UseArtifactsOutput>true</UseArtifactsOutput>
+
+    <!-- 显式锁定，避免 SDK 升级时静默改变语义 -->
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
+
 </Project>

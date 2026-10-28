@@ -1,11 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- 旧架构：暂未 Import build/Bot.props，待迁移到 NuGet 后再统一 -->
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Lunarium.Bot.SearchBot</RootNamespace>
-    <OutputPath>$(SolutionDir)dist\$(MSBuildProjectName)\</OutputPath>
     <UserSecretsId>e3bcbee0-3d4e-46b7-a0dc-4a3d59e919a0</UserSecretsId>
   </PropertyGroup>
 
@@ -16,13 +12,13 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
     <PackageReference Include="Nanoid" Version="3.1.0" />
     <PackageReference Include="Npgsql" Version="9.0.4" />
-    <PackageReference Include="Polly" Version="8.6.2" />
+    <PackageReference Include="Polly" Version="8.8.0" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- 引用共享库 -->
     <ProjectReference Include="../Lunarium.Bot.Scheduler/Lunarium.Bot.Scheduler.csproj" />
     <ProjectReference Include="..\Lunarium.Bot.Logger\Lunarium.Bot.Logger.csproj" />
-    <ProjectReference Include="..\Lunarium.Bot.Extensions\Lunarium.Bot.Extensions.csproj" />
+    <ProjectReference Include="..\Lunarium.Bot.Framework\Lunarium.Bot.Framework.csproj" />
   </ItemGroup>
 </Project>

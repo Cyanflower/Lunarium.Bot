@@ -1,33 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-
-    <AssemblyName>Lunarium.Bot.Archive</AssemblyName>
-
-    <!-- 1. 自定义输出目录 -->
-    <!-- 使用 PublishDir 来指定 `dotnet publish` 命令的输出路径 -->
-    <!-- $(SolutionDir) 会自动获取解决方案的根目录 -->
-    <!-- $(MSBuildProjectName) 是项目名 -->
-    <PublishDir>$(SolutionDir)dist\$(MSBuildProjectName)\</PublishDir>
-    <!-- 2. 禁止在输出路径中添加框架版本号 (net10.0) -->
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <!-- 3. 配置单文件发布 -->
-    <!-- 开启单文件发布功能 -->
-    <PublishSingleFile>true</PublishSingleFile>
-    <!-- 设置为自包含，这样即使用户电脑上没有.NET 10环境也能运行 -->
-    <!-- <SelfContained>true</SelfContained> -->
-    <!-- 指定目标运行环境，这是自包含模式必需的。你可以根据需要修改 -->
-    <!-- 比如：win-x64, linux-x64, osx-x64, linux-arm64 等 -->
-    <!-- <RuntimeIdentifier>linux-x64</RuntimeIdentifier>  -->
-    <!-- 4. 禁止生成 .pdb 调试文件 -->
-    <!-- <DebugType>None</DebugType> -->
-    <!-- 5. 禁止生成你项目本身的 .xml 文档文件 (这也会顺带阻止一些依赖的xml文件被复制) -->
-    <!-- <GenerateDocumentationFile>false</GenerateDocumentationFile> -->
-  </PropertyGroup>
+  <Import Project="../../build/Bot.props" />
 
   <ItemGroup>
     <PackageReference Include="Lunarium.Common" Version="1.4.0" />

@@ -1,41 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-
-    <!-- 同时决定发布出的可执行文件名 -->
-    <AssemblyName>Lunarium.Bot.Ticket</AssemblyName>
-
-    <!--
-      发布外观：
-      服务器（linux-x64）不安装 .NET 运行时，所以 Release 默认按自包含单文件发布，
-      `dotnet publish -c Release` 即可直接产出可上传的二进制。
-      Debug / IDE 构建保持框架依赖，便于本地调试。
-    -->
-    <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">linux-x64</RuntimeIdentifier>
-    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
-
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-
-    <!-- 单文件发布不启用裁剪：Discord.Net / STJ 依赖反射，裁剪会到运行时才暴露问题 -->
-    <PublishTrimmed>false</PublishTrimmed>
-
-    <!-- 不生成 pdb / xml 文档，减小发布体积 -->
-    <DebugType Condition="'$(Configuration)' == 'Release'">None</DebugType>
-    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
-    <!-- 连引用项目的 pdb / xml 也不复制，保持发布目录只剩二进制与模板 -->
-    <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">.none</AllowedReferenceRelatedFileExtensions>
-    <CopyOutputSymbolsToOutputDirectory Condition="'$(Configuration)' == 'Release'">false</CopyOutputSymbolsToOutputDirectory>
-
-    <!-- 固定发布目录：src/Lunarium.Bot.Ticket/dist/（已被 .gitignore 忽略） -->
-    <PublishDir>dist\</PublishDir>
-  </PropertyGroup>
+  <!--
+    发布形态（Release 自包含单文件 / linux-x64 / 去 pdb·xml）统一由
+    build/Bot.props 提供，此处不再重复声明。
+  -->
+  <Import Project="../../build/Bot.props" />
 
   <ItemGroup>
     <!-- 引用共享库 -->

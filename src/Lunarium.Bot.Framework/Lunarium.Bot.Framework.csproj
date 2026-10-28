@@ -1,13 +1,5 @@
 ﻿
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- 类库 -->
-  <PropertyGroup>
-    <OutputType>Library</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Lunarium.Bot.Framework</RootNamespace>
-  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Lunarium.Scheduler" Version="1.1.0" />

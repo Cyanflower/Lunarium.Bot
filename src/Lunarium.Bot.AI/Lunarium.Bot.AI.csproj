@@ -1,13 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Lunarium.Bot.AI</RootNamespace>
-    <AssemblyName>Lunarium.Bot.AI</AssemblyName>
-  </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="Lunarium.Common" Version="1.2.1" />
     <PackageReference Include="Lunarium.Logging" Version="1.1.0" />
