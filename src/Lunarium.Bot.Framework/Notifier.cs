@@ -135,7 +135,7 @@ public sealed class Notifier
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(appendDescription))
+            if (!string.IsNullOrWhiteSpace(appendDescription))
             {
                 loginLogStatusSB.AppendLine(appendDescription);
             }
