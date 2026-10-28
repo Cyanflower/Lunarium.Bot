@@ -161,7 +161,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
             await FollowupAsync(embed: EmbedUtils.SuccessEmbed("✅ 任务已调度", "正在后台执行同步操作，请查看进度卡片。"));
 
             // 执行扫描
-            var result = await _scanner.SyncScanAsync(reporter);
+            var result = await _scanner.SyncScanAsync(ScanMode.Incremental, reporter);
 
             success = true;
         }

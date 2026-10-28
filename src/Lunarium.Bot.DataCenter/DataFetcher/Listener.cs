@@ -29,6 +29,7 @@ public class Listener
     private readonly DiscordSocketClient _client;
     private readonly ConfigLoader _configLoader;
     private readonly DataProcessService _dataProcessService;
+    private readonly ThreadActivityTracker _activityTracker;
 
     /// <summary>
     /// 获取需要监控的所有频道ID集合。
@@ -65,13 +66,26 @@ public class Listener
         ILogger logger,
         DiscordSocketClient client,
         ConfigLoader configLoader,
-        DataProcessService dataProcessService
+        DataProcessService dataProcessService,
+        ThreadActivityTracker activityTracker
     )
     {
         _logger = logger.ForContext("Listener");
         _client = client;
         _configLoader = configLoader;
         _dataProcessService = dataProcessService;
+        _activityTracker = activityTracker;
+    }
+
+    /// <summary>
+    /// 把帖子 ID 记入待深挖集合（仅限配置的扫描频道）。
+    /// 作为实时写入之外的兜底：周更扫描会按集合重新深挖首楼内容/附件/反应数。
+    /// </summary>
+    private void TrackThreadActivity(SocketThreadChannel? threadChannel)
+    {
+        if (threadChannel is null) return;
+        if (!ChannelIds.Contains(threadChannel.CategoryId ?? 0)) return;
+        _activityTracker.Add(threadChannel.Id);
     }
 
     /// <summary>
@@ -252,6 +266,7 @@ public class Listener
             {
                 // 如果消息所在频道是 SocketThreadChannel(线程/帖子)
                 case SocketThreadChannel threadChannel:
+                    TrackThreadActivity(threadChannel);
                     _logger.Debug("🧵 处理线程消息: [{GuildName}.{ParentChannelName}.{ThreadName}]",
                         threadChannel.Guild.Name, threadChannel.ParentChannel?.Name ?? "未知父频道", threadChannel.Name);
 
@@ -331,6 +346,8 @@ public class Listener
     {
         try
         {
+            TrackThreadActivity(socketMessage.Channel as SocketThreadChannel);
+
             // 检查是否应该完全忽略此消息(根据排除规则)
             if (ShouldCompletelyIgnored(socketMessage))
             {
@@ -360,6 +377,11 @@ public class Listener
     {
         try
         {
+            if (cacheableMessageChannel.HasValue)
+            {
+                TrackThreadActivity(cacheableMessageChannel.Value as SocketThreadChannel);
+            }
+
             _logger.Debug("🗑️ 处理单条消息删除: 消息ID {MessageId}, 频道ID {ChannelId}", 
                 cacheableMessage.Id, cacheableMessageChannel.Id);
             await _dataProcessService.MessagesDeleteProcess([cacheableMessage.Id]);
@@ -400,6 +422,8 @@ public class Listener
     /// <param name="socketThreadChannel">创建的帖子频道对象</param>
     private async Task ThreadCreatedAsync(SocketThreadChannel socketThreadChannel)
     {
+        TrackThreadActivity(socketThreadChannel);
+
         try
         {
             _logger.Debug("⚡ 检测到新帖子创建: [{GuildName}.{ParentChannelName}] 帖子ID {ThreadId}, 帖子名称 [{ThreadName}]",
@@ -478,6 +502,8 @@ public class Listener
     /// <param name="socketThreadChannel">更新后的帖子频道对象</param>
     private async Task ThreadUpdateAsync(Cacheable<SocketThreadChannel, ulong> cacheableThreadChannel, SocketThreadChannel socketThreadChannel)
     {
+        TrackThreadActivity(socketThreadChannel);
+
         try
         {
             _logger.Debug("🔄 检测到帖子更新: [{GuildName}.{ParentChannelName}] 帖子ID {ThreadId}, 帖子名称 [{ThreadName}]",
@@ -625,6 +651,11 @@ public class Listener
     {
         try
         {
+            if (cacheableChannel.HasValue)
+            {
+                TrackThreadActivity(cacheableChannel.Value as SocketThreadChannel);
+            }
+
             // 判断是否为帖子首楼消息(Discord中帖子的首楼消息ID等于频道ID)
             if (cacheableMessage.Id == cacheableChannel.Id)
             {

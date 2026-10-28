@@ -161,6 +161,9 @@ public class DataCenterBotService : IHostedService
                 provider.GetRequiredKeyedService<AsyncRetryPolicy>("DbPolicy")))
             .AddSingleton<UrlSignedInfoCacheService>()
 
+            // 待深挖帖子集合（Listener + 活跃帖轮询共同维护）
+            .AddSingleton<ThreadActivityTracker>()
+
             // ==== [服务] ====
             // 注册帖子扫描模块
             .AddSingleton<ThreadScanner>()
@@ -175,6 +178,8 @@ public class DataCenterBotService : IHostedService
             // ==== [定时任务] ====
             .AddSingleton<AnalysisAsyncJob>()
             .AddSingleton<FullSyncAsyncJob>()
+            .AddSingleton<FullDeepSyncAsyncJob>()
+            .AddSingleton<ActiveThreadPollJob>()
             .AddSingleton<SyncMembersAndRolesJob>()
             .AddSingleton<UrlSignedInfoCacheSyncAsyncJob>()
             .AddSingleton<UrlSignedInfoCacheCheckAsyncJob>()
@@ -324,15 +329,18 @@ public class DataCenterBotService : IHostedService
         // 分钟=0, 小时=4, 日=任意, 月=任意, 星期几=1
         _logger.Info("⚙️ 正在配置定时任务调度器...");
         var TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
-        // 每周
-        _scheduler.ScheduleWeeklyAsync<FullSyncAsyncJob>(dayOfWeek: DayOfWeek.Tuesday, hour: 4, minute: 30, name: "同步扫描", timeZone: TimeZone);
+        // 每周（增量：第 1 阶段全量列举，第 2/3 阶段只处理脏集合与新增）
+        _scheduler.ScheduleWeeklyAsync<FullSyncAsyncJob>(dayOfWeek: DayOfWeek.Tuesday, hour: 3, minute: 0, name: "同步扫描(增量)", timeZone: TimeZone);
+        // 每月 25 号（全量深扫，兜底漏事件与反应/编辑漂移）
+        _scheduler.ScheduleMonthlyAsync<FullDeepSyncAsyncJob>(day: 25, hour: 4, minute: 0, name: "月度全量扫描", timeZone: TimeZone);
         // 每日
-        _scheduler.ScheduleDailyAsync<AnalysisAsyncJob>(hour: 5, name: "每日分析", timeZone: TimeZone);
-        _scheduler.ScheduleDailyAsync<UrlSignedInfoCacheSyncAsyncJob>(hour: 4, minute: 30, name: "Url缓存同步", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<AnalysisAsyncJob>(hour: 6, name: "每日分析", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<UrlSignedInfoCacheSyncAsyncJob>(hour: 5, minute: 30, name: "Url缓存同步", timeZone: TimeZone);
         // 每小时
         _scheduler.ScheduleHourlyAsync<SyncMembersAndRolesJob>(minute: 50, name: "用户信息与身份组同步", timeZone: TimeZone);
         _scheduler.ScheduleHourlyAsync<UrlSignedInfoCacheCheckAsyncJob>(minute: 45, name: "Url缓存检查", timeZone: TimeZone);
         // 间隔
+        _scheduler.ScheduleIntervalAsync<ActiveThreadPollJob>(10, "活跃帖追踪", timeZone: TimeZone);
         _scheduler.ScheduleIntervalAsync<SystemMonitorJob>(5, "系统监控", timeZone: TimeZone);
         // 启动调度器
         _scheduler.Start();

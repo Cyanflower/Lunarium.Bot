@@ -152,6 +152,53 @@ public partial class DatabaseService
         }
     }
     
+    /// <summary>
+    /// 批量更新扫描中发生元数据变化（标题/标签/锁定/有效性）的帖子。
+    /// 只改这 5 个字段，不会覆盖回复数、反应数、正文等深度数据。
+    /// </summary>
+    public async Task UpdateThreadsMetadataAsync(NpgsqlTransaction transaction, IReadOnlyList<ThreadData> threads)
+    {
+        if (threads.Count == 0) return;
+
+        const string SQLCommand = """
+            -- 批量更新元数据（仅增量扫描中有变化的帖子）
+            UPDATE posts_main AS p
+            SET
+                tags = t.tags,
+                title = t.title,
+                title_tokenized = t.title_tokenized,
+                is_valid = t.is_valid,
+                is_locked = t.is_locked
+            FROM unnest(
+                @ThreadIds, @Tags, @Titles, @TitleTokenizeds, @IsValids, @IsLockeds
+            ) AS t(thread_id, tags, title, title_tokenized, is_valid, is_locked)
+            WHERE p.thread_id = t.thread_id;
+            """;
+
+        var threadDataDbs = threads.Select(ThreadDataDb.FromDomain).ToList();
+
+        var parameters = new
+        {
+            ThreadIds = threadDataDbs.Select(t => t.ThreadId).ToArray(),
+            Tags = threadDataDbs.Select(t => t.Tags).ToArray(),
+            Titles = threadDataDbs.Select(t => t.Title).ToArray(),
+            TitleTokenizeds = threadDataDbs.Select(t => t.TitleTokenized).ToArray(),
+            IsValids = threadDataDbs.Select(t => t.IsValid).ToArray(),
+            IsLockeds = threadDataDbs.Select(t => t.IsLocked).ToArray()
+        };
+
+        try
+        {
+            if (transaction.Connection is null) throw new InvalidOperationException("事务连接为 null");
+            await transaction.Connection.ExecuteAsync(SQLCommand, parameters, transaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ UpdateThreadsMetadataAsync: 批量更新帖子元数据失败，涉及数量: {Count}", threads.Count);
+            throw;
+        }
+    }
+
     public async Task UpdateThreadContentAsync(NpgsqlTransaction transaction, ThreadData threadData)
     {
         const string SQLCommand = """
@@ -164,6 +211,7 @@ public partial class DatabaseService
             WHERE 
                 thread_id = @ThreadId;
             """;
+
         var threadDataDb = ThreadDataDb.FromDomain(threadData);
 
         var parameters = new
@@ -185,14 +233,15 @@ public partial class DatabaseService
         }
     }
 
-    public async Task UpdateThreadReplayCountAsync(NpgsqlTransaction transaction, ulong threadId, int replyCount)
+    public async Task UpdateThreadReplayCountAsync(NpgsqlTransaction transaction, ulong threadId, int replyCount, DateTimeOffset lastActiveAt)
     {
         const string SQLCommand = """
             -- 更新帖子主数据
-            -- 只更新特定字段：reply_count
+            -- 只更新回复数与活跃时间（GREATEST 防止乱序事件导致时间回退）
             UPDATE posts_main 
             SET 
-                reply_count = @ReplyCount
+                reply_count = @ReplyCount,
+                last_active_at = GREATEST(last_active_at, @LastActiveAt)
             WHERE 
                 thread_id = @ThreadId;
             """;
@@ -200,6 +249,7 @@ public partial class DatabaseService
         var parameters = new
         {
             ReplyCount = replyCount,
+            LastActiveAt = lastActiveAt.ToUniversalTime(),
             ThreadId = threadId.ToDbId()
         };
 

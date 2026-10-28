@@ -201,7 +201,7 @@ public partial class DataProcessService
                     await transaction.SaveAsync("before_update_count");
                     try
                     {
-                        await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, restThread.MessageCount);
+                        await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, restThread.MessageCount, message.CreatedAt);
                     }
                     catch (Exception ex)
                     {
@@ -368,7 +368,7 @@ public partial class DataProcessService
                         await transaction.SaveAsync("before_update_count");
                         try
                         {
-                            await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, socketThreadChannel.MessageCount);
+                            await _databaseService.UpdateThreadReplayCountAsync(transaction, socketThreadChannel.Id, socketThreadChannel.MessageCount, message.CreatedAt);
                         }
                         catch (Exception ex)
                         {

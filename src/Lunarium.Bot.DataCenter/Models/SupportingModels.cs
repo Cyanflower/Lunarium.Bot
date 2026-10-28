@@ -31,6 +31,11 @@ public enum NumericUpdateType
 // ============================================
 
 /// <summary>
+/// 增量扫描基线（来自 posts_main 的轻量元数据）。
+/// </summary>
+public sealed record ThreadScanBaseline(string Title, string? Tags, bool IsLocked, bool IsValid, bool IsDeleted);
+
+/// <summary>
 /// 帖子处理结果
 /// </summary>
 public class ProcessingResult

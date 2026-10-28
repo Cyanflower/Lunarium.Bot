@@ -31,8 +31,8 @@ public class FullSyncAsyncJob : IAsyncJob
         try
         {
             _logger.Info("定时扫描开始");
-            // 执行同步扫描
-            var scanResult = await _scanner.SyncScanAsync();
+            // 执行增量同步扫描
+            var scanResult = await _scanner.SyncScanAsync(ScanMode.Incremental);
 
             _logger.Info("定时扫描完成");
 

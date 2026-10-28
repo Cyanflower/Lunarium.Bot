@@ -17,7 +17,12 @@ namespace Lunarium.Bot.DataCenter.DataProcess;
 /// </summary>
 public partial class DataProcessService
 {
-    public async Task SyncAllThreadAsync(List<ChannelData> allForumsData, List<TagData> allTagsData, List<ThreadData> allThreadsData)
+    public async Task SyncAllThreadAsync(
+        List<ChannelData> allForumsData,
+        List<TagData> allTagsData,
+        List<ThreadData> allThreadsData,
+        IReadOnlyCollection<ulong> allListedThreadIds,
+        IReadOnlyCollection<ulong> allListedChannelIds)
     {
         try
         {
@@ -69,17 +74,62 @@ public partial class DataProcessService
                 });
             }
 
-            _logger.Info("🗑️ 正在清理孤儿帖子...");
+            if (allListedThreadIds.Count == 0)
+            {
+                _logger.Warning("⚠️ 本次扫描未列举到任何帖子，跳过孤儿清理以避免误删");
+            }
+            else
+            {
+                _logger.Info("🗑️ 正在清理孤儿帖子...");
+                await _dbRetryPolicy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
+
+                    try
+                    {
+                        await _databaseService.DeleteOrphanThreadsAsync(
+                            transaction,
+                            allListedThreadIds.ToList(),
+                            allListedChannelIds.ToList());
+                        await transaction.CommitAsync();
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
+                });
+            }
+
+            _logger.Info("✅ 同步处理完成: 频道 {ChannelCount}, 标签 {TagCount}, 帖子 {ThreadCount}",
+                allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "❌ SyncProcessorAsync: 同步处理失败，涉及 {ChannelCount} 个频道，{TagCount} 个标签，{ThreadCount} 个帖子",
+                allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 批量更新增量扫描中检测到的元数据变化（标题/标签/锁定/有效性）。
+    /// </summary>
+    public async Task UpdateThreadsMetadataAsync(IReadOnlyList<ThreadData> threads)
+    {
+        if (threads.Count == 0) return;
+
+        try
+        {
             await _dbRetryPolicy.ExecuteAsync(async () =>
             {
+                await using var connection = _databaseService.GetConnection();
+                await connection.OpenAsync();
                 await using var transaction = (NpgsqlTransaction)await connection.BeginTransactionAsync();
 
                 try
                 {
-                    await _databaseService.DeleteOrphanThreadsAsync(
-                        transaction,
-                        allThreadsData.Select(t => t.ThreadId).ToList(),
-                        allThreadsData.Select(t => t.ChannelId).Distinct().ToList());
+                    await _databaseService.UpdateThreadsMetadataAsync(transaction, threads);
                     await transaction.CommitAsync();
                 }
                 catch
@@ -89,13 +139,11 @@ public partial class DataProcessService
                 }
             });
 
-            _logger.Info("✅ 同步处理完成: 频道 {ChannelCount}, 标签 {TagCount}, 帖子 {ThreadCount}",
-                allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+            _logger.Info("✅ 已更新 {Count} 条帖子的元数据", threads.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "❌ SyncProcessorAsync: 同步处理失败，涉及 {ChannelCount} 个频道，{TagCount} 个标签，{ThreadCount} 个帖子",
-                allForumsData.Count, allTagsData.Count, allThreadsData.Count);
+            _logger.Error(ex, "❌ UpdateThreadsMetadataAsync: 更新帖子元数据失败，涉及 {Count} 条", threads.Count);
             throw;
         }
     }

@@ -19,6 +19,7 @@ using Lunarium.Bot.Framework.OpenAPI;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.DataProcess;
+using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Bot.DataCenter.Models;
 using Lunarium.Bot.DataCenter.Utils;
 using Lunarium.Bot.DataCenter.AppInteractionService;
@@ -41,6 +42,8 @@ public class ThreadScanner
     private readonly LunariumScheduler _scheduler;
     private readonly RateLimiter _apiRequestRateLimiter;
     private readonly DataProcessService _dataProcessService;
+    private readonly DatabaseService _databaseService;
+    private readonly ThreadActivityTracker _activityTracker;
 
     /// <summary>
     /// HTTP 请求重试策略, 用于处理网络异常和临时性错误
@@ -68,6 +71,11 @@ public class ThreadScanner
     private HashSet<ulong> DeployGuildIds => _configLoader.Config.DeployConfig.ScanConfigs.Keys.ToHashSet();
 
     /// <summary>
+    /// 本次列举失败的频道（任一频道列举失败就把它排除在孤儿清理范围之外，避免误删）。
+    /// </summary>
+    private readonly ConcurrentDictionary<ulong, byte> _listingFailedChannels = new();
+
+    /// <summary>
     /// 初始化 Scanner 实例
     /// </summary>
     /// <param name="logger">日志记录器</param>
@@ -82,6 +90,8 @@ public class ThreadScanner
         DiscordSocketClient discordSocketClient,
         LunariumScheduler scheduler,
         DataProcessService dataProcessService,
+        DatabaseService databaseService,
+        ThreadActivityTracker activityTracker,
         RateLimiter rateLimiter,
         RequestOptions requestOptions,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
@@ -94,7 +104,8 @@ public class ThreadScanner
         _scheduler = scheduler;
         _apiRequestRateLimiter = rateLimiter;
         _dataProcessService = dataProcessService;
-        _apiRequestRateLimiter = rateLimiter;
+        _databaseService = databaseService;
+        _activityTracker = activityTracker;
         _requestOptions = requestOptions;
         _httpRetryPolicy = httpRetryPolicy;
     }
@@ -103,9 +114,10 @@ public class ThreadScanner
     /// 执行同步扫描, 收集所有论坛频道、标签和帖子数据
     /// </summary>
     /// <returns>异步任务</returns>
-    public async Task<string> SyncScanAsync(ScanProgressReporter? reporter = null)
+    public async Task<string> SyncScanAsync(ScanMode mode = ScanMode.Incremental, ScanProgressReporter? reporter = null)
     {
         _logger.Info("🚀 开始执行同步扫描任务...");
+        _listingFailedChannels.Clear();
 
         try
         {
@@ -169,8 +181,36 @@ public class ThreadScanner
                     allForumsData.Count, allTagsData.Count);
                 if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道, {allTagsData.Count} 个标签");
                     
+            // === 增量判定：第 1 阶段已经拿到全部线程对象，第 2 阶段只深挖脏集合与新增帖子
+            List<RestThreadChannel> forumThreads = allRestForumThreads.SelectMany(kv => kv.Value).ToList();
+            List<RestThreadChannel> textThreads = allSocketTextThreads.SelectMany(kv => kv.Value).ToList();
+            List<ulong> allListedThreadIds = forumThreads.Select(t => t.Id)
+                .Concat(textThreads.Select(t => t.Id))
+                .ToList();
+            List<ulong> allListedChannelIds = forumThreads.Select(t => t.CategoryId ?? 0)
+                .Concat(textThreads.Select(t => t.CategoryId ?? 0))
+                .Where(id => id != 0 && !_listingFailedChannels.ContainsKey(id))
+                .Distinct()
+                .ToList();
+
+            HashSet<ulong> dirtyThreadIds = _activityTracker.Snapshot().ToHashSet();
+            Dictionary<ulong, ThreadScanBaseline> baselines = await _databaseService.GetThreadScanBaselinesAsync();
+
+            List<RestThreadChannel> forumThreadsToDeepScan = mode == ScanMode.Full
+                ? forumThreads
+                : forumThreads
+                    .Where(t =>
+                        dirtyThreadIds.Contains(t.Id)
+                        || !baselines.TryGetValue(t.Id, out var baseline)
+                        || baseline.IsDeleted)
+                    .ToList();
+
+            _logger.Info("{Time} 🎯 扫描模式: {Mode}, 全量列举 {Total} 条, 本次深挖 {Deep} 条, 脏集合 {Dirty} 条",
+                GetElapsedTime(), mode, forumThreads.Count, forumThreadsToDeepScan.Count, dirtyThreadIds.Count);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 🎯 扫描模式: {mode}, 全量列举 {forumThreads.Count} 条, 本次深挖 {forumThreadsToDeepScan.Count} 条");
+
             // === GetAllRestForumThreadsData & GetAllSocketTextThreadsData
-            var allForumThreadsData = await GetAllRestForumThreadsData(allRestForumThreads);
+            var allForumThreadsData = await GetAllRestForumThreadsData(forumThreadsToDeepScan);
             var allTextThreadsData = GetAllRestTextThreadsData(allSocketTextThreads);
 
                 // 统计处理结果
@@ -199,6 +239,35 @@ public class ThreadScanner
                     .Where(r => r.Status != ProcessingStatus.Failed && r.Data is not null)
                     .Select(r => r.Data!),
             ];
+            // === 增量：未被深挖的帖子只计算元数据（标题/标签/锁定/有效性）变化
+            List<ThreadData> metadataUpdates = [];
+            if (mode == ScanMode.Incremental)
+            {
+                HashSet<ulong> deepScannedIds = forumThreadsToDeepScan.Select(t => t.Id).ToHashSet();
+                foreach (var thread in forumThreads)
+                {
+                    if (deepScannedIds.Contains(thread.Id)) continue;
+
+                    var metadata = BuildThreadMetadata(thread);
+                    if (baselines.TryGetValue(thread.Id, out var baseline)
+                        && baseline.Title == metadata.Title
+                        && baseline.Tags == metadata.Tags
+                        && baseline.IsLocked == metadata.IsLocked
+                        && baseline.IsValid == metadata.IsValid)
+                    {
+                        continue;
+                    }
+
+                    metadataUpdates.Add(metadata);
+                }
+
+                if (metadataUpdates.Count > 0)
+                {
+                    _logger.Info("{Time} 🔧 检测到 {Count} 条帖子元数据变化（无需深挖）",
+                        GetElapsedTime(), metadataUpdates.Count);
+                }
+            }
+
             _loggerForScan.Info("合并所有帖子数据（排除失败的, 保留无效的）");
             _loggerForScan.Info("所有帖子数据: 成功结果列表: allThreadsData: {@allThreadsData}", allThreadsData);
             _loggerForScan.Info("所有帖子数据: 失败结果列表: allThreadsData: {@allThreadsDataFailed}", allForumThreadsData.Where(r => r.Status == ProcessingStatus.Failed || r.Data is null));
@@ -217,8 +286,32 @@ public class ThreadScanner
                 if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 💾 第 3 阶段：写入数据库...");
                 var phase3Start = DateTimeOffset.UtcNow;
 
-            // === SyncProcessorAsync
-            await _dataProcessService.SyncAllThreadAsync(allForumsData, allTagsData, allThreadsData);
+            // === SyncProcessorAsync（孤儿清理使用全量列举 ID，不能用增量数据）
+            await _dataProcessService.SyncAllThreadAsync(
+                allForumsData, allTagsData, allThreadsData,
+                allListedThreadIds, allListedChannelIds);
+
+            if (metadataUpdates.Count > 0)
+            {
+                await _dataProcessService.UpdateThreadsMetadataAsync(metadataUpdates);
+            }
+
+            // === 消费脏集合（只移除成功深挖的；全量扫描直接清空）
+            if (mode == ScanMode.Full)
+            {
+                _activityTracker.Clear();
+            }
+            else
+            {
+                var succeededIds = allForumThreadsData
+                    .Where(r => r.Status != ProcessingStatus.Failed && r.Data is not null)
+                    .Select(r => r.Data!.ThreadId);
+                _activityTracker.RemoveConsumed(succeededIds);
+
+                var listedIds = allListedThreadIds.ToHashSet();
+                _activityTracker.RemoveConsumed(dirtyThreadIds.Where(id => !listedIds.Contains(id)).ToArray());
+            }
+            await _activityTracker.FlushAsync();
 
                 var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
                 _logger.Info("{Time} ⏱️ 第 3 阶段完成, 耗时: {Duration:F2} 秒",
@@ -266,6 +359,10 @@ public class ThreadScanner
                 statsBuilder.AppendLine($"> - 文字子区: {allSocketTextThreads.Values.Sum(list => list.Count)} 个");
                 statsBuilder.AppendLine();
                 statsBuilder.AppendLine("🔄 数据处理结果:");
+                statsBuilder.AppendLine($"> - 扫描模式: {mode}");
+                statsBuilder.AppendLine($"> - 全量列举帖子: {forumThreads.Count + textThreads.Count} 个");
+                statsBuilder.AppendLine($"> - 本次深挖: {forumThreadsToDeepScan.Count} 个");
+                statsBuilder.AppendLine($"> - 元数据更新: {metadataUpdates.Count} 个");
                 statsBuilder.AppendLine($"> - 频道数: {allForumsData.Count} 个");
                 statsBuilder.AppendLine($"> - 标签数: {allTagsData.Count} 个");
                 statsBuilder.AppendLine($"> - 论坛帖子: 成功 {forumSuccess}, 无效 {forumSkipped}, 失败 {forumFailed}");
@@ -628,6 +725,7 @@ public class ThreadScanner
                         }
                         catch (Exception ex)
                         {
+                            _listingFailedChannels[channel.Id] = 0;
                             _logger.Error(ex, "❌ 获取论坛频道帖子时发生错误: [{GuildName}.{ChannelName}]",
                                 guild.Name, channel.Name);
                             _loggerForScan.Error(ex, "❌ 获取论坛频道帖子时发生错误: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
@@ -849,6 +947,7 @@ public class ThreadScanner
                         }
                         catch (Exception ex)
                         {
+                            _listingFailedChannels[channel.Id] = 0;
                             _logger.Error(ex, "❌ 获取文字频道子区时发生错误: [{GuildName}.{ChannelName}]",
                                 guild.Name, channel.Name);
                             _loggerForScan.Error(ex, "❌ 获取文字频道子区时发生错误: [{GuildName}.{ChannelName}] (ID: {ChannelId})",
@@ -891,12 +990,12 @@ public class ThreadScanner
     /// </summary>
     /// <param name="allRestForumThreads">所有帖子的字典</param>
     /// <returns>包含所有帖子处理结果的列表</returns>
-    private async Task<List<ProcessingResult>> GetAllRestForumThreadsData(Dictionary<SocketGuild, List<RestThreadChannel>> allRestForumThreads)
+    private async Task<List<ProcessingResult>> GetAllRestForumThreadsData(IEnumerable<RestThreadChannel> threads)
     {
         try
         {
             // 为每个帖子创建一个异步任务来获取其详细数据
-            var tasks = allRestForumThreads.SelectMany(threads => threads.Value).Select(async thread =>
+            var tasks = threads.Select(async thread =>
             {
                 try
                 {
@@ -1013,6 +1112,55 @@ public class ThreadScanner
     /// </summary>
     /// <param name="restThreadChannel">帖子频道</param>
     /// <returns>包含帖子数据的处理结果</returns>
+    /// <summary>
+    /// 构建只含元数据（标题/标签/锁定/有效性）的 ThreadData，用于增量扫描中无需深挖的帖子。
+    /// </summary>
+    private ThreadData BuildThreadMetadata(RestThreadChannel thread)
+    {
+        var isValid = true;
+        var isLocked = false;
+
+        if (thread.IsLocked)
+        {
+            isValid = false;
+            isLocked = true;
+        }
+
+        if (thread.Flags.HasFlag(ChannelFlags.Pinned))
+        {
+            isValid = false;
+        }
+
+        if (!_configLoader.ValidChannelSet.Contains(thread.CategoryId ?? 0))
+        {
+            isValid = false;
+        }
+
+        string? tags = null;
+        List<ulong> validTagIds = [];
+        if (_socketForumChannelsCacheForTags.TryGetValue(thread.ParentChannelId, out var parentChannel))
+        {
+            var validTags = parentChannel.Tags
+                .Where(tag => thread.AppliedTags.Contains(tag.Id))
+                .ToList();
+            validTagIds = validTags.Select(tag => tag.Id).ToList();
+            tags = string.Join(", ", validTags.Select(tag => tag.Name));
+        }
+
+        return new ThreadData
+        {
+            ThreadId = thread.Id,
+            ChannelId = thread.CategoryId ?? 0,
+            Title = thread.Name,
+            TitleTokenized = JiebaTokenizerService.CutForSearch(thread.Name),
+            Tags = tags,
+            TagsId = validTagIds,
+            IsValid = isValid,
+            IsLocked = isLocked,
+            InForum = true,
+        };
+    }
+
     private async Task<ProcessingResult> GetForumThreadData(RestThreadChannel restThreadChannel)
     {
         try
