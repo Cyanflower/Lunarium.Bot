@@ -23,7 +23,7 @@
 - 配置模型实现 `IValidatableObject`，读写走 `ConfigLoader<T>`
 - 消息用 `MessagePrefab` / `ModalWindowPrefab`，不手拼 `EmbedBuilder`
 - 日志有独立的 `LogConfigurator.cs`，且有审计分流
-- 引用 `Lunarium.Bot.Framework`，不引用 `Lunarium.Bot.Extensions`、`src/Lunarium.Bot.Logger`、`src/Lunarium.Bot.Scheduler`
+- 引用 `Lunarium.Bot.Framework`，不引用已删除的 `Lunarium.Bot.Extensions`、`Lunarium.Bot.Logger`、`Lunarium.Bot.Scheduler`
 
 ### 1.3 项目状态
 
@@ -37,7 +37,7 @@
 | `Lunarium.Bot.SearchBot` | 应用 | ⚠️ 旧架构 | NuGet Discord.Net 3.18.0 + 仓库内 Logger / Scheduler；仍在开发 |
 | `Lunarium.Bot.Examples` | 应用 | ⚠️ 旧架构 | 同上；**不要当模板** |
 | `Lunarium.Bot.Lum` | 应用 | 🧪 本机实验 | 已入库，`slnx` 中已登记；尚未迁移到 Framework |
-| `Lunarium.Bot.Logger` / `Lunarium.Bot.Scheduler` | 遗留副本 | 🗄 待删除 | 已从解决方案注释掉，勿修改、勿新增引用 |
+| `Lunarium.Bot.Logger` / `Lunarium.Bot.Scheduler` | 遗留副本 | � 已删除 | 2026-10-29 移除；`SearchBot` / `Examples` 仍引用它们，**当前无法编译**（待迁移到 NuGet） |
 | `ReleaseBot` / `VoteBot` / `LunariumProxy` | 应用 | 🗑 已移出 | 2026-10-29 移出仓库：源码见提交 `97d4c89`；`LunariumProxy` 未曾入库（现位于 `~/Projects/LunariumProxy`） |
 | 旧 SearchBot 副本 | 应用 | ❌ 废弃 | 仓库根目录 `LunariumBot.Net.SearchBot/`，已停止维护并移除中 |
 
@@ -262,13 +262,12 @@ Bot 基础设施的唯一来源。按目录划分：
 
 > 版本号不在本文锁定——**以各 `*.csproj` 为准**。目前各项目存在版本漂移，属于已知待收敛项。
 
-### 3.4 遗留副本（勿参考）
+### 3.4 遗留副本（已删除）
 
-`src/Lunarium.Bot.Logger` 与 `src/Lunarium.Bot.Scheduler` 是停工前留在仓库内的旧版本，已被 §3.3 的 NuGet 包取代，且已从 `Lunarium.Bot.slnx` 注释掉。
+`src/Lunarium.Bot.Logger` 与 `src/Lunarium.Bot.Scheduler` 已在 2026-10-29 从仓库移除，由 §3.3 的 NuGet 包取代。
 
-- 其 API 与现行 NuGet 版本**不一致**（Logger 变动最大）
-- 不要修改、不要新增引用
-- 目前仍引用它们的项目：`SearchBot`、`Examples`（`DataCenter` 已迁到 NuGet 包）
+- 其 API 与现行 NuGet 版本**不一致**（Logger 变动最大：`Error(msg, ex)` vs `Error(ex, msg)`）
+- ⚠️ `SearchBot`（Logger 29 处 + Scheduler 2 处）与 `Examples`（Logger 4 处）仍引用它们，**当前无法编译**，需先迁到 NuGet 再移除 ProjectReference
 
 ## 4. 应用项目
 
