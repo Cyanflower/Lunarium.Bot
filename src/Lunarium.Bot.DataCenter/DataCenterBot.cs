@@ -335,10 +335,10 @@ public class DataCenterBotService : IHostedService
         _scheduler.ScheduleMonthlyAsync<FullDeepSyncAsyncJob>(day: 25, hour: 4, minute: 0, name: "月度全量扫描", timeZone: TimeZone);
         // 每日
         _scheduler.ScheduleDailyAsync<AnalysisAsyncJob>(hour: 6, name: "每日分析", timeZone: TimeZone);
-        _scheduler.ScheduleDailyAsync<UrlSignedInfoCacheSyncAsyncJob>(hour: 5, minute: 30, name: "Url缓存同步", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<UrlSignedInfoCacheSyncAsyncJob>(hour: 5, minute: 0, name: "Url缓存同步", timeZone: TimeZone);
         // 每小时
-        _scheduler.ScheduleHourlyAsync<SyncMembersAndRolesJob>(minute: 50, name: "用户信息与身份组同步", timeZone: TimeZone);
-        _scheduler.ScheduleHourlyAsync<UrlSignedInfoCacheCheckAsyncJob>(minute: 45, name: "Url缓存检查", timeZone: TimeZone);
+        _scheduler.ScheduleDailyAsync<SyncMembersAndRolesJob>(hour: 2, minute: 0, name: "用户信息与身份组同步", timeZone: TimeZone);
+        _scheduler.ScheduleHourlyAsync<UrlSignedInfoCacheCheckAsyncJob>(minute: 40, name: "Url缓存检查", timeZone: TimeZone);
         // 间隔
         _scheduler.ScheduleIntervalAsync<ActiveThreadPollJob>(10, "活跃帖追踪", timeZone: TimeZone);
         _scheduler.ScheduleIntervalAsync<SystemMonitorJob>(5, "系统监控", timeZone: TimeZone);
