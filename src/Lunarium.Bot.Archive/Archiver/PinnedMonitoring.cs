@@ -452,6 +452,16 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             return;
         }
 
+        var notifierChannelId = GetNotifierChannelId(guildId);
+        if (notifierChannelId == 0)
+        {
+            // 没有告警频道 = 静默模式：不建告警。
+            // 否则 12 小时后会在无人知情的情况下自动恢复置顶。
+            _logger.Warning("服务器 {GuildId} 未配置置顶告警频道，跳过告警（静默）: ChannelId={ChannelId}, ThreadId={ThreadId}, Kind={Kind}",
+                guildId, status.ChannelId, status.ThreadId, kind);
+            return;
+        }
+
         var now = DateTimeOffset.UtcNow;
         var alert = new PinnedAlert
         {
@@ -460,7 +470,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             ThreadId = status.ThreadId,
             PreviousThreadId = status.PreviousThreadId,
             Kind = kind,
-            NotifierChannelId = GetNotifierChannelId(guildId),
+            NotifierChannelId = notifierChannelId,
             DetectedAt = now,
             ExpireAt = now + AlertLifetime,
             Decision = PinnedDecision.Pending
@@ -528,6 +538,18 @@ public sealed class PinnedMonitoring : IAsyncDisposable
     #endregion
 
     #region 跟踪与持久化
+
+    /// <summary>读取指定服务器当前待处理的置顶告警（只读快照，按到期时间升序）。</summary>
+    public IReadOnlyList<PinnedAlert> GetPendingAlerts(ulong guildId)
+    {
+        lock (_gate)
+        {
+            return _alerts.Values
+                .Where(alert => alert.GuildId == guildId && alert.IsPending)
+                .OrderBy(alert => alert.ExpireAt)
+                .ToList();
+        }
+    }
 
     private ulong GetNotifierChannelId(ulong guildId)
         => _configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var config)

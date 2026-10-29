@@ -124,11 +124,11 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
         => _guildConfig.StaffRoleIds = roleIds.ToList();
 
     private static string FormatChannels(IReadOnlyCollection<ulong> ids)
-        => ids.Count == 0 ? "-# 未设置" : ids.JoinChannelMentions(", ");
+        => ids.Count == 0 ? "全部父频道" : ids.JoinChannelMentions(", ");
 
     private static string FormatRoles(IReadOnlyCollection<ulong> ids)
         => ids.Count == 0 ? "-# 未设置（仅部署者/维护者）" : ids.JoinRoleMentions(", ");
 
     private static string FormatChannel(ulong id)
-        => id == 0 ? "-# 未设置" : id.ToChannelMention();
+        => id == 0 ? "未设置（告警静默，不会自动恢复）" : id.ToChannelMention();
 }

@@ -7,6 +7,7 @@ using Discord.WebSocket;
 using Lunarium.Bot.Archive.Archiver;
 using Lunarium.Bot.Archive.InteractionSession;
 using Lunarium.Bot.Archive.Model;
+using Lunarium.Bot.Archive.Notifier;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.AuthRuleEngine;
 using Lunarium.Bot.Framework.Configuration;
@@ -22,22 +23,27 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
 {
     private const string EditConfigCommand = "编辑配置";
     private const string ResetIntervalCommand = "重设间隔";
+    private const string ArchiveNowCommand = "立即归档";
+    private const string PinnedStatusCommand = "置顶状态";
 
     private readonly ILogger _logger;
     private readonly ConfigLoader<ArchiveConfig> _configLoader;
     private readonly SessionManager _sessionManager;
     private readonly ArchiverManager _archiverManager;
+    private readonly PinnedMonitoring _pinnedMonitoring;
 
     public ArchiveMaintenanceCommands(
         ILogger logger,
         ConfigLoader<ArchiveConfig> configLoader,
         SessionManager sessionManager,
-        ArchiverManager archiverManager)
+        ArchiverManager archiverManager,
+        PinnedMonitoring pinnedMonitoring)
     {
         _logger = logger.ForContext("AppInteraction.ArchiveMaintenance");
         _configLoader = configLoader;
         _sessionManager = sessionManager;
         _archiverManager = archiverManager;
+        _pinnedMonitoring = pinnedMonitoring;
     }
 
     [SlashCommand(EditConfigCommand, "添加或修改 Bot 在本服务器的归档配置")]
@@ -170,6 +176,108 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
             track.Error(ex, "{Command} 设置归档间隔失败: UserId={UserId}", ResetIntervalCommand, Context.User.Id);
             await FollowupAsync(
                 components: MessagePrefab.FunctionFail("设置归档间隔时发生内部错误"),
+                ephemeral: true);
+        }
+    }
+
+    [SlashCommand(ArchiveNowCommand, "立即执行一轮归档（正在执行时会被跳过）")]
+    public async Task ArchiveNowAsync()
+    {
+        using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
+        try
+        {
+            await DeferAsync(ephemeral: true);
+
+            var failure = await RuleEngine.ValidateAsync(
+                Context,
+                new BaseRuleSet.RequireAdminUser(BuildBypassSet()));
+
+            if (failure is not null)
+            {
+                track.Warning("{Command} 权限校验未通过: UserId={UserId}", ArchiveNowCommand, Context.User.Id);
+                await FollowupAsync(components: failure, ephemeral: true);
+                return;
+            }
+
+            track.Info("{Command} 手动触发归档: GuildId={GuildId}, UserId={UserId}",
+                ArchiveNowCommand, Context.Guild?.Id, Context.User.Id);
+
+            var started = await _archiverManager.ManualArchive(CancellationToken.None);
+
+            if (!started)
+            {
+                await FollowupAsync(
+                    components: MessagePrefab.AnyNotifier("归档任务正在执行中，本次请求已跳过", "### 已跳过"),
+                    ephemeral: true);
+                return;
+            }
+
+            track.Info("{Command} 手动归档执行完成: GuildId={GuildId}, UserId={UserId}",
+                ArchiveNowCommand, Context.Guild?.Id, Context.User.Id);
+
+            await FollowupAsync(
+                components: MessagePrefab.OperateSuccess("已完成一轮归档，结果见状态频道报告"),
+                ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            track.Error(ex, "{Command} 手动归档失败: GuildId={GuildId}, UserId={UserId}",
+                ArchiveNowCommand, Context.Guild?.Id, Context.User.Id);
+
+            await FollowupAsync(
+                components: MessagePrefab.FunctionFail("手动归档时发生内部错误"),
+                ephemeral: true);
+        }
+    }
+
+    [SlashCommand(PinnedStatusCommand, "查看本服务器待处理的置顶告警")]
+    public async Task PinnedStatusAsync()
+    {
+        using var track = _logger.BeginTrack(NanoId.GenerateUtf8(10));
+        try
+        {
+            await DeferAsync(ephemeral: true);
+
+            if (Context.Guild is not SocketGuild guild)
+            {
+                await FollowupAsync(components: MessagePrefab.FunctionFail("解析服务器信息失败"), ephemeral: true);
+                return;
+            }
+
+            // 只读查询：非部署者需要本服务器的管理身份组（与编辑配置一致）
+            var failure = _configLoader.Value.DeployGuildConfig.TryGetValue(guild.Id, out var guildConfig)
+                ? await RuleEngine.ValidateAsync(
+                    Context,
+                    new BaseRuleSet.MaintainerBypass(BuildBypassSet()),
+                    new BaseRuleSet.RequireRole(guildConfig.StaffRoleIds.ToHashSet()))
+                : await RuleEngine.ValidateAsync(
+                    Context,
+                    new BaseRuleSet.RequireAdminUser(BuildBypassSet()));
+
+            if (failure is not null)
+            {
+                track.Warning("{Command} 权限校验未通过: GuildId={GuildId}, UserId={UserId}",
+                    PinnedStatusCommand, guild.Id, Context.User.Id);
+                await FollowupAsync(components: failure, ephemeral: true);
+                return;
+            }
+
+            var alerts = _pinnedMonitoring.GetPendingAlerts(guild.Id);
+
+            track.Info("{Command} 查询置顶告警: GuildId={GuildId}, UserId={UserId}, Count={Count}",
+                PinnedStatusCommand, guild.Id, Context.User.Id, alerts.Count);
+
+            await FollowupAsync(
+                components: NotifierComponent.PinnedStatusList(guild.Name, alerts),
+                ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            track.Error(ex, "{Command} 查询置顶告警失败: GuildId={GuildId}, UserId={UserId}",
+                PinnedStatusCommand, Context.Guild?.Id, Context.User.Id);
+
+            await FollowupAsync(
+                components: MessagePrefab.FunctionFail("查询置顶告警时发生内部错误"),
                 ephemeral: true);
         }
     }
@@ -396,7 +504,7 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 type: ComponentType.ChannelSelect,
                 channelTypes: [ChannelType.Text, ChannelType.News, ChannelType.Forum, ChannelType.Media],
                 defaultValues: ToChannelDefaults(config.PinnedMonitoringChannelIds),
-                description: "这些频道下的置顶帖会被监控和保护")
+                description: "留空 = 全部父频道；选中的频道下的置顶帖会被监控和保护")
             .AddSelectMenu(
                 label: "置顶告警频道",
                 customId: "notifierChannel",
@@ -406,7 +514,7 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 type: ComponentType.ChannelSelect,
                 channelTypes: [ChannelType.Text, ChannelType.News],
                 defaultValues: ToChannelDefaults(config.NotifierChannelId),
-                description: "掉置顶告警发送至此；启用监控时必填")
+                description: "掉置顶告警发送至此；不选 = 告警静默（不告警也不自动恢复）")
             .AddSelectMenu(
                 label: "归档管理身份组",
                 customId: "staffRoles",

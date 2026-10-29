@@ -83,7 +83,7 @@ public sealed class GuildConfig : IValidatableObject
     public List<ulong> PinnedMonitoringChannelIds { get; set; } = new();
 
     /// <summary>
-    /// 置顶告警发送频道ID。为 0 时告警只记日志不发送（到期自动处理照常生效）。
+    /// 置顶告警发送频道ID。为 0 时置顶监控静默：不建告警、也不自动恢复（只记日志）。
     /// </summary>
     public ulong NotifierChannelId { get; set; }
 

@@ -146,4 +146,38 @@ public static class NotifierComponent
         PinnedDecision.TimedOut => "到期自动处理",
         _ => "处理完成"
     };
+
+    /// <summary>置顶告警状态列表（只读，最多展示 20 条）。</summary>
+    public static MessageComponent PinnedStatusList(string guildName, IReadOnlyList<PinnedAlert> alerts)
+    {
+        var sb = new StringBuilder();
+        var shown = 0;
+
+        foreach (var alert in alerts)
+        {
+            sb.AppendLine($"- <#{alert.ChannelId}> → <#{alert.ThreadId}> | {KindText(alert.Kind)} | 到期 <t:{alert.ExpireAt.ToUnixTimeSeconds()}:R>");
+
+            if (++shown >= 20)
+            {
+                if (alerts.Count > shown)
+                {
+                    sb.AppendLine($"-# 其余 {alerts.Count - shown} 条已省略");
+                }
+
+                break;
+            }
+        }
+
+        return new ComponentBuilderV2().WithContainer(container =>
+        {
+            container.WithTextDisplay("论坛置顶帖监控");
+            container.WithSeparator();
+            container.WithTextDisplay($"### {guildName} 待处理告警 {alerts.Count} 条");
+            container.WithSeparator();
+            container.WithTextDisplay(alerts.Count == 0 ? "当前没有待处理的置顶告警" : sb.ToString());
+        }).Build();
+    }
+
+    private static string KindText(PinnedAlertKind kind)
+        => kind == PinnedAlertKind.Updated ? "换置顶" : "掉置顶";
 }
