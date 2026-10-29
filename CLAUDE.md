@@ -44,5 +44,7 @@ TICKET_BOT_TOKEN=... dotnet run
 ## 参考资料
 
 - [`README.md`](./README.md)：架构标准、项目状态、脚手架清单
+- [`CODE_STYLE.md`](./CODE_STYLE.md)：代码规范与已验证经验（含"禁止 `.ConfigureAwait(false)`"等硬规则）
+- [dotnet/runtime C# Coding Style](https://github.com/dotnet/runtime/blob/main/docs/coding-guidelines/coding-style.md)：本仓未覆盖的 C# 风格以此为准（差异清单见 `CODE_STYLE.md` §0）
 - [`LUNARIUM_LOGGING.md`](./LUNARIUM_LOGGING.md)：日志上下文与过滤前缀的坑
 - [`DEPLOY.md`](./DEPLOY.md)：远端部署手册（**被要求"部署到服务器"时先读这份**，含 bash 与 CLI 两条等价路径、判定标准、禁令与回滚）
