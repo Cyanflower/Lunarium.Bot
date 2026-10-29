@@ -60,6 +60,13 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
                 - 活跃线程上限: **{_guildConfig.ArchiveLimit}**
                 - 全局归档间隔: **{Context.IntervalMin} 分钟**
                 > 全局间隔使用 `/维护 重设间隔` 修改
+                """);
+
+            container.WithSeparator();
+            container.WithTextDisplay($"""
+                ### 置顶监控
+                - 监控频道: {FormatChannels(_guildConfig.PinnedMonitoringChannelIds)}
+                - 告警频道: {FormatChannel(_guildConfig.NotifierChannelId)}
                 - 管理身份组: {FormatRoles(_guildConfig.StaffRoleIds)}
                 """);
 
@@ -108,9 +115,20 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
 
     public void SetArchiveLimit(int limit) => _guildConfig.ArchiveLimit = limit;
 
+    public void SetPinnedMonitoringChannels(IReadOnlyList<ulong> channelIds)
+        => _guildConfig.PinnedMonitoringChannelIds = channelIds.ToList();
+
+    public void SetNotifierChannel(ulong channelId) => _guildConfig.NotifierChannelId = channelId;
+
     public void SetStaffRoles(IReadOnlyList<ulong> roleIds)
         => _guildConfig.StaffRoleIds = roleIds.ToList();
 
+    private static string FormatChannels(IReadOnlyCollection<ulong> ids)
+        => ids.Count == 0 ? "-# 未设置" : ids.JoinChannelMentions(", ");
+
     private static string FormatRoles(IReadOnlyCollection<ulong> ids)
         => ids.Count == 0 ? "-# 未设置（仅部署者/维护者）" : ids.JoinRoleMentions(", ");
+
+    private static string FormatChannel(ulong id)
+        => id == 0 ? "-# 未设置" : id.ToChannelMention();
 }

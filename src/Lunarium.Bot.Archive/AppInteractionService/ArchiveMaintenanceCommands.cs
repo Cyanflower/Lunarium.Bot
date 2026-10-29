@@ -263,14 +263,26 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 return;
             }
 
+            var pinnedChannels = ParseIds(data, "pinnedChannels");
+            var notifierChannel = ParseIds(data, "notifierChannel").FirstOrDefault();
             var staffRoles = ParseIds(data, "staffRoles");
 
+            if (pinnedChannels.Count > 0 && notifierChannel == 0)
+            {
+                await RespondAsync(
+                    components: MessagePrefab.AnyFail("配置了置顶监控频道时，必须选择置顶告警频道", "### 输入无效"),
+                    ephemeral: true);
+                return;
+            }
+
             session.SetArchiveLimit(archiveLimit);
+            session.SetPinnedMonitoringChannels(pinnedChannels);
+            session.SetNotifierChannel(notifierChannel);
             session.SetStaffRoles(staffRoles);
 
-            track.Info("归档配置模态窗已更新: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, Limit={Limit}, StaffCount={StaffCount}",
+            track.Info("归档配置模态窗已更新: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, Limit={Limit}, PinnedCount={PinnedCount}, Notifier={Notifier}, StaffCount={StaffCount}",
                 session.Context.Guild.Id, Context.User.Id, session.SessionId,
-                archiveLimit, staffRoles.Count);
+                archiveLimit, pinnedChannels.Count, notifierChannel, staffRoles.Count);
 
             await modal.UpdateAsync(message => message.Components = session.Render());
         }
@@ -376,6 +388,26 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 value: config.ArchiveLimit.ToString(CultureInfo.InvariantCulture),
                 description: $"{ArchiveConfigLimits.LimitInclusiveMin}–{ArchiveConfigLimits.LimitExclusiveMax - 1}")
             .AddSelectMenu(
+                label: "置顶监控频道",
+                customId: "pinnedChannels",
+                minValues: 0,
+                maxValues: 25,
+                required: false,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Text, ChannelType.News, ChannelType.Forum, ChannelType.Media],
+                defaultValues: ToChannelDefaults(config.PinnedMonitoringChannelIds),
+                description: "这些频道下的置顶帖会被监控和保护")
+            .AddSelectMenu(
+                label: "置顶告警频道",
+                customId: "notifierChannel",
+                minValues: 0,
+                maxValues: 1,
+                required: false,
+                type: ComponentType.ChannelSelect,
+                channelTypes: [ChannelType.Text, ChannelType.News],
+                defaultValues: ToChannelDefaults(config.NotifierChannelId),
+                description: "掉置顶告警发送至此；启用监控时必填")
+            .AddSelectMenu(
                 label: "归档管理身份组",
                 customId: "staffRoles",
                 minValues: 0,
@@ -383,12 +415,20 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 required: false,
                 type: ComponentType.RoleSelect,
                 defaultValues: ToRoleDefaults(config.StaffRoleIds),
-                description: "可修改本服务器的归档配置")
+                description: "可操作置顶告警与归档配置")
             .Build();
     }
 
     private static SelectMenuDefaultValue[] ToRoleDefaults(IEnumerable<ulong> ids)
         => ids.Select(id => new SelectMenuDefaultValue(id, SelectDefaultValueType.Role)).ToArray();
+
+    private static SelectMenuDefaultValue[] ToChannelDefaults(IEnumerable<ulong> ids)
+        => ids.Select(id => new SelectMenuDefaultValue(id, SelectDefaultValueType.Channel)).ToArray();
+
+    private static SelectMenuDefaultValue[]? ToChannelDefaults(ulong channelId)
+        => channelId == 0
+            ? null
+            : [new SelectMenuDefaultValue(channelId, SelectDefaultValueType.Channel)];
 
     private static bool TryParseInt(IModalInteractionData data, string customId, out int value)
     {

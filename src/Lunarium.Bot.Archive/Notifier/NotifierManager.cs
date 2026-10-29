@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 
@@ -9,8 +10,10 @@ using Lunarium.Bot.Archive.Archiver;
 using Lunarium.Bot.Archive.Model;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.Configuration;
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Common.Caching;
 using Lunarium.Logging;
+using Polly.Retry;
 
 namespace Lunarium.Bot.Archive.Notifier;
 
@@ -31,8 +34,10 @@ public sealed class NotifierManager : IAsyncDisposable
     private readonly ConfigLoader<ArchiveConfig> _configLoader;
     private readonly DiscordSocketClient _client;
     private readonly CacheStore _statusStore;
-
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly Dictionary<ulong, StatusMessageRef> _statusMessages = new();
+    private readonly ConcurrentDictionary<ulong, IMessageChannel> _channelCache = new(); 
     private IMessageChannel? _statusChannel;
     private bool _started;
 
@@ -40,12 +45,15 @@ public sealed class NotifierManager : IAsyncDisposable
         ILogger logger,
         ConfigLoader<ArchiveConfig> configLoader,
         DiscordSocketClient client,
+        RateLimitedExecutor rateLimitedExecutor,
         CacheStore statusStore)
     {
         _logger = logger.ForContext("Notifier");
         _configLoader = configLoader;
         _client = client;
         _statusStore = statusStore;
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _httpRetryPolicy = DiscordRetryPolicy.HttpRetryPolicyConfig(logger);
     }
 
     #region 生命周期
@@ -73,6 +81,117 @@ public sealed class NotifierManager : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    # region 通知消息
+
+    /// <summary>发送到该服务器的置顶告警频道；未配置频道或发送失败时返回 <c>null</c>。</summary>
+    public async Task<IUserMessage?> ToNotifierChannel(MessageComponent message, ulong guildId, CancellationToken cancellationToken = default)
+    {
+        if (!_configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var guildConfig))
+        {
+            _logger.Warning("服务器 {GuildId} 不在部署配置中，无法发送通知", guildId);
+            return null;
+        }
+
+        if (guildConfig.NotifierChannelId == 0)
+        {
+            _logger.Warning("服务器 {GuildId} 未配置置顶告警频道（NotifierChannelId = 0），跳过发送", guildId);
+            return null;
+        }
+
+        try
+        {
+            var channel = await GetMessageChannel(guildConfig.NotifierChannelId, cancellationToken).ConfigureAwait(false);
+            return await SendToChannel(message, channel, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "发送置顶告警失败: GuildId={GuildId}, ChannelId={ChannelId}",
+                guildId, guildConfig.NotifierChannelId);
+            return null;
+        }
+    }
+
+    public async Task ToStatusChannel(MessageComponent message, CancellationToken cancellationToken = default)
+    {
+        await ToChannel(message, _configLoader.Value.DeployerConfig.StatusChannelId, cancellationToken);
+    }
+    
+    public async Task ToChannel(MessageComponent message, ulong channelId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var channel = await GetMessageChannel(channelId, cancellationToken);
+            await SendToChannel(message, channel, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "通知发送到目标频道失败");
+        }
+    }
+    
+    public async Task<IUserMessage> SendToChannel(MessageComponent message, IMessageChannel channel, CancellationToken cancellationToken)
+    {
+        return await _httpRetryPolicy.ExecuteAsync(async () =>
+        {
+            return await _rateLimitedExecutor.WriteAndWaitAsync(async _ =>
+            {
+                return await channel.SendMessageAsync(components: message);
+            }, cancellationToken);
+        });
+    }
+
+    /// <summary>编辑既有通知消息（告警收尾用）；消息已删除或频道不可用时返回 <c>false</c>。</summary>
+    public async Task<bool> TryEditAsync(ulong channelId, ulong messageId, MessageComponent message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var channel = await GetMessageChannel(channelId, cancellationToken).ConfigureAwait(false);
+            var fetched = await channel.GetMessageAsync(messageId).ConfigureAwait(false);
+            if (fetched is not IUserMessage userMessage)
+            {
+                return false;
+            }
+
+            await userMessage.ModifyAsync(properties => properties.Components = message).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "编辑通知消息失败: ChannelId={ChannelId}, MessageId={MessageId}", channelId, messageId);
+            return false;
+        }
+    }
+    
+    private async Task<IMessageChannel> GetMessageChannel(ulong channelId, CancellationToken cancellationToken)
+    {
+        if (_channelCache.TryGetValue(channelId, out var channel))
+        {
+            return channel;
+        }
+
+        IChannel? result = await _httpRetryPolicy.ExecuteAsync<IChannel?>(async () =>
+        {
+            return await _rateLimitedExecutor.WriteAndWaitAsync<IChannel?>(async _ =>
+            {
+                return await _client.GetChannelAsync(channelId);
+            }, cancellationToken);
+        });
+
+        if (result is IMessageChannel messageChannel)
+        {
+            _channelCache[channelId] = messageChannel;
+            return messageChannel;
+        }
+        else if (result is null)
+        {
+            throw new ArgumentNullException($"频道 ID 所指向的频道/线程不存在或无权访问", nameof(channelId));
+        }
+
+        throw new ArgumentException($"频道 ID 所指向的频道/线程不是一个可发消息的 IMessageChannel", nameof(channelId));
     }
 
     #endregion

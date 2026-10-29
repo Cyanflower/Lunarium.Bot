@@ -74,7 +74,21 @@ public sealed class GuildConfig : IValidatableObject
     public int ArchiveLimit { get; set; } = 970;
 
     /// <summary>
-    /// 允许通过 <c>/维护 编辑配置</c> 修改本服务器归档配置的身份组ID。
+    /// 需要维护置顶状态的父频道ID。
+    /// <para>
+    /// 完全白名单：只有这些频道下的置顶帖会被监控和保护；空列表表示不维护置顶帖，
+    /// 此时这些频道里的 pinned 标志也不会阻止归档。
+    /// </para>
+    /// </summary>
+    public List<ulong> PinnedMonitoringChannelIds { get; set; } = new();
+
+    /// <summary>
+    /// 置顶告警发送频道ID。启用置顶监控时必须配置。
+    /// </summary>
+    public ulong NotifierChannelId { get; set; }
+
+    /// <summary>
+    /// 允许处理归档 / 置顶告警的服务器身份组ID。
     /// <para>
     /// 空列表表示只有部署者 / 维护者可以操作。
     /// </para>
@@ -87,6 +101,8 @@ public sealed class GuildConfig : IValidatableObject
         return new GuildConfig
         {
             ArchiveLimit = ArchiveLimit,
+            PinnedMonitoringChannelIds = (PinnedMonitoringChannelIds ?? []).ToList(),
+            NotifierChannelId = NotifierChannelId,
             StaffRoleIds = (StaffRoleIds ?? []).ToList(),
         };
     }
@@ -98,6 +114,20 @@ public sealed class GuildConfig : IValidatableObject
             yield return new ValidationResult(
                 $"必须在 {ArchiveConfigLimits.LimitInclusiveMin} 到 {ArchiveConfigLimits.LimitExclusiveMax - 1} 之间，当前值为 {ArchiveLimit}",
                 [nameof(ArchiveLimit)]);
+        }
+
+        foreach (var result in ConfigValidation.CheckIdList(
+                     PinnedMonitoringChannelIds,
+                     nameof(PinnedMonitoringChannelIds)))
+        {
+            yield return result;
+        }
+
+        if (PinnedMonitoringChannelIds is { Count: > 0 } && NotifierChannelId == 0)
+        {
+            yield return new ValidationResult(
+                "配置了 PinnedMonitoringChannelIds 时不能为 0",
+                [nameof(NotifierChannelId)]);
         }
 
         foreach (var result in ConfigValidation.CheckIdList(

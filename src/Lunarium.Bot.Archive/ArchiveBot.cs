@@ -100,7 +100,13 @@ public sealed class ArchiveBotService : IHostedService
                 channelSize: 4096,
                 onError: ex => provider.GetRequiredService<ILogger>().Error(ex, "归档限速器异常")))
             // ==== 业务部分 ====
+            .AddSingleton(provider => new JsonDocumentStore<PinnedMonitoringDocument>(
+                documentName: "PinnedMonitoring",
+                typeInfo: PinnedJsonContext.Default.PinnedMonitoringDocument,
+                logError: ex => provider.GetRequiredService<ILogger>().Error(ex, "置顶监控缓存持久化失败"),
+                allowCorruptRebuild: true))
             .AddSingleton<NotifierManager>()
+            .AddSingleton<PinnedMonitoring>()
             .AddSingleton<ArchiveEngine>()
             .AddSingleton<ArchiverManager>()
             // 构建 DI
