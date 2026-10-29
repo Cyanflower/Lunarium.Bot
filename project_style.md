@@ -1,11 +1,11 @@
-# CODE_STYLE.md — 代码规范与经验
+# project_style.md — 代码规范与经验
 
 > 只收录**已在本仓库验证过**的规则与踩坑结论。每条尽量写清「规则 / 原因 / 反例」。
-> 架构总览见 `README.md`，日志细节见 `LUNARIUM_LOGGING.md`，部署见 `DEPLOY.md`。
+> 架构总览见 `README.md`，日志细节见 `LUNARIUM_LOGGING.md`，部署见 `deploy.md`。
 
 ## 0. 上游基线
 
-本仓的 C# 风格**默认沿用 [dotnet/runtime 的 C# Coding Style](https://github.com/dotnet/runtime/blob/main/docs/coding-guidelines/coding-style.md)**，下面各节只记录本仓特有规则与差异。
+本仓的 C# 风格**默认沿用 [C# Coding Style](./coding-style.md)**（根目录 `coding-style.md`，dotnet/runtime 上游规范的本地副本，上游原文：<https://github.com/dotnet/runtime/blob/main/docs/coding-guidelines/coding-style.md>），下面各节只记录本仓特有规则与差异。
 
 明确采用的条款：
 
@@ -16,16 +16,16 @@
 - `nameof(...)` 优先于字符串字面量
 - 内部/私有类型默认 `static` / `sealed`（除非确实需要继承）
 - PascalCase 命名常量与方法（含本地函数）
+- `.editorconfig` 已按上游第 10 条配置 `var`：`csharp_style_var_when_type_is_apparent = true:suggestion`，其余 `csharp_style_var_* = false:suggestion`——只在 IDE 提示，不阻塞构建；存量的 `var x = await ...` 不强制改
 
 本仓**有意偏离**的条款：
 
 | 上游条款 | 本仓做法 | 原因 |
 | --- | --- | --- |
 | 16. 非 ASCII 用 `\uXXXX` 转义 | 直接写中文 | 面向 Discord 的文案本身就是中文，转义后不可读 |
-| 10. `var` 仅当右侧显式写出类型 | 允许 `var` 接方法返回值（如 `var threads = await ...`） | 与现有代码保持一致，减少噪音 |
 | （上游未涉及） | §1.1 禁止 `.ConfigureAwait(false)` | 见下文 |
 
-尚未落实的：上游靠 `.editorconfig` + `dotnet-format` 固化风格，本仓暂无 `.editorconfig`，样式靠人工与评审。
+风格固化：`.editorconfig` 已在根目录（C# 风格 + 命名规则）；尚未接 `dotnet-format` 或 CI 自动格式化。
 
 ## 1. 异步
 
