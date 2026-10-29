@@ -88,7 +88,7 @@ public sealed class NotifierManager : IAsyncDisposable
     # region 通知消息
 
     /// <summary>发送到该服务器的置顶告警频道；未配置频道或发送失败时返回 <c>null</c>。</summary>
-    public async Task<IUserMessage?> ToNotifierChannel(MessageComponent message, ulong guildId, CancellationToken cancellationToken = default)
+    public async Task<IUserMessage?> ToStaffChannel(MessageComponent message, ulong guildId, CancellationToken cancellationToken = default)
     {
         if (!_configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var guildConfig))
         {
@@ -96,21 +96,21 @@ public sealed class NotifierManager : IAsyncDisposable
             return null;
         }
 
-        if (guildConfig.NotifierChannelId == 0)
+        if (guildConfig.StaffChannelId == 0)
         {
-            _logger.Warning("服务器 {GuildId} 未配置置顶告警频道（NotifierChannelId = 0），跳过发送", guildId);
+            _logger.Warning("服务器 {GuildId} 未配置管理频道（StaffChannelId = 0），跳过发送", guildId);
             return null;
         }
 
         try
         {
-            var channel = await GetMessageChannel(guildConfig.NotifierChannelId, cancellationToken).ConfigureAwait(false);
+            var channel = await GetMessageChannel(guildConfig.StaffChannelId, cancellationToken).ConfigureAwait(false);
             return await SendToChannel(message, channel, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "发送置顶告警失败: GuildId={GuildId}, ChannelId={ChannelId}",
-                guildId, guildConfig.NotifierChannelId);
+                guildId, guildConfig.StaffChannelId);
             return null;
         }
     }

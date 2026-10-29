@@ -89,7 +89,7 @@ public sealed class PinnedAlert
     public PinnedAlertKind Kind { get; set; }
 
     /// <summary>告警卡片所在频道（配置变更后仍能编辑旧卡片）。</summary>
-    public ulong NotifierChannelId { get; set; }
+    public ulong StaffChannelId { get; set; }
 
     /// <summary>告警卡片消息 Id；0 表示卡片没发出去。</summary>
     public ulong MessageId { get; set; }

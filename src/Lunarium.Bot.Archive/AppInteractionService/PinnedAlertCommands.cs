@@ -52,6 +52,15 @@ public sealed class PinnedAlertCommands : InteractionModuleBase<SocketInteractio
                 return;
             }
 
+            // 卡片只在管理频道发送，也只允许在管理频道里点
+            if (!StaffChannelGuard.IsInStaffChannel(_configLoader, guildId, Context.Channel.Id))
+            {
+                _logger.Warning("置顶告警按钮不在管理频道内: GuildId={GuildId}, UserId={UserId}, ChannelId={ChannelId}",
+                    guildId, Context.User.Id, Context.Channel.Id);
+                await RespondAsync(components: MessagePrefab.AuthFail("该操作只能在管理频道内进行"), ephemeral: true);
+                return;
+            }
+
             if (!_configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var guildConfig))
             {
                 await RespondAsync(components: MessagePrefab.ConfigFail("当前配置中已没有该服务器"), ephemeral: true);

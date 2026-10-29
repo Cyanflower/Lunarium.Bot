@@ -66,7 +66,7 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
             container.WithTextDisplay($"""
                 ### 置顶监控
                 - 监控频道: {FormatChannels(_guildConfig.PinnedMonitoringChannelIds)}
-                - 告警频道: {FormatChannel(_guildConfig.NotifierChannelId)}
+                - 管理频道: {FormatChannel(_guildConfig.StaffChannelId)}
                 - 管理身份组: {FormatRoles(_guildConfig.StaffRoleIds)}
                 """);
 
@@ -118,7 +118,7 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
     public void SetPinnedMonitoringChannels(IReadOnlyList<ulong> channelIds)
         => _guildConfig.PinnedMonitoringChannelIds = channelIds.ToList();
 
-    public void SetNotifierChannel(ulong channelId) => _guildConfig.NotifierChannelId = channelId;
+    public void SetStaffChannel(ulong channelId) => _guildConfig.StaffChannelId = channelId;
 
     public void SetStaffRoles(IReadOnlyList<ulong> roleIds)
         => _guildConfig.StaffRoleIds = roleIds.ToList();
@@ -130,5 +130,5 @@ public sealed class ArchiveConfigEditorSession : BaseInteractionsSession<Archive
         => ids.Count == 0 ? "-# 未设置（仅部署者/维护者）" : ids.JoinRoleMentions(", ");
 
     private static string FormatChannel(ulong id)
-        => id == 0 ? "未设置（告警静默，不会自动恢复）" : id.ToChannelMention();
+        => id == 0 ? "未设置（告警静默、不限命令频道）" : id.ToChannelMention();
 }

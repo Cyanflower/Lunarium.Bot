@@ -173,7 +173,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             try
             {
                 await _notifierManager
-                    .ToNotifierChannel(NotifierComponent.PinnedScanFailed(ex: ex), guildId, cancellationToken)
+                    .ToStaffChannel(NotifierComponent.PinnedScanFailed(ex: ex), guildId, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception notifierEx)
@@ -229,7 +229,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
                 : "此轮扫描新增跟踪置顶帖";
 
             await _notifierManager
-                .ToNotifierChannel(NotifierComponent.PinnedAdded(newPinneds, reason), guildId, cancellationToken)
+                .ToStaffChannel(NotifierComponent.PinnedAdded(newPinneds, reason), guildId, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -452,12 +452,12 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             return;
         }
 
-        var notifierChannelId = GetNotifierChannelId(guildId);
+        var notifierChannelId = GetStaffChannelId(guildId);
         if (notifierChannelId == 0)
         {
-            // 没有告警频道 = 静默模式：不建告警。
+            // 没有管理频道 = 静默模式：不建告警。
             // 否则 12 小时后会在无人知情的情况下自动恢复置顶。
-            _logger.Warning("服务器 {GuildId} 未配置置顶告警频道，跳过告警（静默）: ChannelId={ChannelId}, ThreadId={ThreadId}, Kind={Kind}",
+            _logger.Warning("服务器 {GuildId} 未配置管理频道，跳过告警（静默）: ChannelId={ChannelId}, ThreadId={ThreadId}, Kind={Kind}",
                 guildId, status.ChannelId, status.ThreadId, kind);
             return;
         }
@@ -470,7 +470,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             ThreadId = status.ThreadId,
             PreviousThreadId = status.PreviousThreadId,
             Kind = kind,
-            NotifierChannelId = notifierChannelId,
+            StaffChannelId = notifierChannelId,
             DetectedAt = now,
             ExpireAt = now + AlertLifetime,
             Decision = PinnedDecision.Pending
@@ -483,7 +483,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             ? NotifierComponent.PinnedUpdated(guildId, alert.ChannelId, alert.PreviousThreadId, alert.ThreadId, alert.ExpireAt)
             : NotifierComponent.PinnedLost(guildId, alert.ChannelId, alert.ThreadId, alert.ExpireAt);
 
-        var message = await _notifierManager.ToNotifierChannel(card, guildId, cancellationToken).ConfigureAwait(false);
+        var message = await _notifierManager.ToStaffChannel(card, guildId, cancellationToken).ConfigureAwait(false);
         if (message is not null)
         {
             alert.MessageId = message.Id;
@@ -522,11 +522,11 @@ public sealed class PinnedMonitoring : IAsyncDisposable
 
     private async Task FinalizeAlertAsync(PinnedAlert alert, string detail, CancellationToken cancellationToken)
     {
-        if (alert.MessageId != 0 && alert.NotifierChannelId != 0)
+        if (alert.MessageId != 0 && alert.StaffChannelId != 0)
         {
             var card = NotifierComponent.PinnedAlertClosed(alert, detail);
             await _notifierManager
-                .TryEditAsync(alert.NotifierChannelId, alert.MessageId, card, cancellationToken)
+                .TryEditAsync(alert.StaffChannelId, alert.MessageId, card, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -551,9 +551,9 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         }
     }
 
-    private ulong GetNotifierChannelId(ulong guildId)
+    private ulong GetStaffChannelId(ulong guildId)
         => _configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var config)
-            ? config.NotifierChannelId
+            ? config.StaffChannelId
             : 0;
 
     private void UntrackChannel(ulong guildId, ulong channelId)

@@ -61,23 +61,10 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
             }
 
             var isNew = !_configLoader.Value.DeployGuildConfig.TryGetValue(guild.Id, out var existing);
-            var bypassIds = BuildBypassSet();
 
-            MessageComponent? failure;
-            if (isNew)
-            {
-                // 新建配置只能由部署者/维护者发起；没有本服务器 StaffRoleIds 可用
-                failure = await RuleEngine.ValidateAsync(
-                    Context,
-                    new BaseRuleSet.RequireAdminUser(bypassIds));
-            }
-            else
-            {
-                failure = await RuleEngine.ValidateAsync(
-                    Context,
-                    new BaseRuleSet.MaintainerBypass(bypassIds),
-                    new BaseRuleSet.RequireRole(existing!.StaffRoleIds.ToHashSet()));
-            }
+            // 管理频道优先：频道仅管理组可见，先用它挡一道；
+            // 新建配置只能由部署者/维护者发起，已有配置看 StaffRoleIds
+            var failure = await ValidateStaffAsync(guild.Id);
 
             if (failure is not null)
             {
@@ -141,7 +128,7 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
 
             var failure = await RuleEngine.ValidateAsync(
                 Context,
-                new BaseRuleSet.RequireAdminUser(BuildBypassSet()));
+                [.. StaffChannelGuard.RulesFor(_configLoader, Context.Guild?.Id ?? 0), new BaseRuleSet.RequireAdminUser(BuildBypassSet())]);
 
             if (failure is not null)
             {
@@ -190,7 +177,7 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
 
             var failure = await RuleEngine.ValidateAsync(
                 Context,
-                new BaseRuleSet.RequireAdminUser(BuildBypassSet()));
+                [.. StaffChannelGuard.RulesFor(_configLoader, Context.Guild?.Id ?? 0), new BaseRuleSet.RequireAdminUser(BuildBypassSet())]);
 
             if (failure is not null)
             {
@@ -244,15 +231,8 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 return;
             }
 
-            // 只读查询：非部署者需要本服务器的管理身份组（与编辑配置一致）
-            var failure = _configLoader.Value.DeployGuildConfig.TryGetValue(guild.Id, out var guildConfig)
-                ? await RuleEngine.ValidateAsync(
-                    Context,
-                    new BaseRuleSet.MaintainerBypass(BuildBypassSet()),
-                    new BaseRuleSet.RequireRole(guildConfig.StaffRoleIds.ToHashSet()))
-                : await RuleEngine.ValidateAsync(
-                    Context,
-                    new BaseRuleSet.RequireAdminUser(BuildBypassSet()));
+            // 只读查询：与配置面板同一套规则（管理频道 + 已有配置看 StaffRoleIds）
+            var failure = await ValidateStaffAsync(guild.Id);
 
             if (failure is not null)
             {
@@ -372,25 +352,25 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
             }
 
             var pinnedChannels = ParseIds(data, "pinnedChannels");
-            var notifierChannel = ParseIds(data, "notifierChannel").FirstOrDefault();
+            var staffChannel = ParseIds(data, "staffChannel").FirstOrDefault();
             var staffRoles = ParseIds(data, "staffRoles");
 
-            if (pinnedChannels.Count > 0 && notifierChannel == 0)
+            if (pinnedChannels.Count > 0 && staffChannel == 0)
             {
                 await RespondAsync(
-                    components: MessagePrefab.AnyFail("配置了置顶监控频道时，必须选择置顶告警频道", "### 输入无效"),
+                    components: MessagePrefab.AnyFail("配置了置顶监控频道时，必须选择管理频道", "### 输入无效"),
                     ephemeral: true);
                 return;
             }
 
             session.SetArchiveLimit(archiveLimit);
             session.SetPinnedMonitoringChannels(pinnedChannels);
-            session.SetNotifierChannel(notifierChannel);
+            session.SetStaffChannel(staffChannel);
             session.SetStaffRoles(staffRoles);
 
-            track.Info("归档配置模态窗已更新: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, Limit={Limit}, PinnedCount={PinnedCount}, Notifier={Notifier}, StaffCount={StaffCount}",
+            track.Info("归档配置模态窗已更新: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}, Limit={Limit}, PinnedCount={PinnedCount}, StaffChannel={StaffChannel}, StaffCount={StaffCount}",
                 session.Context.Guild.Id, Context.User.Id, session.SessionId,
-                archiveLimit, pinnedChannels.Count, notifierChannel, staffRoles.Count);
+                archiveLimit, pinnedChannels.Count, staffChannel, staffRoles.Count);
 
             await modal.UpdateAsync(message => message.Components = session.Render());
         }
@@ -410,6 +390,19 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
         }
 
         var guildId = session.Context.Guild.Id;
+
+        // 二次鉴权：面板可能开很久（会话 1 小时且每次访问刷新），
+        // 期间角色/配置可能已变，落盘前再校验一次。
+        var failure = await ValidateStaffAsync(guildId);
+        if (failure is not null)
+        {
+            track.Warning("归档配置二次鉴权未通过: GuildId={GuildId}, UserId={UserId}, SessionId={SessionId}",
+                guildId, Context.User.Id, session.SessionId);
+
+            await RespondAsync(components: failure, ephemeral: true);
+            return;
+        }
+
         var newConfig = session.BuildConfig();
 
         var errors = _configLoader.TryUpdate(root =>
@@ -472,6 +465,15 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
             return false;
         }
 
+        // 面板/模态只允许在管理频道内操作（频道仅管理组可见）
+        if (!StaffChannelGuard.IsInStaffChannel(_configLoader, found.Context.Guild.Id, Context.Channel.Id))
+        {
+            track.Warning("{Action} 不在管理频道内: SessionId={SessionId}, UserId={UserId}, GuildId={GuildId}, ChannelId={ChannelId}",
+                action, sessionId, Context.User.Id, found.Context.Guild.Id, Context.Channel.Id);
+            error = "该操作只能在管理频道内进行";
+            return false;
+        }
+
         session = found;
         return true;
     }
@@ -480,6 +482,23 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
         => _configLoader.Value.DeployerConfig.DeployerIds
             .Append(_configLoader.Value.DeployerConfig.MaintainerId)
             .ToHashSet();
+
+    /// <summary>
+    /// 组件/模态回调的二次鉴权：管理频道 + 已有配置看角色，无配置时看部署者。
+    /// 与斜杠命令的规则保持同一套语义。
+    /// </summary>
+    private async Task<MessageComponent?> ValidateStaffAsync(ulong guildId)
+    {
+        var channelRules = StaffChannelGuard.RulesFor(_configLoader, guildId);
+
+        return _configLoader.Value.DeployGuildConfig.TryGetValue(guildId, out var guildConfig)
+            ? await RuleEngine.ValidateAsync(
+                Context,
+                [.. channelRules, new BaseRuleSet.MaintainerBypass(BuildBypassSet()), new BaseRuleSet.RequireRole(guildConfig.StaffRoleIds.ToHashSet())])
+            : await RuleEngine.ValidateAsync(
+                Context,
+                [.. channelRules, new BaseRuleSet.RequireAdminUser(BuildBypassSet())]);
+    }
 
     private static Modal BuildEditModal(CustomId customId, GuildConfig config)
     {
@@ -506,15 +525,15 @@ public sealed class ArchiveMaintenanceCommands : InteractionModuleBase<SocketInt
                 defaultValues: ToChannelDefaults(config.PinnedMonitoringChannelIds),
                 description: "留空 = 全部父频道；选中的频道下的置顶帖会被监控和保护")
             .AddSelectMenu(
-                label: "置顶告警频道",
-                customId: "notifierChannel",
+                label: "管理频道",
+                customId: "staffChannel",
                 minValues: 0,
                 maxValues: 1,
                 required: false,
                 type: ComponentType.ChannelSelect,
                 channelTypes: [ChannelType.Text, ChannelType.News],
-                defaultValues: ToChannelDefaults(config.NotifierChannelId),
-                description: "掉置顶告警发送至此；不选 = 告警静默（不告警也不自动恢复）")
+                defaultValues: ToChannelDefaults(config.StaffChannelId),
+                description: "置顶告警发到这里；维护命令与按钮也限定在本频道；不选 = 告警静默")
             .AddSelectMenu(
                 label: "归档管理身份组",
                 customId: "staffRoles",

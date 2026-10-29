@@ -83,9 +83,14 @@ public sealed class GuildConfig : IValidatableObject
     public List<ulong> PinnedMonitoringChannelIds { get; set; } = new();
 
     /// <summary>
-    /// 置顶告警发送频道ID。为 0 时置顶监控静默：不建告警、也不自动恢复（只记日志）。
+    /// 管理频道ID。该频道应仅管理组可见：
+    /// <list type="number">
+    ///   <item>置顶告警卡片发到这里，卡片按钮只能在这里点；</item>
+    ///   <item>所有 <c>/维护</c> 命令与配置面板也只能在这里使用。</item>
+    /// </list>
+    /// 为 0 时不做频道收窄（仅靠角色规则），且置顶监控静默：不建告警、也不自动恢复。
     /// </summary>
-    public ulong NotifierChannelId { get; set; }
+    public ulong StaffChannelId { get; set; }
 
     /// <summary>
     /// 允许处理归档 / 置顶告警的服务器身份组ID。
@@ -102,7 +107,7 @@ public sealed class GuildConfig : IValidatableObject
         {
             ArchiveLimit = ArchiveLimit,
             PinnedMonitoringChannelIds = (PinnedMonitoringChannelIds ?? []).ToList(),
-            NotifierChannelId = NotifierChannelId,
+            StaffChannelId = StaffChannelId,
             StaffRoleIds = (StaffRoleIds ?? []).ToList(),
         };
     }
@@ -123,11 +128,11 @@ public sealed class GuildConfig : IValidatableObject
             yield return result;
         }
 
-        if (PinnedMonitoringChannelIds is { Count: > 0 } && NotifierChannelId == 0)
+        if (PinnedMonitoringChannelIds is { Count: > 0 } && StaffChannelId == 0)
         {
             yield return new ValidationResult(
                 "配置了 PinnedMonitoringChannelIds 时不能为 0",
-                [nameof(NotifierChannelId)]);
+                [nameof(StaffChannelId)]);
         }
 
         foreach (var result in ConfigValidation.CheckIdList(
