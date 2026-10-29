@@ -79,7 +79,9 @@ public sealed class ArchiveBotService : IHostedService
             // 注册 ConfigLoader
             .AddSingleton<ConfigLoader<ArchiveConfig>>()
             // 注册 Discord 客户端，并按需配置代理
-            // MessageContent 是特权意图（需在开发者后台开启），工单归档/对话抓取必须读取正文
+            // 保持默认意图（AllUnprivileged）：Discord 对「直接提及 Bot」的消息始终下发正文，
+            // 所以 @Bot 文本命令不需要 MessageContent 特权意图；
+            // 只有要读「未提及 Bot」的消息正文时才需要在开发者后台开启该意图
             .AddDiscordSocketClient(proxyUrl)
             // 注册交互服务
             .AddInteractionService()

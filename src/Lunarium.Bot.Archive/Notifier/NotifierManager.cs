@@ -230,7 +230,8 @@ public sealed class NotifierManager : IAsyncDisposable
 
         try
         {
-            _statusChannel = await _client.GetChannelAsync(channelId) as IMessageChannel;
+            // 与其它 REST 调用共用同一条限流与重试通道
+            _statusChannel = await GetMessageChannel(channelId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -238,14 +239,7 @@ public sealed class NotifierManager : IAsyncDisposable
             return;
         }
 
-        if (_statusChannel is null)
-        {
-            _logger.Error("状态频道 {ChannelId} 不存在或不是可发送消息的频道", channelId);
-        }
-        else
-        {
-            _logger.Info("状态频道初始化成功: {ChannelId}", channelId);
-        }
+        _logger.Info("状态频道初始化成功: {ChannelId}", channelId);
     }
 
     public async Task UpdateArchiveStatusReportAsync(
@@ -307,7 +301,12 @@ public sealed class NotifierManager : IAsyncDisposable
 
         try
         {
-            var message = await channel.GetMessageAsync(messageId);
+            var message = await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync<IMessage>(
+                    async _ => await channel.GetMessageAsync(messageId),
+                    token),
+                cancellationToken);
+
             if (message is IUserMessage userMessage && userMessage.Id == messageId)
             {
                 _logger.Info("已认领服务器 {GuildId} 的既有状态报告消息: {MessageId}", guildId, messageId);
@@ -333,7 +332,13 @@ public sealed class NotifierManager : IAsyncDisposable
         try
         {
             RememberStatusChannel(channel.Id);
-            var message = await channel.SendMessageAsync(embed: embed);
+
+            var message = await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync<IUserMessage>(
+                    async _ => await channel.SendMessageAsync(embed: embed),
+                    token),
+                cancellationToken);
+
             _statusMessages[guildId] = new StatusMessageRef(channel.Id, message);
             _statusStore.Set(StatusMessageKey(guildId), message.Id);
             await _statusStore.FlushAsync();
@@ -354,7 +359,15 @@ public sealed class NotifierManager : IAsyncDisposable
     {
         try
         {
-            await message.ModifyAsync(props => props.Embed = embed);
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        await message.ModifyAsync(props => props.Embed = embed);
+                    },
+                    token),
+                cancellationToken);
+
             _logger.Info("服务器 {GuildId} 的状态报告已更新", guildId);
         }
         catch (HttpException ex) when (ex.HttpCode == HttpStatusCode.NotFound)
