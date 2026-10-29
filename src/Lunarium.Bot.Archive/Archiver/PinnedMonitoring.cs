@@ -1,14 +1,20 @@
 using System.Collections.Concurrent;
+using System.Net;
 
 using Discord;
+using Discord.Net;
 using Discord.Rest;
 using Discord.WebSocket;
 
 using Lunarium.Bot.Archive.Model;
 using Lunarium.Bot.Archive.Notifier;
+using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.Configuration;
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Common.Caching;
 using Lunarium.Logging;
+
+using Polly.Retry;
 
 namespace Lunarium.Bot.Archive.Archiver;
 
@@ -37,6 +43,8 @@ public sealed class PinnedMonitoring : IAsyncDisposable
     private readonly ConfigLoader<ArchiveConfig> _configLoader;
     private readonly NotifierManager _notifierManager;
     private readonly DiscordSocketClient _client;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly JsonDocumentStore<PinnedMonitoringDocument> _store;
     private readonly object _gate = new();
     private readonly ConcurrentDictionary<GuildKey, Dictionary<PinnedChannel, PinnedThread>> _track = new();
@@ -47,13 +55,16 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         ConfigLoader<ArchiveConfig> configLoader,
         NotifierManager notifierManager,
         DiscordSocketClient client,
+        RateLimitedExecutor rateLimitedExecutor,
         JsonDocumentStore<PinnedMonitoringDocument> store)
     {
         _logger = logger.ForContext("PinnedMonitoring");
         _configLoader = configLoader;
         _notifierManager = notifierManager;
         _client = client;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _store = store;
+        _httpRetryPolicy = DiscordRetryPolicy.HttpRetryPolicyConfig(logger);
 
         var document = _store.Read();
 
@@ -305,7 +316,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         }
         else
         {
-            var restoreResult = await RestorePinnedAsync(alert).ConfigureAwait(false);
+            var restoreResult = await RestorePinnedAsync(alert, cancellationToken).ConfigureAwait(false);
             if (!restoreResult.Success)
             {
                 alert.Attempts++;
@@ -339,35 +350,48 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         return PinnedDecisionResult.Ok(detail);
     }
 
-    private async Task<PinnedDecisionResult> RestorePinnedAsync(PinnedAlert alert)
+    private async Task<PinnedDecisionResult> RestorePinnedAsync(PinnedAlert alert, CancellationToken cancellationToken)
     {
         var targetId = alert.RestoreTargetId;
 
         try
         {
-            if (await _client.GetChannelAsync(targetId).ConfigureAwait(false) is not IThreadChannel thread)
+            if (await GetThreadChannelAsync(targetId, cancellationToken).ConfigureAwait(false) is not IThreadChannel thread)
             {
                 return PinnedDecisionResult.Fail("目标帖子已不存在，无法恢复");
             }
 
-            await thread.ModifyAsync(properties =>
-            {
-                properties.Archived = false;
-                properties.Flags = thread.Flags | ChannelFlags.Pinned;
-            }).ConfigureAwait(false);
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        await thread.ModifyAsync(properties =>
+                        {
+                            properties.Archived = false;
+                            properties.Flags = thread.Flags | ChannelFlags.Pinned;
+                        }).ConfigureAwait(false);
+                    },
+                    token),
+                cancellationToken).ConfigureAwait(false);
 
             // 换置顶场景：旧帖已恢复，把新帖的置顶撤掉
             if (alert.Kind == PinnedAlertKind.Updated
                 && alert.ThreadId != 0
                 && alert.ThreadId != targetId)
             {
-                await TryUnpinAsync(alert.ThreadId).ConfigureAwait(false);
+                await TryUnpinAsync(alert.ThreadId, cancellationToken).ConfigureAwait(false);
             }
 
             _logger.Info("已恢复置顶: GuildId={GuildId}, ChannelId={ChannelId}, ThreadId={ThreadId}",
                 alert.GuildId, alert.ChannelId, targetId);
 
             return PinnedDecisionResult.Ok(alert.Kind == PinnedAlertKind.Updated ? "已恢复旧置顶帖" : "已恢复置顶");
+        }
+        catch (HttpException ex) when (ex.HttpCode == HttpStatusCode.Forbidden)
+        {
+            _logger.Error(ex, "恢复置顶被拒绝(403)，Bot 可能缺少「管理线程 / 管理帖子」权限: GuildId={GuildId}, ChannelId={ChannelId}, ThreadId={ThreadId}",
+                alert.GuildId, alert.ChannelId, targetId);
+            return PinnedDecisionResult.Fail("恢复置顶被 Discord 拒绝：Bot 缺少「管理线程」权限");
         }
         catch (Exception ex)
         {
@@ -377,20 +401,41 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         }
     }
 
-    private async Task TryUnpinAsync(ulong threadId)
+    private async Task TryUnpinAsync(ulong threadId, CancellationToken cancellationToken)
     {
         try
         {
-            if (await _client.GetChannelAsync(threadId).ConfigureAwait(false) is IThreadChannel thread)
+            if (await GetThreadChannelAsync(threadId, cancellationToken).ConfigureAwait(false) is not IThreadChannel thread)
             {
-                await thread.ModifyAsync(properties => properties.Flags = thread.Flags & ~ChannelFlags.Pinned)
-                    .ConfigureAwait(false);
+                return;
             }
+
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        await thread.ModifyAsync(properties => properties.Flags = thread.Flags & ~ChannelFlags.Pinned)
+                            .ConfigureAwait(false);
+                    },
+                    token),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "撤销新置顶帖失败: ThreadId={ThreadId}", threadId);
         }
+    }
+
+    /// <summary>取线程频道（缓存优先 → REST 回退），与归档链路使用同一套限流与 HTTP 重试。</summary>
+    private async Task<IThreadChannel?> GetThreadChannelAsync(ulong threadId, CancellationToken cancellationToken)
+    {
+        var channel = await _httpRetryPolicy.ExecuteAsync(
+            token => _rateLimitedExecutor.WriteAndWaitAsync<IChannel?>(
+                async _ => await _client.GetChannelAsync(threadId),
+                token),
+            cancellationToken).ConfigureAwait(false);
+
+        return channel as IThreadChannel;
     }
 
     private async Task RaiseAlertAsync(

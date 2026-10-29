@@ -150,13 +150,27 @@ public sealed class NotifierManager : IAsyncDisposable
         try
         {
             var channel = await GetMessageChannel(channelId, cancellationToken).ConfigureAwait(false);
-            var fetched = await channel.GetMessageAsync(messageId).ConfigureAwait(false);
+
+            var fetched = await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync<IMessage>(
+                    async _ => await channel.GetMessageAsync(messageId),
+                    token),
+                cancellationToken).ConfigureAwait(false);
+
             if (fetched is not IUserMessage userMessage)
             {
                 return false;
             }
 
-            await userMessage.ModifyAsync(properties => properties.Components = message).ConfigureAwait(false);
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        await userMessage.ModifyAsync(properties => properties.Components = message).ConfigureAwait(false);
+                    },
+                    token),
+                cancellationToken).ConfigureAwait(false);
+
             return true;
         }
         catch (Exception ex)

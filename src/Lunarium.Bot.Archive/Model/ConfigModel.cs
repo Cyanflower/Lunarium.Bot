@@ -76,14 +76,14 @@ public sealed class GuildConfig : IValidatableObject
     /// <summary>
     /// 需要维护置顶状态的父频道ID。
     /// <para>
-    /// 完全白名单：只有这些频道下的置顶帖会被监控和保护；空列表表示不维护置顶帖，
-    /// 此时这些频道里的 pinned 标志也不会阻止归档。
+    /// 空列表 = 监控全部父频道；非空时只监控列表内的频道。
+    /// 监控中的置顶帖不参与归档，并会从归档额度里扣掉（普通线程额度 = ArchiveLimit - 置顶帖数）。
     /// </para>
     /// </summary>
     public List<ulong> PinnedMonitoringChannelIds { get; set; } = new();
 
     /// <summary>
-    /// 置顶告警发送频道ID。启用置顶监控时必须配置。
+    /// 置顶告警发送频道ID。为 0 时告警只记日志不发送（到期自动处理照常生效）。
     /// </summary>
     public ulong NotifierChannelId { get; set; }
 

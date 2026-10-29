@@ -240,7 +240,9 @@ public sealed class Archiver
 
             foreach (var thread in activeThreads.Items)
             {
-                var isMonitored = context.PinnedChannels.Count is 0 || context.PinnedChannels.Contains(thread.ParentChannelId); ;
+                // 空列表 = 监控全部父频道（与 GuildConfig.PinnedMonitoringChannelIds 的语义一致）
+                var isMonitored = context.PinnedChannels.Count is 0
+                                  || context.PinnedChannels.Contains(thread.ParentChannelId);
                 if (isMonitored && thread.Flags.HasFlag(ChannelFlags.Pinned))
                 {
                     pinnedThreads.Add(thread);
