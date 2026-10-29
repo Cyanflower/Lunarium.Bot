@@ -45,3 +45,4 @@ TICKET_BOT_TOKEN=... dotnet run
 
 - [`README.md`](./README.md)：架构标准、项目状态、脚手架清单
 - [`LUNARIUM_LOGGING.md`](./LUNARIUM_LOGGING.md)：日志上下文与过滤前缀的坑
+- [`DEPLOY.md`](./DEPLOY.md)：远端部署手册（**被要求"部署到服务器"时先读这份**，含 bash 与 CLI 两条等价路径、判定标准、禁令与回滚）
