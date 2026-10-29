@@ -19,7 +19,7 @@ public static class GuildRoleExtensions
         IGuild guild,
         RequestOptions? options = null)
     {
-        var models = await client.ApiClient.GetGuildRolesAsync(guild.Id, options).ConfigureAwait(false);
+        var models = await client.ApiClient.GetGuildRolesAsync(guild.Id, options);
         return models
             .Select(model => RestRole.Create(client, guild, model))
             .ToImmutableArray();

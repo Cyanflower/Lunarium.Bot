@@ -135,18 +135,18 @@ public sealed class ThreadActivityTracker : IAsyncDisposable
         }
 
         _store.Set(document);
-        await _store.FlushAsync().ConfigureAwait(false);
+        await _store.FlushAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
         try
         {
-            await FlushAsync().ConfigureAwait(false);
+            await FlushAsync();
         }
         finally
         {
-            await _store.DisposeAsync().ConfigureAwait(false);
+            await _store.DisposeAsync();
         }
     }
 }

@@ -106,7 +106,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         try
         {
             // 到期检查与扫描同源：粒度 = 归档间隔，不额外起定时器
-            await ProcessExpiredAsync(cancellationToken).ConfigureAwait(false);
+            await ProcessExpiredAsync(cancellationToken);
 
             var guildBucket = new GuildKey(guildId);
 
@@ -173,8 +173,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             try
             {
                 await _notifierManager
-                    .ToStaffChannel(NotifierComponent.PinnedScanFailed(ex: ex), guildId, cancellationToken)
-                    .ConfigureAwait(false);
+                    .ToStaffChannel(NotifierComponent.PinnedScanFailed(ex: ex), guildId, cancellationToken);
             }
             catch (Exception notifierEx)
             {
@@ -201,8 +200,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             // 频道重新有了置顶帖：之前那条掉置顶告警已经过时，直接收尾
             if (item.Kind is PinnedChangeKind.New or PinnedChangeKind.Updated)
             {
-                await ClosePendingAlertAsync(guildId, item.ChannelId, "检测到该频道已重新置顶，自动收尾", cancellationToken)
-                    .ConfigureAwait(false);
+                await ClosePendingAlertAsync(guildId, item.ChannelId, "检测到该频道已重新置顶，自动收尾", cancellationToken);
             }
 
             switch (item.Kind)
@@ -211,10 +209,10 @@ public sealed class PinnedMonitoring : IAsyncDisposable
                     newPinneds.Add(item);
                     break;
                 case PinnedChangeKind.Lost:
-                    await RaiseAlertAsync(guildId, PinnedAlertKind.Lost, item, cancellationToken).ConfigureAwait(false);
+                    await RaiseAlertAsync(guildId, PinnedAlertKind.Lost, item, cancellationToken);
                     break;
                 case PinnedChangeKind.Updated:
-                    await RaiseAlertAsync(guildId, PinnedAlertKind.Updated, item, cancellationToken).ConfigureAwait(false);
+                    await RaiseAlertAsync(guildId, PinnedAlertKind.Updated, item, cancellationToken);
                     break;
                 case PinnedChangeKind.Unchanged:
                     break;
@@ -229,8 +227,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
                 : "此轮扫描新增跟踪置顶帖";
 
             await _notifierManager
-                .ToStaffChannel(NotifierComponent.PinnedAdded(newPinneds, reason), guildId, cancellationToken)
-                .ConfigureAwait(false);
+                .ToStaffChannel(NotifierComponent.PinnedAdded(newPinneds, reason), guildId, cancellationToken);
         }
     }
 
@@ -260,7 +257,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             _logger.Info("置顶告警到期自动处理: GuildId={GuildId}, ChannelId={ChannelId}, Kind={Kind}",
                 alert.GuildId, alert.ChannelId, alert.Kind);
 
-            await ExecuteDecisionAsync(alert, cancellationToken).ConfigureAwait(false);
+            await ExecuteDecisionAsync(alert, cancellationToken);
             processed++;
         }
 
@@ -291,7 +288,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             alert.ActorId = actorId;
         }
 
-        return await ExecuteDecisionAsync(alert, cancellationToken).ConfigureAwait(false);
+        return await ExecuteDecisionAsync(alert, cancellationToken);
     }
 
     private async Task<PinnedDecisionResult> ExecuteDecisionAsync(PinnedAlert alert, CancellationToken cancellationToken)
@@ -316,7 +313,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         }
         else
         {
-            var restoreResult = await RestorePinnedAsync(alert, cancellationToken).ConfigureAwait(false);
+            var restoreResult = await RestorePinnedAsync(alert, cancellationToken);
             if (!restoreResult.Success)
             {
                 alert.Attempts++;
@@ -346,7 +343,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             }
         }
 
-        await FinalizeAlertAsync(alert, detail, cancellationToken).ConfigureAwait(false);
+        await FinalizeAlertAsync(alert, detail, cancellationToken);
         return PinnedDecisionResult.Ok(detail);
     }
 
@@ -356,7 +353,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
 
         try
         {
-            if (await GetThreadChannelAsync(targetId, cancellationToken).ConfigureAwait(false) is not IThreadChannel thread)
+            if (await GetThreadChannelAsync(targetId, cancellationToken) is not IThreadChannel thread)
             {
                 return PinnedDecisionResult.Fail("目标帖子已不存在，无法恢复");
             }
@@ -369,17 +366,17 @@ public sealed class PinnedMonitoring : IAsyncDisposable
                         {
                             properties.Archived = false;
                             properties.Flags = thread.Flags | ChannelFlags.Pinned;
-                        }).ConfigureAwait(false);
+                        });
                     },
                     token),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
 
             // 换置顶场景：旧帖已恢复，把新帖的置顶撤掉
             if (alert.Kind == PinnedAlertKind.Updated
                 && alert.ThreadId != 0
                 && alert.ThreadId != targetId)
             {
-                await TryUnpinAsync(alert.ThreadId, cancellationToken).ConfigureAwait(false);
+                await TryUnpinAsync(alert.ThreadId, cancellationToken);
             }
 
             _logger.Info("已恢复置顶: GuildId={GuildId}, ChannelId={ChannelId}, ThreadId={ThreadId}",
@@ -405,7 +402,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
     {
         try
         {
-            if (await GetThreadChannelAsync(threadId, cancellationToken).ConfigureAwait(false) is not IThreadChannel thread)
+            if (await GetThreadChannelAsync(threadId, cancellationToken) is not IThreadChannel thread)
             {
                 return;
             }
@@ -414,11 +411,10 @@ public sealed class PinnedMonitoring : IAsyncDisposable
                 token => _rateLimitedExecutor.WriteAndWaitAsync(
                     async _ =>
                     {
-                        await thread.ModifyAsync(properties => properties.Flags = thread.Flags & ~ChannelFlags.Pinned)
-                            .ConfigureAwait(false);
+                        await thread.ModifyAsync(properties => properties.Flags = thread.Flags & ~ChannelFlags.Pinned);
                     },
                     token),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
         }
         catch (Exception ex)
         {
@@ -433,7 +429,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             token => _rateLimitedExecutor.WriteAndWaitAsync<IChannel?>(
                 async _ => await _client.GetChannelAsync(threadId),
                 token),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
 
         return channel as IThreadChannel;
     }
@@ -483,7 +479,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
             ? NotifierComponent.PinnedUpdated(guildId, alert.ChannelId, alert.PreviousThreadId, alert.ThreadId, alert.ExpireAt)
             : NotifierComponent.PinnedLost(guildId, alert.ChannelId, alert.ThreadId, alert.ExpireAt);
 
-        var message = await _notifierManager.ToStaffChannel(card, guildId, cancellationToken).ConfigureAwait(false);
+        var message = await _notifierManager.ToStaffChannel(card, guildId, cancellationToken);
         if (message is not null)
         {
             alert.MessageId = message.Id;
@@ -517,7 +513,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         }
 
         _logger.Info("置顶告警已自动收尾: GuildId={GuildId}, ChannelId={ChannelId}", guildId, channelId);
-        await FinalizeAlertAsync(alert, detail, cancellationToken).ConfigureAwait(false);
+        await FinalizeAlertAsync(alert, detail, cancellationToken);
     }
 
     private async Task FinalizeAlertAsync(PinnedAlert alert, string detail, CancellationToken cancellationToken)
@@ -526,8 +522,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
         {
             var card = NotifierComponent.PinnedAlertClosed(alert, detail);
             await _notifierManager
-                .TryEditAsync(alert.StaffChannelId, alert.MessageId, card, cancellationToken)
-                .ConfigureAwait(false);
+                .TryEditAsync(alert.StaffChannelId, alert.MessageId, card, cancellationToken);
         }
 
         // 终态即删除记录：留着会让卡片永远停在可点击状态
@@ -613,7 +608,7 @@ public sealed class PinnedMonitoring : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Save();
-        await _store.FlushAsync().ConfigureAwait(false);
+        await _store.FlushAsync();
     }
 
     #endregion

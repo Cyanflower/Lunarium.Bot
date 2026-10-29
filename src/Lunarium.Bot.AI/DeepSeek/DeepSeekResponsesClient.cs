@@ -70,12 +70,10 @@ internal sealed class DeepSeekResponsesClient : IAiClient
                 httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
                 using var httpResponse = await httpClient
-                    .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
-                    .ConfigureAwait(false);
+                    .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
 
                 var body = await httpResponse.Content
-                    .ReadAsStringAsync(timeoutCts.Token)
-                    .ConfigureAwait(false);
+                    .ReadAsStringAsync(timeoutCts.Token);
 
                 if (!httpResponse.IsSuccessStatusCode)
                 {
@@ -90,7 +88,7 @@ internal sealed class DeepSeekResponsesClient : IAiClient
                         "AI 请求失败（HTTP {Status}），{DelayMs}ms 后重试（{Attempt}/{MaxRetries}）。",
                         error.StatusCode, (int)delay.TotalMilliseconds, attempt + 1, options.MaxRetries);
 
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(delay, cancellationToken);
                     continue;
                 }
 
@@ -108,7 +106,7 @@ internal sealed class DeepSeekResponsesClient : IAiClient
                 _logger.Warning(
                     "AI 请求超时，重试（{Attempt}/{MaxRetries}）。", attempt + 1, options.MaxRetries);
 
-                await Task.Delay(DelayFor(options, attempt), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(DelayFor(options, attempt), cancellationToken);
             }
             catch (HttpRequestException ex)
             {
@@ -120,7 +118,7 @@ internal sealed class DeepSeekResponsesClient : IAiClient
                 _logger.Warning(
                     ex, "AI 请求网络异常，重试（{Attempt}/{MaxRetries}）。", attempt + 1, options.MaxRetries);
 
-                await Task.Delay(DelayFor(options, attempt), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(DelayFor(options, attempt), cancellationToken);
             }
         }
     }

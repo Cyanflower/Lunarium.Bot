@@ -95,7 +95,7 @@ public class RateLimitedExecutor : IAsyncDisposable
         {
             try
             {
-                using var lease = await _tokenBucket.AcquireAsync(1, token).ConfigureAwait(false);
+                using var lease = await _tokenBucket.AcquireAsync(1, token);
 
                 if (!lease.IsAcquired)
                 {
@@ -105,7 +105,7 @@ public class RateLimitedExecutor : IAsyncDisposable
                     return;
                 }
 
-                await ExecuteAsync(work).ConfigureAwait(false);
+                await ExecuteAsync(work);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -125,8 +125,8 @@ public class RateLimitedExecutor : IAsyncDisposable
     public async Task WriteAndWaitAsync(Func<CancellationToken, Task> work, CancellationToken ct)
     {
         var item = new Work(work, ct, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
-        await EnqueueAsync(item, ct).ConfigureAwait(false);
-        await item.Tcs.Task.ConfigureAwait(false);
+        await EnqueueAsync(item, ct);
+        await item.Tcs.Task;
     }
 
     /// <summary>
@@ -143,9 +143,9 @@ public class RateLimitedExecutor : IAsyncDisposable
         var result = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var item = new Work<T>(work, ct, result);
 
-        await EnqueueAsync(item, ct).ConfigureAwait(false);
-        await item.Tcs.Task.ConfigureAwait(false);
-        return await result.Task.ConfigureAwait(false);
+        await EnqueueAsync(item, ct);
+        await item.Tcs.Task;
+        return await result.Task;
     }
 
     private async ValueTask EnqueueAsync(Work item, CancellationToken ct)
@@ -156,7 +156,7 @@ public class RateLimitedExecutor : IAsyncDisposable
 
         try
         {
-            await _channel.Writer.WriteAsync(item, ct).ConfigureAwait(false);
+            await _channel.Writer.WriteAsync(item, ct);
         }
         catch
         {
@@ -178,7 +178,7 @@ public class RateLimitedExecutor : IAsyncDisposable
             // 链接调用方 token 与 executor 生命周期：Dispose 超时时能取消在飞任务
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(work.Ct, _cts.Token);
 
-            await work.Func(linked.Token).ConfigureAwait(false);
+            await work.Func(linked.Token);
             work.Tcs.TrySetResult();
         }
         catch (OperationCanceledException) when (work.Ct.IsCancellationRequested)
@@ -233,7 +233,7 @@ public class RateLimitedExecutor : IAsyncDisposable
         {
             try
             {
-                await _loopTask.WaitAsync(drainTimeout).ConfigureAwait(false);
+                await _loopTask.WaitAsync(drainTimeout);
             }
             catch (TimeoutException)
             {
@@ -252,7 +252,7 @@ public class RateLimitedExecutor : IAsyncDisposable
                 // 给响应取消的任务一点收尾时间
                 try
                 {
-                    await _loopTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    await _loopTask.WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 catch (TimeoutException)
                 {

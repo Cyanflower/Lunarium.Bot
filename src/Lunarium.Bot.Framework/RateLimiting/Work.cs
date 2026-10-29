@@ -14,7 +14,7 @@ public sealed record Work<T> : Work
         {
             try
             {
-                result.TrySetResult(await func(token).ConfigureAwait(false));
+                result.TrySetResult(await func(token));
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

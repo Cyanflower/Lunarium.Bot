@@ -75,12 +75,12 @@ public sealed class NotifierManager : IAsyncDisposable
 
         // 防抖队列里的最后一次写入必须落盘：否则重启后会认领不到上一条报告，
         // 把旧报告变成孤儿消息。
-        await _statusStore.FlushAsync().ConfigureAwait(false);
+        await _statusStore.FlushAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        await StopAsync(CancellationToken.None);
     }
 
     #endregion
@@ -104,8 +104,8 @@ public sealed class NotifierManager : IAsyncDisposable
 
         try
         {
-            var channel = await GetMessageChannel(guildConfig.StaffChannelId, cancellationToken).ConfigureAwait(false);
-            return await SendToChannel(message, channel, cancellationToken).ConfigureAwait(false);
+            var channel = await GetMessageChannel(guildConfig.StaffChannelId, cancellationToken);
+            return await SendToChannel(message, channel, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -149,13 +149,13 @@ public sealed class NotifierManager : IAsyncDisposable
     {
         try
         {
-            var channel = await GetMessageChannel(channelId, cancellationToken).ConfigureAwait(false);
+            var channel = await GetMessageChannel(channelId, cancellationToken);
 
             var fetched = await _httpRetryPolicy.ExecuteAsync(
                 token => _rateLimitedExecutor.WriteAndWaitAsync<IMessage>(
                     async _ => await channel.GetMessageAsync(messageId),
                     token),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
 
             if (fetched is not IUserMessage userMessage)
             {
@@ -166,10 +166,10 @@ public sealed class NotifierManager : IAsyncDisposable
                 token => _rateLimitedExecutor.WriteAndWaitAsync(
                     async _ =>
                     {
-                        await userMessage.ModifyAsync(properties => properties.Components = message).ConfigureAwait(false);
+                        await userMessage.ModifyAsync(properties => properties.Components = message);
                     },
                     token),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
 
             return true;
         }
@@ -230,7 +230,7 @@ public sealed class NotifierManager : IAsyncDisposable
 
         try
         {
-            _statusChannel = await _client.GetChannelAsync(channelId).ConfigureAwait(false) as IMessageChannel;
+            _statusChannel = await _client.GetChannelAsync(channelId) as IMessageChannel;
         }
         catch (Exception ex)
         {
@@ -254,7 +254,7 @@ public sealed class NotifierManager : IAsyncDisposable
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
-        await InitializeStatusChannelIfNeededAsync(cancellationToken).ConfigureAwait(false);
+        await InitializeStatusChannelIfNeededAsync(cancellationToken);
         if (_statusChannel is null)
         {
             return;
@@ -266,24 +266,21 @@ public sealed class NotifierManager : IAsyncDisposable
         if (_statusMessages.TryGetValue(context.Guild.Id, out var cached)
             && cached.ChannelId == channel.Id)
         {
-            await EditStatusMessageAsync(context.Guild.Id, channel, cached.Message, embed, cancellationToken)
-                .ConfigureAwait(false);
+            await EditStatusMessageAsync(context.Guild.Id, channel, cached.Message, embed, cancellationToken);
             return;
         }
 
         _statusMessages.Remove(context.Guild.Id);
 
-        var claimed = await TryClaimStatusMessageAsync(context.Guild.Id, channel, cancellationToken)
-            .ConfigureAwait(false);
+        var claimed = await TryClaimStatusMessageAsync(context.Guild.Id, channel, cancellationToken);
         if (claimed is not null)
         {
             _statusMessages[context.Guild.Id] = new StatusMessageRef(channel.Id, claimed);
-            await EditStatusMessageAsync(context.Guild.Id, channel, claimed, embed, cancellationToken)
-                .ConfigureAwait(false);
+            await EditStatusMessageAsync(context.Guild.Id, channel, claimed, embed, cancellationToken);
             return;
         }
 
-        await SendStatusMessageAsync(context.Guild.Id, channel, embed, cancellationToken).ConfigureAwait(false);
+        await SendStatusMessageAsync(context.Guild.Id, channel, embed, cancellationToken);
     }
 
     private async Task<IUserMessage?> TryClaimStatusMessageAsync(
@@ -310,7 +307,7 @@ public sealed class NotifierManager : IAsyncDisposable
 
         try
         {
-            var message = await channel.GetMessageAsync(messageId).ConfigureAwait(false);
+            var message = await channel.GetMessageAsync(messageId);
             if (message is IUserMessage userMessage && userMessage.Id == messageId)
             {
                 _logger.Info("已认领服务器 {GuildId} 的既有状态报告消息: {MessageId}", guildId, messageId);
@@ -336,10 +333,10 @@ public sealed class NotifierManager : IAsyncDisposable
         try
         {
             RememberStatusChannel(channel.Id);
-            var message = await channel.SendMessageAsync(embed: embed).ConfigureAwait(false);
+            var message = await channel.SendMessageAsync(embed: embed);
             _statusMessages[guildId] = new StatusMessageRef(channel.Id, message);
             _statusStore.Set(StatusMessageKey(guildId), message.Id);
-            await _statusStore.FlushAsync().ConfigureAwait(false);
+            await _statusStore.FlushAsync();
             _logger.Info("服务器 {GuildId} 的状态报告已发送: {MessageId}", guildId, message.Id);
         }
         catch (Exception ex)
@@ -357,7 +354,7 @@ public sealed class NotifierManager : IAsyncDisposable
     {
         try
         {
-            await message.ModifyAsync(props => props.Embed = embed).ConfigureAwait(false);
+            await message.ModifyAsync(props => props.Embed = embed);
             _logger.Info("服务器 {GuildId} 的状态报告已更新", guildId);
         }
         catch (HttpException ex) when (ex.HttpCode == HttpStatusCode.NotFound)
@@ -365,7 +362,7 @@ public sealed class NotifierManager : IAsyncDisposable
             _logger.Warning("服务器 {GuildId} 的状态报告消息已被删除，重新发送", guildId);
             _statusMessages.Remove(guildId);
             _statusStore.Remove(StatusMessageKey(guildId));
-            await SendStatusMessageAsync(guildId, channel, embed, cancellationToken).ConfigureAwait(false);
+            await SendStatusMessageAsync(guildId, channel, embed, cancellationToken);
         }
         catch (Exception ex)
         {

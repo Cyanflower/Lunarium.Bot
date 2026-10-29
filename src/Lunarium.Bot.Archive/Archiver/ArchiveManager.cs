@@ -45,7 +45,7 @@ public sealed class ArchiverManager : IAsyncDisposable
             return;
         }
 
-        await _notifier.StartAsync(cancellationToken).ConfigureAwait(false);
+        await _notifier.StartAsync(cancellationToken);
 
         _archiveLoop = Task.Run(() => ArchiveLoopAsync(_cts.Token), CancellationToken.None);
         _started = true;
@@ -66,7 +66,7 @@ public sealed class ArchiverManager : IAsyncDisposable
         {
             try
             {
-                await _archiveLoop.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+                await _archiveLoop.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
             }
             catch (Exception ex)
             {
@@ -75,13 +75,13 @@ public sealed class ArchiverManager : IAsyncDisposable
             }
         }
 
-        await _notifier.StopAsync(cancellationToken).ConfigureAwait(false);
+        await _notifier.StopAsync(cancellationToken);
         _logger.Info("归档调度器已停止");
     }
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        await StopAsync(CancellationToken.None);
         _timer.Dispose();
         _cts.Dispose();
         // 不 Dispose _lock：SemaphoreSlim 不持有 OS 句柄，Dispose 反而会在
@@ -97,7 +97,7 @@ public sealed class ArchiverManager : IAsyncDisposable
     /// <summary>手动触发一次归档；正在执行时返回 false。</summary>
     public async Task<bool> ManualArchive(CancellationToken cancellationToken)
     {
-        if (!await _lock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        if (!await _lock.WaitAsync(0, cancellationToken))
         {
             _logger.Warning("归档任务正在执行中，跳过本次手动请求");
             return false;
@@ -105,7 +105,7 @@ public sealed class ArchiverManager : IAsyncDisposable
 
         try
         {
-            await _archiver.Archive(cancellationToken).ConfigureAwait(false);
+            await _archiver.Archive(cancellationToken);
             return true;
         }
         finally
@@ -119,11 +119,11 @@ public sealed class ArchiverManager : IAsyncDisposable
         try
         {
             // 给 Ready 之后的其他初始化一点时间，同时避免状态报告/缓存等 10 分钟后才出现
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                if (!await _lock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+                if (!await _lock.WaitAsync(0, cancellationToken))
                 {
                     _logger.Warning("归档任务正在执行中，本次定时触发已跳过");
                 }
@@ -131,7 +131,7 @@ public sealed class ArchiverManager : IAsyncDisposable
                 {
                     try
                     {
-                        await _archiver.Archive(cancellationToken).ConfigureAwait(false);
+                        await _archiver.Archive(cancellationToken);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -147,7 +147,7 @@ public sealed class ArchiverManager : IAsyncDisposable
                     }
                 }
 
-                await _timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false);
+                await _timer.WaitForNextTickAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException)

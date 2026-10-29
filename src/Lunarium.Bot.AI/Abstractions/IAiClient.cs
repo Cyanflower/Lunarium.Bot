@@ -57,7 +57,7 @@ public static class AiClientExtensions
             Output = AiOutputFormat.JsonSchema(AiSchema.NameFor(typeInfo.Type), schema),
         };
 
-        var completion = await client.CompleteAsync(formatted, cancellationToken).ConfigureAwait(false);
+        var completion = await client.CompleteAsync(formatted, cancellationToken);
 
         if (completion.FinishReason != AiFinishReason.Completed)
         {
