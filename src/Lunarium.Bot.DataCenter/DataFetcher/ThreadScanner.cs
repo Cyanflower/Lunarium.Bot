@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Threading.RateLimiting;
+
 using Microsoft.Extensions.DependencyInjection;
 
 // NuGet 包依赖
@@ -9,6 +10,7 @@ using Discord;
 using Discord.Net;
 using Discord.WebSocket;
 using Discord.Rest;
+
 using Polly;
 using Polly.Retry;
 
@@ -97,7 +99,7 @@ public class ThreadScanner
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
     )
     {
-        _logger = logger.ForContext("Scanner"); 
+        _logger = logger.ForContext("Scanner");
         _loggerForScan = logger.ForContext("Scan");
         _configLoader = configLoader;
         _discordSocketClient = discordSocketClient;
@@ -122,7 +124,7 @@ public class ThreadScanner
         try
         {
             var startTime = DateTimeOffset.UtcNow;
-            
+
             // 辅助方法：计算经过的时间并格式化为 [T+HH:MM:SSS]
             string GetElapsedTime()
             {
@@ -132,55 +134,55 @@ public class ThreadScanner
             if (reporter is not null) reporter.AppendLine($"T: <t:{startTime.ToUnixTimeSeconds()}:f> | <t:{startTime.ToUnixTimeSeconds()}:R>");
 
             // ==================== 数据收集阶段 ====================
-                _logger.Info("{Time} 📥 第 1 阶段：收集频道和帖子数据...", GetElapsedTime());
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 第 1 阶段：收集频道和帖子数据...");
-                var phase1Start = DateTimeOffset.UtcNow;
+            _logger.Info("{Time} 📥 第 1 阶段：收集频道和帖子数据...", GetElapsedTime());
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 第 1 阶段：收集频道和帖子数据...");
+            var phase1Start = DateTimeOffset.UtcNow;
 
             // === GetAllForumChannels
             var (allForumChannels, allTextChannels) = GetAllForumChannels();
 
-                _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道, {TextCount} 个文字频道",
-                    GetElapsedTime(),
-                    allForumChannels.Values.Sum(list => list.Count),
-                    allTextChannels.Values.Sum(list => list.Count));
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allForumChannels.Values.Sum(l => l.Count)} 个论坛频道, {allTextChannels.Values.Sum(l => l.Count)} 个文字频道");
+            _logger.Info("{Time} ✅ 获取到 {ForumCount} 个论坛频道, {TextCount} 个文字频道",
+                GetElapsedTime(),
+                allForumChannels.Values.Sum(list => list.Count),
+                allTextChannels.Values.Sum(list => list.Count));
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allForumChannels.Values.Sum(l => l.Count)} 个论坛频道, {allTextChannels.Values.Sum(l => l.Count)} 个文字频道");
 
             // === GetAllRestForumThreads
             var allRestForumThreads = await GetAllRestForumThreads(allForumChannels);
 
-                _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个论坛帖子",
-                    GetElapsedTime(),
-                    allRestForumThreads.Values.Sum(list => list.Count));
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allRestForumThreads.Values.Sum(l => l.Count)} 个论坛帖子");
-                _loggerForScan.Info("API GET: 全部论坛帖子: {@allRestForumThreads}", allRestForumThreads);
-                
+            _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个论坛帖子",
+                GetElapsedTime(),
+                allRestForumThreads.Values.Sum(list => list.Count));
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 获取到 {allRestForumThreads.Values.Sum(l => l.Count)} 个论坛帖子");
+            LogScanListingSummary("API GET: 全部论坛帖子", allRestForumThreads);
+
             // === GetAllRestSocketTextThreads
             var allSocketTextThreads = await GetAllRestSocketTextThreads(allTextChannels);
 
-                _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个文字频道子区",
-                    GetElapsedTime(),
-                    allSocketTextThreads.Values.Sum(list => list.Count));
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 获取到 {allSocketTextThreads.Values.Sum(l => l.Count)} 个文字频道子区");
-                _loggerForScan.Info("API GET: 全部频道帖子: {@allSocketTextThreads}", allSocketTextThreads);
-                
-                var phase1Duration = DateTimeOffset.UtcNow - phase1Start;
-                _logger.Info("{Time} ⏱️ 第 1 阶段完成, 耗时: {Duration:F2} 秒",
-                    GetElapsedTime(), phase1Duration.TotalSeconds);
-                if (reporter is not null) await  reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 ⏱️ 第 1 阶段完成, 耗时: {phase1Duration.TotalSeconds:F2} 秒");
+            _logger.Info("{Time} ✅ 获取到 {ThreadCount} 个文字频道子区",
+                GetElapsedTime(),
+                allSocketTextThreads.Values.Sum(list => list.Count));
+            if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 获取到 {allSocketTextThreads.Values.Sum(l => l.Count)} 个文字频道子区");
+            LogScanListingSummary("API GET: 全部频道帖子", allSocketTextThreads);
+
+            var phase1Duration = DateTimeOffset.UtcNow - phase1Start;
+            _logger.Info("{Time} ⏱️ 第 1 阶段完成, 耗时: {Duration:F2} 秒",
+                GetElapsedTime(), phase1Duration.TotalSeconds);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📥 ⏱️ 第 1 阶段完成, 耗时: {phase1Duration.TotalSeconds:F2} 秒");
 
             // ==================== 数据处理阶段 ====================
-                _logger.Info("{Time} 🔄 第 2 阶段：处理数据...", GetElapsedTime());
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 🔄 第 2 阶段：处理数据...");
-                var phase2Start = DateTimeOffset.UtcNow;
+            _logger.Info("{Time} 🔄 第 2 阶段：处理数据...", GetElapsedTime());
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 🔄 第 2 阶段：处理数据...");
+            var phase2Start = DateTimeOffset.UtcNow;
 
             // === GetForumAndTagData
             var (allForumsData, allTagsData) = GetForumAndTagData(allForumChannels);
 
-                _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道, {TagCount} 个标签",
-                    GetElapsedTime(),
-                    allForumsData.Count, allTagsData.Count);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道, {allTagsData.Count} 个标签");
-                    
+            _logger.Info("{Time} ✅ 处理得到 {ChannelCount} 个频道, {TagCount} 个标签",
+                GetElapsedTime(),
+                allForumsData.Count, allTagsData.Count);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ✅ 处理得到 {allForumsData.Count} 个频道, {allTagsData.Count} 个标签");
+
             // === 增量判定：第 1 阶段已经拿到全部线程对象，第 2 阶段只深挖脏集合与新增帖子
             List<RestThreadChannel> forumThreads = allRestForumThreads.SelectMany(kv => kv.Value).ToList();
             List<RestThreadChannel> textThreads = allSocketTextThreads.SelectMany(kv => kv.Value).ToList();
@@ -213,21 +215,21 @@ public class ThreadScanner
             var allForumThreadsData = await GetAllRestForumThreadsData(forumThreadsToDeepScan);
             var allTextThreadsData = GetAllRestTextThreadsData(allSocketTextThreads);
 
-                // 统计处理结果
-                var forumSuccess = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Success && r.Data is not null);
-                var forumSkipped = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Invalid && r.Data is not null);
-                var forumFailed = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Failed || r.Data is null);
-                
-                var textSuccess = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Success && r.Data is not null);
-                var textSkipped = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Invalid && r.Data is not null);
-                var textFailed = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Failed || r.Data is null);
+            // 统计处理结果
+            var forumSuccess = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Success && r.Data is not null);
+            var forumSkipped = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Invalid && r.Data is not null);
+            var forumFailed = allForumThreadsData.Count(r => r.Status == ProcessingStatus.Failed || r.Data is null);
 
-                _logger.Info("{Time} 📊 论坛帖子处理结果: 成功 {Success}, 无效 {Skipped}, 失败 {Failed}",
-                    GetElapsedTime(), forumSuccess, forumSkipped, forumFailed);
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📊 论坛帖子处理结果: 成功 {forumSuccess}, 无效 {forumSkipped}, 失败 {forumFailed}");
-                _logger.Info("{Time} 📊 文字子区处理结果: 成功 {Success}, 无效 {Skipped}, 失败 {Failed}",
-                    GetElapsedTime(), textSuccess, textSkipped, textFailed);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📊 文字子区处理结果: 成功 {textSuccess}, 无效 {textSkipped}, 失败 {textFailed}");
+            var textSuccess = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Success && r.Data is not null);
+            var textSkipped = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Invalid && r.Data is not null);
+            var textFailed = allTextThreadsData.Count(r => r.Status == ProcessingStatus.Failed || r.Data is null);
+
+            _logger.Info("{Time} 📊 论坛帖子处理结果: 成功 {Success}, 无效 {Skipped}, 失败 {Failed}",
+                GetElapsedTime(), forumSuccess, forumSkipped, forumFailed);
+            if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📊 论坛帖子处理结果: 成功 {forumSuccess}, 无效 {forumSkipped}, 失败 {forumFailed}");
+            _logger.Info("{Time} 📊 文字子区处理结果: 成功 {Success}, 无效 {Skipped}, 失败 {Failed}",
+                GetElapsedTime(), textSuccess, textSkipped, textFailed);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 📊 文字子区处理结果: 成功 {textSuccess}, 无效 {textSkipped}, 失败 {textFailed}");
 
             // 合并所有帖子数据（排除失败的, 保留无效的）
             List<ThreadData> allThreadsData =
@@ -269,22 +271,29 @@ public class ThreadScanner
             }
 
             _loggerForScan.Info("合并所有帖子数据（排除失败的, 保留无效的）");
-            _loggerForScan.Info("所有帖子数据: 成功结果列表: allThreadsData: {@allThreadsData}", allThreadsData);
-            _loggerForScan.Info("所有帖子数据: 失败结果列表: allThreadsData: {@allThreadsDataFailed}", allForumThreadsData.Where(r => r.Status == ProcessingStatus.Failed || r.Data is null));
-            _loggerForScan.Info("所有帖子数据: 无效结果列表: allThreadsData: {@allThreadsDataInvalid}", allForumThreadsData.Where(r => r.Status == ProcessingStatus.Invalid && r.Data is not null));
+            _loggerForScan.Info("合并后待同步数据: 共 {Count} 条（论坛结果 {Forum} 条 + 子区结果 {Text} 条）",
+                allThreadsData.Count, allForumThreadsData.Count, allTextThreadsData.Count);
+            LogScanResultIds("论坛帖子失败明细",
+                allForumThreadsData.Where(r => r.Status == ProcessingStatus.Failed || r.Data is null), asWarning: true);
+            LogScanResultIds("论坛帖子无效明细",
+                allForumThreadsData.Where(r => r.Status == ProcessingStatus.Invalid && r.Data is not null));
+            LogScanResultIds("文字子区失败明细",
+                allTextThreadsData.Where(r => r.Status == ProcessingStatus.Failed || r.Data is null), asWarning: true);
+            LogScanResultIds("文字子区无效明细",
+                allTextThreadsData.Where(r => r.Status == ProcessingStatus.Invalid && r.Data is not null));
 
-                _logger.Info("{Time} 📦 合并后待同步数据: {ThreadCount} 个帖子（包含无效的）",
-                    GetElapsedTime(), allThreadsData.Count);
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📦 合并后待同步数据: {allThreadsData.Count} 个帖子（包含无效的）");
-                var phase2Duration = DateTimeOffset.UtcNow - phase2Start;
-                _logger.Info("{Time} ⏱️ 第 2 阶段完成, 耗时: {Duration:F2} 秒",
-                    GetElapsedTime(), phase2Duration.TotalSeconds);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ⏱️ 第 2 阶段完成, 耗时: {phase2Duration.TotalSeconds:F2} 秒");
-                
+            _logger.Info("{Time} 📦 合并后待同步数据: {ThreadCount} 个帖子（包含无效的）",
+                GetElapsedTime(), allThreadsData.Count);
+            if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} 📦 合并后待同步数据: {allThreadsData.Count} 个帖子（包含无效的）");
+            var phase2Duration = DateTimeOffset.UtcNow - phase2Start;
+            _logger.Info("{Time} ⏱️ 第 2 阶段完成, 耗时: {Duration:F2} 秒",
+                GetElapsedTime(), phase2Duration.TotalSeconds);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} ⏱️ 第 2 阶段完成, 耗时: {phase2Duration.TotalSeconds:F2} 秒");
+
             // ==================== 数据库写入阶段 ====================
-                _logger.Info("{Time} 💾 第 3 阶段：写入数据库...", GetElapsedTime());
-                if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 💾 第 3 阶段：写入数据库...");
-                var phase3Start = DateTimeOffset.UtcNow;
+            _logger.Info("{Time} 💾 第 3 阶段：写入数据库...", GetElapsedTime());
+            if (reporter is not null) await reporter.ReportProgressAsync($"> {GetElapsedTime()} 💾 第 3 阶段：写入数据库...");
+            var phase3Start = DateTimeOffset.UtcNow;
 
             // === SyncProcessorAsync（孤儿清理使用全量列举 ID，不能用增量数据）
             await _dataProcessService.SyncAllThreadAsync(
@@ -313,82 +322,82 @@ public class ThreadScanner
             }
             await _activityTracker.FlushAsync();
 
-                var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
-                _logger.Info("{Time} ⏱️ 第 3 阶段完成, 耗时: {Duration:F2} 秒",
-                    GetElapsedTime(), phase3Duration.TotalSeconds);
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ⏱️ 第 3 阶段完成, 耗时: {phase3Duration.TotalSeconds:F2} ");
+            var phase3Duration = DateTimeOffset.UtcNow - phase3Start;
+            _logger.Info("{Time} ⏱️ 第 3 阶段完成, 耗时: {Duration:F2} 秒",
+                GetElapsedTime(), phase3Duration.TotalSeconds);
+            if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ⏱️ 第 3 阶段完成, 耗时: {phase3Duration.TotalSeconds:F2} ");
 
-                // ==================== 总结 ====================
-                var totalDuration = DateTimeOffset.UtcNow - startTime;
-                _logger.Info("{Time} ✅ 同步扫描任务完成！总耗时: {TotalDuration:F2} 秒",
-                    GetElapsedTime(), totalDuration.TotalSeconds);
-                if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 同步扫描任务完成！总耗时: {totalDuration.TotalSeconds:F2} 秒");
+            // ==================== 总结 ====================
+            var totalDuration = DateTimeOffset.UtcNow - startTime;
+            _logger.Info("{Time} ✅ 同步扫描任务完成！总耗时: {TotalDuration:F2} 秒",
+                GetElapsedTime(), totalDuration.TotalSeconds);
+            if (reporter is not null) reporter.AppendLine($"> {GetElapsedTime()} ✅ 同步扫描任务完成！总耗时: {totalDuration.TotalSeconds:F2} 秒");
             var endTime = DateTimeOffset.UtcNow;
-                if (reporter is not null) reporter.AppendLine($"T END: <t:{endTime.ToUnixTimeSeconds()}:f> | <t:{endTime.ToUnixTimeSeconds()}:R>");
-                
-                _logger.Info("📊 性能统计:");
-                if (reporter is not null) reporter.AppendLine($"📊 性能统计:");
-                _logger.Info("> - 第 1 阶段（数据收集）: {Phase1:F2} 秒 ({Phase1Percent:F1}%)",
-                    phase1Duration.TotalSeconds, 
-                    phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
-                    
-                if (reporter is not null) reporter.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-                _logger.Info("> - 第 2 阶段（数据处理）: {Phase2:F2} 秒 ({Phase2Percent:F1}%)",
-                    phase2Duration.TotalSeconds, 
-                    phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
-                if (reporter is not null) reporter.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-                _logger.Info("> - 第 3 阶段（数据库写入）: {Phase3:F2} 秒 ({Phase3Percent:F1}%)",
-                    phase3Duration.TotalSeconds, 
-                    phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
-                if (reporter is not null) await reporter.ReportProgressAsync($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            if (reporter is not null) reporter.AppendLine($"T END: <t:{endTime.ToUnixTimeSeconds()}:f> | <t:{endTime.ToUnixTimeSeconds()}:R>");
 
-                // 构建并返回统计字符串
-                var statsBuilder = new StringBuilder();
-                statsBuilder.AppendLine("📊 同步扫描任务统计报告");
-                statsBuilder.AppendLine();
-                if (reporter is null) statsBuilder.AppendLine("调度: 手动 (同步命令)");
-                else statsBuilder.AppendLine("调度: 自动 (调度器)");
-                statsBuilder.AppendLine($"▶️ 任务开始时间: <t:{startTime.ToUnixTimeSeconds()}:f>");
-                statsBuilder.AppendLine($"⏹ 任务完成时间: <t:{endTime.ToUnixTimeSeconds()}:f>");
-                statsBuilder.AppendLine($"⏱️ 总耗时: {totalDuration.TotalSeconds:F2} 秒");
-                statsBuilder.AppendLine();
-                statsBuilder.AppendLine("📥 数据收集结果:");
-                statsBuilder.AppendLine($"> - 论坛频道: {allForumChannels.Values.Sum(list => list.Count)} 个");
-                statsBuilder.AppendLine($"> - 文字频道: {allTextChannels.Values.Sum(list => list.Count)} 个");
-                statsBuilder.AppendLine($"> - 论坛帖子: {allRestForumThreads.Values.Sum(list => list.Count)} 个");
-                statsBuilder.AppendLine($"> - 文字子区: {allSocketTextThreads.Values.Sum(list => list.Count)} 个");
-                statsBuilder.AppendLine();
-                statsBuilder.AppendLine("🔄 数据处理结果:");
-                statsBuilder.AppendLine($"> - 扫描模式: {mode}");
-                statsBuilder.AppendLine($"> - 全量列举帖子: {forumThreads.Count + textThreads.Count} 个");
-                statsBuilder.AppendLine($"> - 本次深挖: {forumThreadsToDeepScan.Count} 个");
-                statsBuilder.AppendLine($"> - 元数据更新: {metadataUpdates.Count} 个");
-                statsBuilder.AppendLine($"> - 频道数: {allForumsData.Count} 个");
-                statsBuilder.AppendLine($"> - 标签数: {allTagsData.Count} 个");
-                statsBuilder.AppendLine($"> - 论坛帖子: 成功 {forumSuccess}, 无效 {forumSkipped}, 失败 {forumFailed}");
-                statsBuilder.AppendLine($"> - 文字子区: 成功 {textSuccess}, 无效 {textSkipped}, 失败 {textFailed}");
-                statsBuilder.AppendLine($"> - 合并后待同步: {allThreadsData.Count} 个帖子");
-                statsBuilder.AppendLine();
-                statsBuilder.AppendLine("⚡ 性能统计:");
-                statsBuilder.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-                statsBuilder.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-                statsBuilder.AppendLine($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
-                statsBuilder.AppendLine();
-                statsBuilder.AppendLine("⏰ 定时任务调度计划:");
+            _logger.Info("📊 性能统计:");
+            if (reporter is not null) reporter.AppendLine($"📊 性能统计:");
+            _logger.Info("> - 第 1 阶段（数据收集）: {Phase1:F2} 秒 ({Phase1Percent:F1}%)",
+                phase1Duration.TotalSeconds,
+                phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
 
-                string schedulerInfo = _scheduler.GetAllJobsInfo();
-                // 先移除末尾换行符, 再替换
-                string formattedSchedulerInfo = schedulerInfo.TrimEnd('\n', '\r').Replace("\n", "\n> ");
-                statsBuilder.AppendLine($"> {formattedSchedulerInfo}");
+            if (reporter is not null) reporter.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            _logger.Info("> - 第 2 阶段（数据处理）: {Phase2:F2} 秒 ({Phase2Percent:F1}%)",
+                phase2Duration.TotalSeconds,
+                phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+            if (reporter is not null) reporter.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            _logger.Info("> - 第 3 阶段（数据库写入）: {Phase3:F2} 秒 ({Phase3Percent:F1}%)",
+                phase3Duration.TotalSeconds,
+                phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100);
+            if (reporter is not null) await reporter.ReportProgressAsync($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+
+            // 构建并返回统计字符串
+            var statsBuilder = new StringBuilder();
+            statsBuilder.AppendLine("📊 同步扫描任务统计报告");
+            statsBuilder.AppendLine();
+            if (reporter is null) statsBuilder.AppendLine("调度: 手动 (同步命令)");
+            else statsBuilder.AppendLine("调度: 自动 (调度器)");
+            statsBuilder.AppendLine($"▶️ 任务开始时间: <t:{startTime.ToUnixTimeSeconds()}:f>");
+            statsBuilder.AppendLine($"⏹ 任务完成时间: <t:{endTime.ToUnixTimeSeconds()}:f>");
+            statsBuilder.AppendLine($"⏱️ 总耗时: {totalDuration.TotalSeconds:F2} 秒");
+            statsBuilder.AppendLine();
+            statsBuilder.AppendLine("📥 数据收集结果:");
+            statsBuilder.AppendLine($"> - 论坛频道: {allForumChannels.Values.Sum(list => list.Count)} 个");
+            statsBuilder.AppendLine($"> - 文字频道: {allTextChannels.Values.Sum(list => list.Count)} 个");
+            statsBuilder.AppendLine($"> - 论坛帖子: {allRestForumThreads.Values.Sum(list => list.Count)} 个");
+            statsBuilder.AppendLine($"> - 文字子区: {allSocketTextThreads.Values.Sum(list => list.Count)} 个");
+            statsBuilder.AppendLine();
+            statsBuilder.AppendLine("🔄 数据处理结果:");
+            statsBuilder.AppendLine($"> - 扫描模式: {mode}");
+            statsBuilder.AppendLine($"> - 全量列举帖子: {forumThreads.Count + textThreads.Count} 个");
+            statsBuilder.AppendLine($"> - 本次深挖: {forumThreadsToDeepScan.Count} 个");
+            statsBuilder.AppendLine($"> - 元数据更新: {metadataUpdates.Count} 个");
+            statsBuilder.AppendLine($"> - 频道数: {allForumsData.Count} 个");
+            statsBuilder.AppendLine($"> - 标签数: {allTagsData.Count} 个");
+            statsBuilder.AppendLine($"> - 论坛帖子: 成功 {forumSuccess}, 无效 {forumSkipped}, 失败 {forumFailed}");
+            statsBuilder.AppendLine($"> - 文字子区: 成功 {textSuccess}, 无效 {textSkipped}, 失败 {textFailed}");
+            statsBuilder.AppendLine($"> - 合并后待同步: {allThreadsData.Count} 个帖子");
+            statsBuilder.AppendLine();
+            statsBuilder.AppendLine("⚡ 性能统计:");
+            statsBuilder.AppendLine($"> - 第 1 阶段（数据收集）: {phase1Duration.TotalSeconds:F2} 秒 ({phase1Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            statsBuilder.AppendLine($"> - 第 2 阶段（数据处理）: {phase2Duration.TotalSeconds:F2} 秒 ({phase2Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            statsBuilder.AppendLine($"> - 第 3 阶段（数据库写入）: {phase3Duration.TotalSeconds:F2} 秒 ({phase3Duration.TotalSeconds / totalDuration.TotalSeconds * 100:F1}%)");
+            statsBuilder.AppendLine();
+            statsBuilder.AppendLine("⏰ 定时任务调度计划:");
+
+            string schedulerInfo = _scheduler.GetAllJobsInfo();
+            // 先移除末尾换行符, 再替换
+            string formattedSchedulerInfo = schedulerInfo.TrimEnd('\n', '\r').Replace("\n", "\n> ");
+            statsBuilder.AppendLine($"> {formattedSchedulerInfo}");
 
             return statsBuilder.ToString();
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "❌ 同步扫描任务失败");
-            
+
             var errorStats = $"❌ 同步扫描任务失败\n时间: <t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:f>\n原因: {ex.Message}";
-            
+
             try
             {
                 var logChannel = (IMessageChannel)_discordSocketClient.GetChannel(_configLoader.Config.AuthConfig.LogChannel);
@@ -750,7 +759,7 @@ public class ThreadScanner
             _loggerForScan.Info("  - 扫描的论坛频道: {Count}", totalForumChannels);
             _loggerForScan.Info("  - 获取的帖子总数: {Count}", totalThreads);
             _loggerForScan.Info("========== 论坛帖子获取完成 ==========\n");
-            _loggerForScan.Info("结果列表: allRestForumThreads: {@allRestForumThreads}", allRestForumThreads);
+            LogScanListingSummary("结果列表: allRestForumThreads", allRestForumThreads);
 
             return allRestForumThreads;
         }
@@ -972,7 +981,7 @@ public class ThreadScanner
             _loggerForScan.Info("  - 扫描的文字频道: {Count}", totalTextChannels);
             _loggerForScan.Info("  - 获取的子区总数: {Count}", totalThreads);
             _loggerForScan.Info("========== 文字频道子区获取完成 ==========\n");
-            _loggerForScan.Info("结果列表: allRestTextThreads: {@allRestTextThreads}", allRestTextThreads);
+            LogScanListingSummary("结果列表: allRestTextThreads", allRestTextThreads);
 
             return allRestTextThreads;
         }
@@ -1029,7 +1038,7 @@ public class ThreadScanner
     {
         try
         {
-            var result = allRestTextThreads.SelectMany(threads => threads.Value).Select( thread =>
+            var result = allRestTextThreads.SelectMany(threads => threads.Value).Select(thread =>
             {
                 try
                 {
@@ -1210,7 +1219,7 @@ public class ThreadScanner
                     throw;
                 }
             });
-            
+
             // 获取帖子的首楼消息和最新消息
             await _httpRetryPolicy.ExecuteAsync(async () =>
             {
@@ -1277,7 +1286,7 @@ public class ThreadScanner
                     .Select(r => r.ReactionCount)
                     .Sum();
             }
-            
+
             // 逻辑更改: 没有首楼消息仍然视为有效, 但注释掉以暂留代码, 或许需求还会改回去
             // else
             // {
@@ -1304,7 +1313,7 @@ public class ThreadScanner
                 var validTags = parentChannel.Tags
                     .Where(tag => restThreadChannel.AppliedTags.Contains(tag.Id))
                     .ToList();
-                
+
                 validTagIds = validTags.Select(tag => tag.Id).ToList();
                 var appliedTagNames = validTags.Select(tag => tag.Name).ToList();
                 tags = string.Join(", ", appliedTagNames);
@@ -1397,7 +1406,7 @@ public class ThreadScanner
             RestMessage? firstMessage = null;
             RestMessage? lastMessage = null;
             List<string>? imageAttachment = null;
-            
+
             if (!_socketTextChannelsCache.TryGetValue(restThreadChannel.ParentChannelId, out var parentChannel))
             {
                 // 如果因为某些极其罕见的原因找不到父频道
@@ -1406,7 +1415,7 @@ public class ThreadScanner
                 isValid = false;
                 result.Status = ProcessingStatus.Failed;
             }
-            
+
             // 构建帖子数据对象
             result.Data = new ThreadData()
             {
@@ -1467,5 +1476,65 @@ public class ThreadScanner
         var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".gifv", ".webp", ".bmp" };
         return imageExtensions.Any(ext =>
             attachment.Filename.ToLowerInvariant().EndsWith(ext));
+    }
+
+    /// <summary>
+    /// 扫描日志中单个集合最多展开的 ThreadId 数量。
+    /// </summary>
+    private const int MaxLoggedThreadIds = 200;
+
+    /// <summary>
+    /// 输出「按频道分组」的帖子列举摘要，替代整集合的 <c>{@...}</c> 解构。
+    /// </summary>
+    /// <remarks>
+    /// <para>日志行的长度必须与数据量无关。</para>
+    /// <para>
+    /// 2 万条 <see cref="RestThreadChannel"/> 做 <c>@</c> 解构会产出几十 MB 的单行（线上实测 68.9 MB），
+    /// 而 <c>AddSizedRotatingFileSink</c> 只在写入前判断大小、单次写入不拆分，
+    /// 一次写入即击穿 10 MB 的轮转阈值并清空全部轮转槽。
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TKey">分组键：论坛频道 ID 或 <see cref="SocketGuild"/></typeparam>
+    /// <param name="label">日志标签</param>
+    /// <param name="threadsByChannel">按频道/服务器分组的帖子列表</param>
+    private void LogScanListingSummary<TKey>(string label, Dictionary<TKey, List<RestThreadChannel>> threadsByChannel)
+        where TKey : notnull
+    {
+        _loggerForScan.Info("{Label}: 共 {Total} 条, 覆盖 {ChannelCount} 个频道",
+            label, threadsByChannel.Sum(kv => kv.Value.Count), threadsByChannel.Count);
+    }
+
+    /// <summary>
+    /// 输出处理结果为失败/无效的帖子 ID 清单。
+    /// </summary>
+    /// <remarks>
+    /// <para>必须截断：失败条数上限不可控，全量失败时展开整个集合同样是超长单行。</para>
+    /// <para>ID 先拼成单个字符串再作为标量参数传入，避免框架对数组做解构。</para>
+    /// </remarks>
+    /// <param name="label">日志标签</param>
+    /// <param name="results">已按状态筛选过的处理结果</param>
+    /// <param name="asWarning">失败用 Warning 级别，无效（正常业务状态）用 Info 级别</param>
+    private void LogScanResultIds(string label, IEnumerable<ProcessingResult> results, bool asWarning = false)
+    {
+        ulong[] threadIds = results
+            .Select(r => r.RestThreadChannel?.Id ?? r.Data?.ThreadId ?? 0)
+            .Where(id => id != 0)
+            .ToArray();
+
+        if (threadIds.Length == 0) return;
+
+        string ids = string.Join(", ", threadIds.Take(MaxLoggedThreadIds));
+        string suffix = threadIds.Length > MaxLoggedThreadIds
+            ? $" …（已截断, 共 {threadIds.Length} 条）"
+            : string.Empty;
+
+        if (asWarning)
+        {
+            _loggerForScan.Warning("{Label}: {Count} 条 [{Ids}]{Suffix}", label, threadIds.Length, ids, suffix);
+        }
+        else
+        {
+            _loggerForScan.Info("{Label}: {Count} 条 [{Ids}]{Suffix}", label, threadIds.Length, ids, suffix);
+        }
     }
 }
