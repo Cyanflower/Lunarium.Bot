@@ -119,7 +119,7 @@ public sealed class Archiver
         var reconcileResult = await _pinnedMonitoring.ReconcileAsync(
             context.Guild.Id,
             context.PinnedChannels,
-            classified.Pinned,
+            classified.Pinned.Select(x => x.Thread).ToList(),
             cancellationToken);
 
         if (reconcileResult.Failed)
@@ -210,10 +210,10 @@ public sealed class Archiver
         try
         {
             var threads = await _httpRetryPolicy.ExecuteAsync(
-                token => _rateLimitedExecutor.WriteAndWaitAsync<List<RestThreadChannel>>(
+                token => _rateLimitedExecutor.WriteAndWaitAsync<List<ActiveThreadSnapshot>>(
                     async _ =>
                     {
-                        var all = await _client.Rest.GetAllActiveThreadsAsync(context.Guild);
+                        var all = await _client.GetActiveThreadSnapshotsAsync(context.Guild);
                         return [.. all];
                     },
                     token),
@@ -235,15 +235,15 @@ public sealed class Archiver
     {
         try
         {
-            var pinnedThreads = new List<RestThreadChannel>();
-            var regularThreads = new List<RestThreadChannel>();
+            var pinnedThreads = new List<ActiveThreadSnapshot>();
+            var regularThreads = new List<ActiveThreadSnapshot>();
 
             foreach (var thread in activeThreads.Items)
             {
                 // 空列表 = 监控全部父频道（与 GuildConfig.PinnedMonitoringChannelIds 的语义一致）
                 var isMonitored = context.PinnedChannels.Count is 0
-                                  || context.PinnedChannels.Contains(thread.ParentChannelId);
-                if (isMonitored && thread.Flags.HasFlag(ChannelFlags.Pinned))
+                                  || context.PinnedChannels.Contains(thread.Thread.ParentChannelId);
+                if (isMonitored && thread.Thread.Flags.HasFlag(ChannelFlags.Pinned))
                 {
                     pinnedThreads.Add(thread);
                 }
@@ -268,40 +268,55 @@ public sealed class Archiver
         ClassifiedThreads threads,
         CancellationToken cancellationToken)
     {
-        var count = 0;
-        var tasks = threads.Regular.Select(async thread =>
+        var restReq = threads.Regular.Where(x => x.LastMessageAt is null).ToList();
+
+        List<TimedThread> result = new();
+        if (restReq.Count > 0)
         {
-            var current = Interlocked.Increment(ref count);
-            try
+            // var count = 0;
+            var tasks = restReq.Select(async threadSnap =>
             {
-                _logger.Debug("[{GuildName}({GuildId})] 步骤4/6: 获取第 {Current}/{Total} 个普通线程的最后活跃时间",
-                    context.Guild.Name, context.Guild.Id, current, threads.Regular.Count);
+                // var current = Interlocked.Increment(ref count);
+                try
+                {
+                    // _logger.Debug("[{GuildName}({GuildId})] 步骤4/6: 获取第 {Current}/{Total} 个普通线程的最后活跃时间",
+                    //     context.Guild.Name, context.Guild.Id, current, threads.Regular.Count);
 
-                var lastMessageTime = await _httpRetryPolicy.ExecuteAsync(
-                    token => _rateLimitedExecutor.WriteAndWaitAsync<DateTimeOffset?>(
-                        async _ =>
-                        {
-                            var recentMessages = await thread.GetMessagesAsync(1).FlattenAsync();
-                            var lastMessage = recentMessages.FirstOrDefault();
-                            // 读不到最后消息时返回 null：由调用侧按“最活跃”处理，本轮不参与归档
-                            return lastMessage?.CreatedAt;
-                        },
-                        token),
-                    cancellationToken);
+                    var lastMessageTime = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync<DateTimeOffset?>(
+                            async _ =>
+                            {
+                                var recentMessages = await threadSnap.Thread.GetMessagesAsync(1).FlattenAsync();
+                                var lastMessage = recentMessages.FirstOrDefault();
+                                // 读不到最后消息时返回 null：由调用侧按“最活跃”处理，本轮不参与归档
+                                return lastMessage?.CreatedAt;
+                            },
+                            token),
+                        cancellationToken);
 
-                return lastMessageTime is { } lastActivity
-                    ? new TimedThread(thread, lastActivity)
-                    : new TimedThread(thread, DateTimeOffset.MaxValue, Unreadable: true);
-            }
-            catch (Exception ex)
+                    return lastMessageTime is { } lastActivity
+                        ? new TimedThread(threadSnap.Thread, lastActivity)
+                        : new TimedThread(threadSnap.Thread, DateTimeOffset.MaxValue, Unreadable: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "[{GuildName}({GuildId})] 步骤4/6: 获取线程 {ThreadId} 最后消息时间失败",
+                        context.Guild.Name, context.Guild.Id, threadSnap.Thread.Id);
+                    return new TimedThread(threadSnap.Thread, DateTimeOffset.MaxValue, Unreadable: true);
+                }
+            });
+            result.AddRange(await Task.WhenAll(tasks));
+        }
+        
+        foreach (var threadSnap in threads.Regular)
+        {
+            if (threadSnap.LastMessageAt is { } lastMessageAt)
             {
-                _logger.Error(ex, "[{GuildName}({GuildId})] 步骤4/6: 获取线程 {ThreadId} 最后消息时间失败",
-                    context.Guild.Name, context.Guild.Id, thread.Id);
-                return new TimedThread(thread, DateTimeOffset.MaxValue, Unreadable: true);
+                result.Add(new(threadSnap.Thread, lastMessageAt));
             }
-        });
+        }
 
-        return await Task.WhenAll(tasks);
+        return result;
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using Discord.Rest;
 using Discord.WebSocket;
 
 using Lunarium.Bot.Archive.Model;
+using Lunarium.Bot.Framework.OpenAPI;
 
 namespace Lunarium.Bot.Archive.Archiver;
 
@@ -15,12 +16,12 @@ public sealed record GuildContext(
 }
 
 // 步骤1：GetEligibleChannelsFromGuild
-public sealed record ActiveThreads(IReadOnlyList<RestThreadChannel> Items);
+public sealed record ActiveThreads(IReadOnlyList<ActiveThreadSnapshot> Items);
 
 // 步骤2：ClassifyThreadsByPinnedStatus
 public sealed record ClassifiedThreads(
-    IReadOnlyList<RestThreadChannel> Pinned,
-    IReadOnlyList<RestThreadChannel> Regular);
+    IReadOnlyList<ActiveThreadSnapshot> Pinned,
+    IReadOnlyList<ActiveThreadSnapshot> Regular);
 
 // 步骤3：PinnedMonitoring.ReconcileAsync 的返回契约。
 // Archiver 只拿它打日志，不参与归档决策——置顶帖在上游已与归档候选彻底分流。
