@@ -123,7 +123,13 @@ public class DataCenterBotService : IHostedService
             // 注册 Discord 客户端（代理由 Framework 统一处理）
             .AddDiscordSocketClient(proxyUrl, config =>
             {
-                config.GatewayIntents = GatewayIntents.All;
+                // 不要用 GatewayIntents.All：它包含 Presence，而应用已无 GATEWAY_PRESENCE 权限，
+                // IDENTIFY 会被 4014 "Disallowed intent(s)" 直接拒绝（已生效的旧连接不受影响，
+                // 所以只会在重启后暴露）。只申请「非特权全量 + 已获授权的特权意图」。
+                config.GatewayIntents =
+                    GatewayIntents.AllUnprivileged
+                    | GatewayIntents.GuildMembers   // 成员/身份组同步
+                    | GatewayIntents.MessageContent; // 读取帖子正文
             })
 
             // 注册 ConfigLoader
