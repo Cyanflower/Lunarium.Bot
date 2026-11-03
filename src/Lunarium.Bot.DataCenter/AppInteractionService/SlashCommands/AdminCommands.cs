@@ -139,29 +139,35 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
-    [SlashCommand("全扫描", "执行全扫描")]
-    public async Task FullSyncScanAsync()
+    [SlashCommand("全扫描", "立即执行一次同步扫描（默认增量深挖）")]
+    public async Task FullSyncScanAsync(
+        [Summary("全量深挖", "true = 深挖全部帖子（约为增量的 6 倍耗时）；false = 只深挖脏集合、新增帖与曾软删的帖子")]
+        bool full = false
+    )
     {
         await DeferAsync(ephemeral: false);
         // 鉴权: 如果不是admin, 则返回
         if (!await _authUtils.IsAdmin("全扫描", Context)) return;
         bool success = false;
+        // 按参数决定扫描模式: 全量深挖成功后会自动清空脏集合
+        ScanMode mode = full ? ScanMode.Full : ScanMode.Incremental;
+        string modeLabel = full ? "全量深挖" : "增量";
         // === 命令逻辑 ===
             var reporter = new ScanProgressReporter(Context, _logger);
         try
         {
             
-            await reporter.ReportStartAsync("🚀 开始执行同步扫描任务...", Color.Blue);
+            await reporter.ReportStartAsync($"🚀 开始执行同步扫描任务（{modeLabel}）...", Color.Blue);
 
             // _listener.RemoveEventHandlers();
 
             // await reporter.ReportProgressAsync("✅ 暂停事件处理: 监听器事件处理方法已移除。");
 
             // 回复 Slash Command 避免超时 (Followup已经在reporter初始化中隐式处理，这里主要作为确认)
-            await FollowupAsync(embed: EmbedUtils.SuccessEmbed("✅ 任务已调度", "正在后台执行同步操作，请查看进度卡片。"));
+            await FollowupAsync(embed: EmbedUtils.SuccessEmbed("✅ 任务已调度", $"扫描模式: **{modeLabel}**\n正在后台执行同步操作，请查看进度卡片。"));
 
             // 执行扫描
-            var result = await _scanner.SyncScanAsync(ScanMode.Incremental, reporter);
+            var result = await _scanner.SyncScanAsync(mode, reporter);
 
             success = true;
         }
@@ -180,11 +186,11 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
 
             if (success)
             {
-                await reporter.ReportCompleteAsync(title: "✅ 同步扫描任务成功", color: Color.Green);
+                await reporter.ReportCompleteAsync(title: $"✅ 同步扫描任务成功（{modeLabel}）", color: Color.Green);
             }
             else
             {
-                await reporter.ReportCompleteAsync(title: "❌ 同步扫描任务失败", color: Color.Red);
+                await reporter.ReportCompleteAsync(title: $"❌ 同步扫描任务失败（{modeLabel}）", color: Color.Red);
             }
         }
     }
