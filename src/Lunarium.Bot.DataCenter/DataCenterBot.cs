@@ -130,6 +130,11 @@ public class DataCenterBotService : IHostedService
                     GatewayIntents.AllUnprivileged
                     | GatewayIntents.GuildMembers   // 成员/身份组同步
                     | GatewayIntents.MessageContent; // 读取帖子正文
+
+                // Discord.Net 的默认值就是 RetryMode.AlwaysRetry（含 RetryTimeouts），
+                // 超时后在 RequestQueueBucket 里 500ms 空转且永不抛出，会把调用方永久挂死。
+                // 这里显式关掉内置重试，统一交给 HttpPolicy（Polly）兜底。
+                config.DefaultRetryMode = RetryMode.AlwaysFail;
             })
 
             // 注册 ConfigLoader
@@ -228,17 +233,20 @@ public class DataCenterBotService : IHostedService
 
     /// <summary>
     /// 配置 Discord API 请求选项。
-    /// 设置较长的超时时间以配合 Polly 重试策略, 并启用 Discord.Net 的内置重试机制。
+    /// Timeout 是请求的绝对期限（创建时算一次，内部重试不续期），
+    /// 也是关掉内置重试之后唯一的时限；重试统一交给 HttpPolicy（Polly）。
     /// </summary>
     /// <returns>配置好的 RequestOptions 实例</returns>
     public static RequestOptions RequestOptionsConfig()
     {
-        // RequestOptions: 维持 Discord.Net 的默认重试机制
-        // Timeout 设置为 20 分钟, 确保 Polly 有足够时间完成重试
+        // 关闭 Discord.Net 的内置重试：
+        // RetryMode.AlwaysRetry 含 RetryTimeouts，期限一过 RequestQueueBucket 会
+        // throw TimeoutException → catch → Delay(500) → continue，形成永不返回的空转
+        // （2026-11-01 两个定时任务因此静默卡死 64 小时）。
         return new RequestOptions
         {
-            Timeout = 20 * 60 * 1000, // 设置总超时为 20 分钟
-            RetryMode = RetryMode.AlwaysRetry // 启用 Discord.Net 的内置重试
+            Timeout = 60 * 1000,              // 单次请求的绝对期限
+            RetryMode = RetryMode.AlwaysFail  // 重试由 HttpPolicy 统一负责
         };
     }
 
@@ -257,10 +265,12 @@ public class DataCenterBotService : IHostedService
             .Handle<Discord.Net.HttpException>(ex => (int)ex.HttpCode != 404 && (int)ex.HttpCode != 403 && (int)ex.HttpCode != 400)
             // - HttpRequestException: 处理网络层级异常（SSL 握手失败、连接被重置等）
             .Or<HttpRequestException>()
-            // - TaskCanceledException: 处理 HttpClient 超时
+            // - TaskCanceledException: 处理 HttpClient 自身超时（内层是 TimeoutException）
             .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
+            // - TimeoutException: Discord.Net 的桶等待超时；RateLimitedException 也继承它
+            .Or<TimeoutException>()
             // - 处理 JSON 解析异常 (针对返回 HTML 错误页的情况)
-            .Or<Newtonsoft.Json.JsonReaderException>() 
+            .Or<Newtonsoft.Json.JsonReaderException>()
 
             // 定义重试逻辑：指数退避
             .WaitAndRetryAsync(
