@@ -34,7 +34,7 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
-    private ConcurrentDictionary<ulong, IMessageChannel> _channelCache = new();
+    private readonly ConcurrentDictionary<ulong, IMessageChannel> _channelCache = new();
 
     public UrlSignedInfoCacheCheckAsyncJob(
         ILogger logger, ConfigLoader configLoder,
