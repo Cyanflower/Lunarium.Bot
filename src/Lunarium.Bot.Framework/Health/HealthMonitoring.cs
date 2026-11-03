@@ -38,8 +38,8 @@ public class HealthMonitor : IDisposable
     private readonly HealthMonitorConfig _config;
     private readonly CancellationTokenSource _cts;
     private readonly Task _heartbeatLoopTask;
-    private Func<Task> _onConnected;
-    private Func<Exception, Task> _onDisconnected;
+    private readonly Func<Task> _onConnected;
+    private readonly Func<Exception, Task> _onDisconnected;
     private bool _handlersAttached = false;
     // WebSocket 延迟信息队列: 定时查询驱动
     private readonly Queue<Latency> _latencys = new();
