@@ -1,4 +1,3 @@
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 using Npgsql;
@@ -9,6 +8,7 @@ using Polly.Retry;
 
 using Lunarium.Common.Net;
 using Lunarium.Logging;
+using Lunarium.Bot.Framework.RateLimiting;
 
 using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Bot.DataCenter.Models;
@@ -24,7 +24,7 @@ public partial class DataProcessService
     private readonly DatabaseService _databaseService;
     private readonly DiscordSocketClient _discordSocketClient;
     private readonly HttpClient _httpClient;
-    private readonly RateLimiter _apiRequestRateLimiter;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
@@ -36,7 +36,7 @@ public partial class DataProcessService
         DatabaseService databaseService,
         DiscordSocketClient discordSocketClient,
         ProxyUrl? proxyUrl,
-        RateLimiter rateLimiter,
+        RateLimitedExecutor rateLimitedExecutor,
         RequestOptions requestOptions,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy,
         [FromKeyedServices("DbPolicy")] AsyncRetryPolicy dbRetryPolicy
@@ -48,7 +48,7 @@ public partial class DataProcessService
         _discordSocketClient = discordSocketClient;
         _httpClient = HttpClientConfig(proxyUrl);
 
-        _apiRequestRateLimiter = rateLimiter;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _requestOptions = requestOptions;
         _httpRetryPolicy = httpRetryPolicy;
         _dbRetryPolicy = dbRetryPolicy;

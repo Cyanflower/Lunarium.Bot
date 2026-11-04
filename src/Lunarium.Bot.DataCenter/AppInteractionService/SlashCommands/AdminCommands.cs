@@ -11,8 +11,11 @@ using Discord.Interactions;
 
 // 解决方案内引用项目
 using Lunarium.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Polly.Retry;
 
 // 项目内命名空间
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Bot.DataCenter.DataFetcher;
 using Lunarium.Bot.DataCenter.Scheduler;
 using Lunarium.Bot.DataCenter.Utils;
@@ -37,6 +40,8 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
     private readonly UrlSignedInfoCacheService _urlSignedInfoCacheService;
     private readonly UrlSignedInfoCacheCheckAsyncJob _urlSignedInfoCacheCheckAsyncJob;
     private readonly UrlSignedInfoCacheSyncAsyncJob _urlSignedInfoCacheSyncAsyncJob;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
     public AdminCommands(
         ILogger logger,
         AuthUtils authUtils,
@@ -48,7 +53,9 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         MembersScanner membersScanner,
         UrlSignedInfoCacheService urlSignedInfoCacheService,
         UrlSignedInfoCacheCheckAsyncJob urlSignedInfoCacheCheckAsyncJob,
-        UrlSignedInfoCacheSyncAsyncJob urlSignedInfoCacheSyncAsyncJob
+        UrlSignedInfoCacheSyncAsyncJob urlSignedInfoCacheSyncAsyncJob,
+        RateLimitedExecutor rateLimitedExecutor,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
     )
     {
         _logger = logger.ForContext("AdminCommands");
@@ -62,6 +69,8 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         _urlSignedInfoCacheService = urlSignedInfoCacheService; 
         _urlSignedInfoCacheCheckAsyncJob = urlSignedInfoCacheCheckAsyncJob;
         _urlSignedInfoCacheSyncAsyncJob = urlSignedInfoCacheSyncAsyncJob;
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _httpRetryPolicy = httpRetryPolicy;
     }
     [SlashCommand("ping", "回复Pong消息")]
     public async Task PingAsync()
@@ -153,7 +162,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         ScanMode mode = full ? ScanMode.Full : ScanMode.Incremental;
         string modeLabel = full ? "全量深挖" : "增量";
         // === 命令逻辑 ===
-            var reporter = new ScanProgressReporter(Context, _logger);
+            var reporter = new ScanProgressReporter(Context, _logger, _rateLimitedExecutor, _httpRetryPolicy);
         try
         {
             
@@ -253,7 +262,7 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         if (!await _authUtils.IsAdmin("立即同步用户与身份组信息", Context)) return;
 
         bool success = false;
-        var reporter = new ScanProgressReporter(Context, _logger);
+        var reporter = new ScanProgressReporter(Context, _logger, _rateLimitedExecutor, _httpRetryPolicy);
 
         // === 命令逻辑 ===
         try

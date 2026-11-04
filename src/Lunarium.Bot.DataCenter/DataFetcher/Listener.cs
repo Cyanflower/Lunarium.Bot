@@ -6,9 +6,12 @@ using System.Net;
 using Discord;
 using Discord.WebSocket;
 using SixLabors.ImageSharp;
+using Microsoft.Extensions.DependencyInjection;
+using Polly.Retry;
 
 // 解决方案内引用项目
 using Lunarium.Logging;
+using Lunarium.Bot.Framework.RateLimiting;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Database;
@@ -30,6 +33,8 @@ public class Listener
     private readonly ConfigLoader _configLoader;
     private readonly DataProcessService _dataProcessService;
     private readonly ThreadActivityTracker _activityTracker;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
 
     /// <summary>
     /// 获取需要监控的所有频道ID集合。
@@ -62,12 +67,17 @@ public class Listener
     /// <param name="client">Discord WebSocket 客户端</param>
     /// <param name="configLoader">配置加载器</param>
     /// <param name="dataProcessService">数据处理服务</param>
+    /// <param name="activityTracker">待深挖帖子集合</param>
+    /// <param name="rateLimitedExecutor">全局限速与并发控制器</param>
+    /// <param name="httpRetryPolicy">HTTP 请求重试策略</param>
     public Listener(
         ILogger logger,
         DiscordSocketClient client,
         ConfigLoader configLoader,
         DataProcessService dataProcessService,
-        ThreadActivityTracker activityTracker
+        ThreadActivityTracker activityTracker,
+        RateLimitedExecutor rateLimitedExecutor,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
     )
     {
         _logger = logger.ForContext("Listener");
@@ -75,6 +85,8 @@ public class Listener
         _configLoader = configLoader;
         _dataProcessService = dataProcessService;
         _activityTracker = activityTracker;
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _httpRetryPolicy = httpRetryPolicy;
     }
 
     /// <summary>
@@ -679,7 +691,12 @@ public class Listener
                     // 缓存中没有，需要下载频道信息
                     _logger.Debug("🔍 缓存未命中，下载频道信息: 频道ID {ChannelId}", cacheableChannel.Id);
 
-                    var restChannel = await _client.Rest.GetChannelAsync(cacheableChannel.Id);
+                    // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                    var restChannel = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _client.Rest.GetChannelAsync(cacheableChannel.Id),
+                            token),
+                        CancellationToken.None);
                     var restThread = (RestThreadChannel)restChannel;
                     
                     if (restThread is null)

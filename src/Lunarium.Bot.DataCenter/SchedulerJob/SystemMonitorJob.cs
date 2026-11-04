@@ -4,7 +4,10 @@ using System.Diagnostics;
 using Discord;
 using Discord.Net;
 using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using Polly.Retry;
 
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Logging;
 using Lunarium.Scheduler.Interfaces;
@@ -59,12 +62,24 @@ public class SystemMonitorJob : IAsyncJob, IDisposable
     private IMessageChannel? _channelCache;
     private IUserMessage? _messageCache;
 
-    public SystemMonitorJob(DiscordSocketClient discordClient, ILogger logger, ConfigLoader configLoader, DatabaseService databaseService)
+    // 全局限速与重试
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
+
+    public SystemMonitorJob(
+        DiscordSocketClient discordClient,
+        ILogger logger,
+        ConfigLoader configLoader,
+        DatabaseService databaseService,
+        RateLimitedExecutor rateLimitedExecutor,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy)
     {
         _discordClient = discordClient;
         _databaseService = databaseService;
         _configLoader = configLoader;
         _logger = logger.ForContext("SystemMonitorJob");
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _httpRetryPolicy = httpRetryPolicy;
 
         // 获取固定系统信息
         (_osVersion, _kernelVersion, _dotnetVersion, _cpuCount) = GetStaticSystemInfo();
@@ -126,29 +141,46 @@ public class SystemMonitorJob : IAsyncJob, IDisposable
     
             if (_channelCache is null)
             {
-                _channelCache = await _discordClient.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel) as IMessageChannel;
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                _channelCache = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _discordClient.GetChannelAsync(_configLoader.Config.AuthConfig.LogChannel),
+                        token),
+                    CancellationToken.None) as IMessageChannel;
             }
     
             if (_channelCache is not null)
             {
                 if (_messageCache is null)
                 {
-                    _messageCache = await _channelCache.SendMessageAsync(embed: embed);
+                    _messageCache = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _channelCache.SendMessageAsync(embed: embed),
+                            token),
+                        CancellationToken.None);
                 }
                 else
                 {
                     try
                     {
-                        await _messageCache.ModifyAsync(prop =>
-                        {
-                            prop.Embed = embed;
-                        });
+                        await _httpRetryPolicy.ExecuteAsync(
+                            token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                async _ => await _messageCache.ModifyAsync(prop =>
+                                {
+                                    prop.Embed = embed;
+                                }),
+                                token),
+                            CancellationToken.None);
                     }
                     catch (HttpException ex)
                     {
                         if ((int)ex.HttpCode == 404)
                         {
-                            _messageCache = await _channelCache.SendMessageAsync(embed: embed);
+                            _messageCache = await _httpRetryPolicy.ExecuteAsync(
+                                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                    async _ => await _channelCache.SendMessageAsync(embed: embed),
+                                    token),
+                                CancellationToken.None);
                         }
                         else
                         {

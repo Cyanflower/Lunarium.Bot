@@ -44,7 +44,12 @@ public partial class DataProcessService
             _logger.Debug("空值检查处理: {message.Author}", message.Author);
             _logger.Debug("空值检查处理: {message.Author.Id}", message.Author.Id);
 
-            var restThread = (RestThreadChannel)await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id);
+            // 限速在重试内部：每次重试尝试都会重新排队取令牌
+            var restThread = (RestThreadChannel)await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ => await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id),
+                    token),
+                CancellationToken.None);
             IThreadChannel thread = restThread;
             OwnerId = thread.OwnerId;
 
@@ -58,12 +63,11 @@ public partial class DataProcessService
                 await Task.Delay(1000);
                 try
                 {
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        refreshMessage = await restThread.GetMessageAsync(message.Id);
-                    });
+                    await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => refreshMessage = await restThread.GetMessageAsync(message.Id),
+                            token),
+                        CancellationToken.None);
 
                     if (refreshMessage is null)
                     {
@@ -135,12 +139,11 @@ public partial class DataProcessService
             {
                 try
                 {
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
-                    });
+                    var user = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _discordSocketClient.GetUserAsync(message.Author.Id),
+                            token),
+                        CancellationToken.None);
                     
                     if (user is not null) 
                     {
@@ -259,7 +262,12 @@ public partial class DataProcessService
             if (thread.OwnerId == 0)
             {
                 _logger.Debug("空值检查处理: Owner 为 null");
-                thread = (IThreadChannel)await _discordSocketClient.GetChannelAsync(socketThreadChannel.Id);
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                thread = (IThreadChannel)await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _discordSocketClient.GetChannelAsync(socketThreadChannel.Id),
+                        token),
+                    CancellationToken.None);
                 OwnerId = thread.OwnerId;
             }
             else
@@ -314,12 +322,11 @@ public partial class DataProcessService
             {
                 try
                 {
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
-                    });
+                    var user = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _discordSocketClient.GetUserAsync(message.Author.Id),
+                            token),
+                        CancellationToken.None);
                     
                     if (user is not null) 
                     {
@@ -451,12 +458,11 @@ public partial class DataProcessService
             {
                 try
                 {
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    var user = await _httpRetryPolicy.ExecuteAsync(async () =>
-                    {
-                        return await _discordSocketClient.GetUserAsync(message.Author.Id);
-                    });
+                    var user = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _discordSocketClient.GetUserAsync(message.Author.Id),
+                            token),
+                        CancellationToken.None);
                     
                     if (user is not null) 
                     {
@@ -528,12 +534,11 @@ public partial class DataProcessService
             await Task.Delay(1000);
             try
             {
-                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                await _httpRetryPolicy.ExecuteAsync(async () =>
-                {
-                    refreshMessage = await socketMessageChannel.GetMessageAsync(message.Id);
-                });
+                await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => refreshMessage = await socketMessageChannel.GetMessageAsync(message.Id),
+                        token),
+                    CancellationToken.None);
 
                 if (refreshMessage is null)
                 {

@@ -12,6 +12,7 @@ using Lunarium.Logging;
 using Lunarium.Scheduler;
 using Lunarium.Scheduler.Interfaces;
 
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Bot.DataCenter.Database;
 using Lunarium.Bot.DataCenter.UrlSignedInfoCache;
 using Lunarium.Bot.DataCenter.Utils;
@@ -26,7 +27,9 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _client;
     private IChannel? _cacheLogChannel;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
 
     public UrlSignedInfoCacheSyncAsyncJob(
         ILogger logger,
@@ -34,7 +37,9 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
         DatabaseService databaseService,
         UrlSignedInfoCacheService urlSignedInfoCacheService,
         DiscordSocketClient client,
-        [FromKeyedServices("DbPolicy")] AsyncRetryPolicy dbRetryPolicy
+        RateLimitedExecutor rateLimitedExecutor,
+        [FromKeyedServices("DbPolicy")] AsyncRetryPolicy dbRetryPolicy,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
     )
     {
         _logger = logger.ForContext("UrlSignedInfoCacheSyncJob");
@@ -42,7 +47,9 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
         _databaseService = databaseService;
         _urlSignedInfoCacheService = urlSignedInfoCacheService;
         _client = client;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _dbRetryPolicy = dbRetryPolicy;
+        _httpRetryPolicy = httpRetryPolicy;
     }
 
     public async Task ExecuteAsync()
@@ -66,13 +73,22 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
             // 判断是否有缓存或者已有缓存是否和配置相同(检查配置更新)
             if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogThread)
             {
-                _cacheLogChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread);
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                _cacheLogChannel = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread),
+                        token),
+                    CancellationToken.None);
             }
 
             // 转换为通用可发消息频道
             if (_cacheLogChannel is IMessageChannel logChannel)
             {
-                await logChannel.SendMessageAsync(embed: embed);
+                await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await logChannel.SendMessageAsync(embed: embed),
+                        token),
+                    CancellationToken.None);
             }
             else
             {

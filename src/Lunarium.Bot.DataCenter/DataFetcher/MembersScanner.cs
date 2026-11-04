@@ -1,7 +1,6 @@
 // .NET 核心库
 using System.Collections.Concurrent;
 using System.Text;
-using System.Threading.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 // NuGet 包依赖
@@ -16,6 +15,7 @@ using Polly.Retry;
 using Lunarium.Logging;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.OpenAPI;
+using Lunarium.Bot.Framework.RateLimiting;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.DataProcess;
@@ -31,7 +31,7 @@ public class MembersScanner
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _client;
     private readonly DataProcessService _dataProcessService;
-    private readonly RateLimiter _apiRequestRateLimiter;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
@@ -43,7 +43,7 @@ public class MembersScanner
         ConfigLoader configLoader,
         DiscordSocketClient discordSocketClient,
         DataProcessService dataProcessService,
-        RateLimiter rateLimiter,
+        RateLimitedExecutor rateLimitedExecutor,
         RequestOptions requestOptions,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy,
         [FromKeyedServices("DbPolicy")] AsyncRetryPolicy dbRetryPolicy
@@ -53,7 +53,7 @@ public class MembersScanner
         _configLoader = configLoader;
         _client = discordSocketClient;
         _dataProcessService = dataProcessService;
-        _apiRequestRateLimiter = rateLimiter;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _requestOptions = requestOptions;
         _httpRetryPolicy = httpRetryPolicy;
         _dbRetryPolicy = dbRetryPolicy;
@@ -171,13 +171,13 @@ public class MembersScanner
                 
                 scannedGuilds++;
     
-                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                
-                var roles = await _httpRetryPolicy.ExecuteAsync(async () =>
-                {
-                    return await _client.GetGuildRolesAsync(guild);
-                });
-    
+                // 限速在重试内部：重试时会重新排队取令牌
+                var roles = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetGuildRolesAsync(guild),
+                        token),
+                    CancellationToken.None);
+
                 foreach (var role in roles)
                 {
                     _rolesCache[role.Id] = role;
@@ -212,22 +212,26 @@ public class MembersScanner
 
                 scannedGuilds++;
 
-                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-    
                 // 使用临时变量 fetchedUsers 在闭包内收集数据, 成功后再合并到主列表, 防止部分失败重试导致的数据重复累加
-                var fetchedUsers = await _httpRetryPolicy.ExecuteAsync(async () =>
-                {
-                    var tempUsers = new List<IGuildUser>(); 
-                    var pages = guild.GetUsersAsync();
-    
-                    await foreach (var page in pages)
-                    {
-                        tempUsers.AddRange(page);
-                    }
-                    return tempUsers;
-                });
+                // 注意: SocketGuild.GetUsersAsync 是 IAsyncEnumerable, 具体分页请求发生在
+                // await foreach 内部, 无法逐页套限速器; 这里只能把整次枚举当作一个配额单元。
+                // 与迁移前的差别：旧实现的租约取在 Polly 之外（一次令牌覆盖全部重试），
+                // 现在是每次重试尝试都重新排队取令牌。
+                var fetchedUsers = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ =>
+                        {
+                            var tempUsers = new List<IGuildUser>();
+                            var pages = guild.GetUsersAsync();
 
-                // 只有当 ExecuteAsync 成功返回后，才添加到总表中
+                            await foreach (var page in pages)
+                            {
+                                tempUsers.AddRange(page);
+                            }
+                            return tempUsers;
+                        },
+                        token),
+                    CancellationToken.None);
                 if (fetchedUsers is not null)
                 {
                     allGuildUsers.AddRange(fetchedUsers);

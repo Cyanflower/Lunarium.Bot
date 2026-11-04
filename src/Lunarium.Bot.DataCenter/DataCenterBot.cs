@@ -3,7 +3,6 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.RateLimiting;
 
 // NuGet 包依赖
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +23,7 @@ using Lunarium.Logging.Extensions;
 using Lunarium.Scheduler;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.Health;
+using Lunarium.Bot.Framework.RateLimiting;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Database;
@@ -59,7 +59,7 @@ public class DataCenterBotService : IHostedService
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
-    private readonly RateLimiter _rateLimiter;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     // ========================================
     
     // 传统命令文本 =============================
@@ -81,7 +81,7 @@ public class DataCenterBotService : IHostedService
         _logger.Info("初始化 DataCenterBot 服务...");
 
         // 全局配置
-        _rateLimiter = RateLimiterConfigure();
+        _rateLimitedExecutor = RateLimitedExecutorConfigure();
         _requestOptions = RequestOptionsConfig();
         _httpRetryPolicy = HttpRetryPolicyConfig();
         _dbRetryPolicy = DbRetryPolicy();
@@ -149,8 +149,8 @@ public class DataCenterBotService : IHostedService
 
             // ==================== 业务逻辑 ====================
             // ==== [基础设施] ====
-            // 注册全局并发控制器
-            .AddSingleton(_rateLimiter)
+            // 注册全局限速与并发控制器
+            .AddSingleton(_rateLimitedExecutor)
             // Discord.Net 请求选项
             .AddSingleton(_requestOptions)
             // http 请求重试策略
@@ -166,7 +166,7 @@ public class DataCenterBotService : IHostedService
                 provider.GetRequiredService<DatabaseService>(),
                 provider.GetRequiredService<DiscordSocketClient>(),
                 proxyUrl,
-                provider.GetRequiredService<RateLimiter>(),
+                provider.GetRequiredService<RateLimitedExecutor>(),
                 provider.GetRequiredService<RequestOptions>(),
                 provider.GetRequiredKeyedService<AsyncRetryPolicy>("HttpPolicy"),
                 provider.GetRequiredKeyedService<AsyncRetryPolicy>("DbPolicy")))
@@ -211,24 +211,29 @@ public class DataCenterBotService : IHostedService
 
     // ======================================================================================
     #region 全局配置部分
-    private TokenBucketRateLimiter RateLimiterConfigure()
+    /// <summary>
+    /// 配置 Discord API 的全局限速与并发控制器。
+    /// <para>
+    /// 采用「平滑每秒 qps + 有界并发 + 有界队列」模型：所有 Discord REST 调用都必须通过
+    /// <c>WriteAndWaitAsync</c> 提交，且提交点位于 Polly 重试<b>内部</b>，
+    /// 这样每次重试尝试都会重新排队取令牌，重试不会绕开限速。
+    /// </para>
+    /// <para>
+    /// 例外：交互回调（<c>DeferAsync</c>/<c>FollowupAsync</c> 等）不经过本限速器——
+    /// 它们有 3 秒 ack 窗口，且重放 ack 不是幂等操作。
+    /// </para>
+    /// <para>
+    /// Discord 全局上限是 50/s，45 留 10% 余量；并发 15 在 45 qps 下只有平均请求
+    /// 耗时超过 333ms 才会成为瓶颈，对扫描类任务已经足够。
+    /// </para>
+    /// </summary>
+    private RateLimitedExecutor RateLimitedExecutorConfigure()
     {
-        return new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-        {
-            // Token 恢复速率：每秒 45 个
-            TokensPerPeriod = 45,
-            ReplenishmentPeriod = TimeSpan.FromSeconds(1),
-
-            // Token 上限
-            TokenLimit = 45,
-
-            // 队列设置
-            QueueLimit = 100000,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            
-            // 自动补充: 开启
-            AutoReplenishment = true
-        });
+        return RateLimitedExecutor.CreateSmoothPerRequest(
+            concurrency: 15,
+            qps: 45,
+            channelSize: 8192,
+            onError: ex => _logger.Error(ex, "限速器内部异常"));
     }
 
     /// <summary>
@@ -374,6 +379,10 @@ public class DataCenterBotService : IHostedService
     {
         _logger.Info("正在停止 DataCenterBot 服务...");
 
+        // 先停调度器：只取消调度循环、不等待在飞任务，但能阻止新 job 在
+        // 限速器/私有容器被释放之后继续提交 REST 调用（否则会拿到 ChannelClosedException）
+        _scheduler.Stop();
+
         // 取消所有事件订阅
         _client.Log -= LogAsync;
         _client.Ready -= ReadyAsync;
@@ -385,6 +394,9 @@ public class DataCenterBotService : IHostedService
         _listener.RemoveEventHandlers();
 
         await _client.StopAsync();
+
+        // 先排空限速器（最多 30 秒），避免容器释放时仍在飞的 REST 调用被强断
+        await _rateLimitedExecutor.DisposeAsync();
 
         // 释放私有服务容器
         if (_privateServices is IAsyncDisposable asyncDisposable)
@@ -449,8 +461,21 @@ public class DataCenterBotService : IHostedService
                         {_scheduler.GetAllJobsInfo()}
                         """)
                     .Build();
-                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread) as IMessageChannel;
-                if (channelCache is not null) await channelCache.SendMessageAsync(embed: loginEmbed);
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                var channelCache = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread),
+                        token),
+                    CancellationToken.None) as IMessageChannel;
+                if (channelCache is not null)
+                {
+                    var logChannel = channelCache;
+                    await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await logChannel.SendMessageAsync(embed: loginEmbed),
+                            token),
+                        CancellationToken.None);
+                }
 
                 // 立即从数据库同步一次缓存
                 await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
@@ -482,11 +507,25 @@ public class DataCenterBotService : IHostedService
                 var latencyFile = new FileAttachment(latencyStream, "latency-log.log");
                 var connectStateFile = new FileAttachment(connectStateStream, "connection-state-log.log");
 
-                var channelCache = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread) as IMessageChannel;
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                var channelCache = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread),
+                        token),
+                    CancellationToken.None) as IMessageChannel;
                 if (channelCache is not null)
                 {
-                    await channelCache.SendMessageAsync(embed: loginEmbed);
-                    await channelCache.SendFilesAsync(text: "<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile });
+                    var logChannel = channelCache;
+                    await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await logChannel.SendMessageAsync(embed: loginEmbed),
+                            token),
+                        CancellationToken.None);
+
+                    // 只限速不重试：FileAttachment 里的流不可重放，重试会发空文件
+                    await _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await logChannel.SendFilesAsync(text: "<@867658156510150716>", attachments: new[] { latencyFile, connectStateFile }),
+                        CancellationToken.None);
                 }
             }
         }
@@ -575,8 +614,12 @@ public class DataCenterBotService : IHostedService
                     var guild = _client.GetGuild(guildId);
                     if (guild is not null)
                     {
-                        // 使用空数组覆盖服务器命令
-                        await guild.BulkOverwriteApplicationCommandAsync(new ApplicationCommandProperties[0]);
+                        // 使用空数组覆盖服务器命令（覆盖幂等，可安全重试）
+                        await _httpRetryPolicy.ExecuteAsync(
+                            token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                async _ => await guild.BulkOverwriteApplicationCommandAsync(new ApplicationCommandProperties[0]),
+                                token),
+                            CancellationToken.None);
                         _logger.Info("服务器 {guildId} 的命令已清除。", userMessage.Author.Username);
                         sendMessage.Append($"- 服务器 {guildId} 的命令已清除。");
                     }
@@ -597,12 +640,21 @@ public class DataCenterBotService : IHostedService
             // 重新调用同步方法
             await SyncCommandsAsync();
 
-            await userMessage.Channel.SendMessageAsync($"✅ 操作完成！\n{sendMessage.ToString()}");
+            // 限速在重试内部：每次重试尝试都会重新排队取令牌
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ => await userMessage.Channel.SendMessageAsync($"✅ 操作完成！\n{sendMessage.ToString()}"),
+                    token),
+                CancellationToken.None);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "执行重新注册命令时发生错误。");
-            await userMessage.Channel.SendMessageAsync("执行重新注册命令时发生错误。");
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ => await userMessage.Channel.SendMessageAsync("执行重新注册命令时发生错误。"),
+                    token),
+                CancellationToken.None);
         }
     }
     #endregion
@@ -632,7 +684,12 @@ public class DataCenterBotService : IHostedService
                 if (guild is not null)
                 {
                     _logger.Info("正在同步命令到服务器: {guildId} - {guild.Name}", guildId, guild.Name);
-                    await _interactions.RegisterCommandsToGuildAsync(guildId, true);
+                    // 批量覆盖命令是幂等操作，可安全重试
+                    await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _interactions.RegisterCommandsToGuildAsync(guildId, true),
+                            token),
+                        CancellationToken.None);
                     _logger.Info("服务器 {guild.Name} 命令同步完成。", guild.Name);
                 }
                 else

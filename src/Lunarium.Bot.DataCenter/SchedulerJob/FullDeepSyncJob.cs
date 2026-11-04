@@ -1,6 +1,9 @@
 using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using Polly.Retry;
 
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Bot.DataCenter.DataFetcher;
 using Lunarium.Bot.DataCenter.Utils;
 
@@ -20,14 +23,24 @@ public class FullDeepSyncAsyncJob : IAsyncJob
     private readonly ThreadScanner _scanner;
     private readonly DiscordSocketClient _client;
     private readonly ConfigLoader _configLoader;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
     private IChannel? _cacheLogChannel;
 
-    public FullDeepSyncAsyncJob(ILogger logger, ConfigLoader configLoader, ThreadScanner scanner, DiscordSocketClient client)
+    public FullDeepSyncAsyncJob(
+        ILogger logger,
+        ConfigLoader configLoader,
+        ThreadScanner scanner,
+        DiscordSocketClient client,
+        RateLimitedExecutor rateLimitedExecutor,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy)
     {
         _logger = logger.ForContext("FullDeepSyncJob");
         _configLoader = configLoader;
         _scanner = scanner;
         _client = client;
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _httpRetryPolicy = httpRetryPolicy;
     }
 
     public async Task ExecuteAsync()
@@ -43,12 +56,21 @@ public class FullDeepSyncAsyncJob : IAsyncJob
 
             if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogThread)
             {
-                _cacheLogChannel = await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread);
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                _cacheLogChannel = await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread),
+                        token),
+                    CancellationToken.None);
             }
 
             if (_cacheLogChannel is IMessageChannel logChannel)
             {
-                await logChannel.SendMessageAsync(embed: embed);
+                await _httpRetryPolicy.ExecuteAsync(
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await logChannel.SendMessageAsync(embed: embed),
+                        token),
+                    CancellationToken.None);
             }
             else
             {

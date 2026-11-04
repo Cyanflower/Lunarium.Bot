@@ -1,5 +1,3 @@
-using System.Threading.RateLimiting;
-
 using Discord;
 using Discord.WebSocket;
 
@@ -10,6 +8,7 @@ using Polly.Retry;
 using Lunarium.Logging;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.OpenAPI;
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Scheduler.Interfaces;
 
 using Lunarium.Bot.DataCenter.DataFetcher;
@@ -29,7 +28,7 @@ public class ActiveThreadPollJob : IAsyncJob
     private readonly DiscordSocketClient _client;
     private readonly ConfigLoader _configLoader;
     private readonly ThreadActivityTracker _tracker;
-    private readonly RateLimiter _apiRequestRateLimiter;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _httpRetryPolicy;
 
@@ -38,7 +37,7 @@ public class ActiveThreadPollJob : IAsyncJob
         DiscordSocketClient client,
         ConfigLoader configLoader,
         ThreadActivityTracker tracker,
-        RateLimiter rateLimiter,
+        RateLimitedExecutor rateLimitedExecutor,
         RequestOptions requestOptions,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy)
     {
@@ -46,7 +45,7 @@ public class ActiveThreadPollJob : IAsyncJob
         _client = client;
         _configLoader = configLoader;
         _tracker = tracker;
-        _apiRequestRateLimiter = rateLimiter;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _requestOptions = requestOptions;
         _httpRetryPolicy = httpRetryPolicy;
     }
@@ -68,10 +67,12 @@ public class ActiveThreadPollJob : IAsyncJob
                     continue;
                 }
 
-                using var lease = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
+                // 限速在重试内部：每次重试尝试都会重新排队取令牌
                 var activeThreads = await _httpRetryPolicy.ExecuteAsync(
-                    () => _client.GetAllActiveThreadsAsync(guild, _requestOptions));
+                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                        async _ => await _client.GetAllActiveThreadsAsync(guild, _requestOptions),
+                        token),
+                    CancellationToken.None);
 
                 foreach (var thread in activeThreads)
                 {

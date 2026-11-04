@@ -1,7 +1,6 @@
 // .NET 核心库
 using System.Collections.Concurrent;
 using System.Text;
-using System.Threading.RateLimiting;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +17,7 @@ using Polly.Retry;
 using Lunarium.Logging;
 using Lunarium.Bot.Framework;
 using Lunarium.Bot.Framework.OpenAPI;
+using Lunarium.Bot.Framework.RateLimiting;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.DataProcess;
@@ -42,7 +42,7 @@ public class ThreadScanner
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _discordSocketClient;
     private readonly LunariumScheduler _scheduler;
-    private readonly RateLimiter _apiRequestRateLimiter;
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly DataProcessService _dataProcessService;
     private readonly DatabaseService _databaseService;
     private readonly ThreadActivityTracker _activityTracker;
@@ -83,9 +83,13 @@ public class ThreadScanner
     /// <param name="logger">日志记录器</param>
     /// <param name="configLoader">配置加载器</param>
     /// <param name="discordSocketClient">Discord WebSocket 客户端</param>
-    /// <param name="rateLimiter">速率桶, 用于控制并发请求数量</param>
-    /// <param name="initializationService">初始化服务</param>
-    /// <param name="tokenizerService">分词服务, 用于处理文本搜索</param>
+    /// <param name="scheduler">定时任务调度器, 用于读取调度计划并输出到扫描报告</param>
+    /// <param name="dataProcessService">数据处理服务</param>
+    /// <param name="databaseService">数据库服务</param>
+    /// <param name="activityTracker">待深挖帖子集合</param>
+    /// <param name="rateLimitedExecutor">全局限速与并发控制器</param>
+    /// <param name="requestOptions">Discord API 请求选项</param>
+    /// <param name="httpRetryPolicy">HTTP 请求重试策略</param>
     public ThreadScanner(
         ILogger logger,
         ConfigLoader configLoader,
@@ -94,7 +98,7 @@ public class ThreadScanner
         DataProcessService dataProcessService,
         DatabaseService databaseService,
         ThreadActivityTracker activityTracker,
-        RateLimiter rateLimiter,
+        RateLimitedExecutor rateLimitedExecutor,
         RequestOptions requestOptions,
         [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy
     )
@@ -104,7 +108,7 @@ public class ThreadScanner
         _configLoader = configLoader;
         _discordSocketClient = discordSocketClient;
         _scheduler = scheduler;
-        _apiRequestRateLimiter = rateLimiter;
+        _rateLimitedExecutor = rateLimitedExecutor;
         _dataProcessService = dataProcessService;
         _databaseService = databaseService;
         _activityTracker = activityTracker;
@@ -407,8 +411,9 @@ public class ThreadScanner
                     .WithDescription($"时间:<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:f><t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>\n原因:\n```\n{ex.Message.Slice(3000, "...")}\n```")
                     .Build();
 
-                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                await logChannel.SendMessageAsync(embed: embed);
+                await _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ => await logChannel.SendMessageAsync(embed: embed),
+                    CancellationToken.None);
             }
             catch (Exception notifyEx)
             {
@@ -623,19 +628,20 @@ public class ThreadScanner
 
                             // 1. 获取活跃的帖子
                             int activeCount = 0;
-                            await _httpRetryPolicy.ExecuteAsync(async () =>
-                            {
-                                // 控制速率
-                                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
+                            await _httpRetryPolicy.ExecuteAsync(
+                                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                    async _ =>
+                                    {
+                                        _loggerForScan.Info("  📥 正在获取活跃帖子...");
+                                        var activeThreads = await channel.GetActiveThreadsAsync();
 
-                                _loggerForScan.Info("  📥 正在获取活跃帖子...");
-                                var activeThreads = await channel.GetActiveThreadsAsync();
+                                        activeCount = activeThreads.Count;
+                                        _loggerForScan.Info("  ✅ 获取到 {Count} 个活跃帖子", activeCount);
 
-                                activeCount = activeThreads.Count;
-                                _loggerForScan.Info("  ✅ 获取到 {Count} 个活跃帖子", activeCount);
-
-                                restThreads.AddRange(activeThreads);
-                            });
+                                        restThreads.AddRange(activeThreads);
+                                    },
+                                    token),
+                                CancellationToken.None);
 
                             // 2. 获取公开归档的帖子（分页获取）
                             _loggerForScan.Info("  📥 开始获取公开归档帖子...");
@@ -647,13 +653,15 @@ public class ThreadScanner
                             {
                                 IReadOnlyCollection<RestThreadChannel>? fetchedThreads = null;
 
-                                await _httpRetryPolicy.ExecuteAsync(async () =>
-                                {
-                                    // 控制速率
-                                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                    _loggerForScan.Info("    📄 正在获取第 {Page} 批公开归档帖子...", publicPage);
-                                    fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
-                                });
+                                await _httpRetryPolicy.ExecuteAsync(
+                                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                        async _ =>
+                                        {
+                                            _loggerForScan.Info("    📄 正在获取第 {Page} 批公开归档帖子...", publicPage);
+                                            fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
+                                        },
+                                        token),
+                                    CancellationToken.None);
 
                                 if (fetchedThreads?.Count > 0)
                                 {
@@ -682,13 +690,15 @@ public class ThreadScanner
                             {
                                 IReadOnlyCollection<RestThreadChannel>? fetchedThreads = null;
 
-                                await _httpRetryPolicy.ExecuteAsync(async () =>
-                                {
-                                    // 控制速率
-                                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                    _loggerForScan.Info("    📄 正在获取第 {Page} 批私密归档帖子...", privatePage);
-                                    fetchedThreads = await channel.GetPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
-                                });
+                                await _httpRetryPolicy.ExecuteAsync(
+                                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                        async _ =>
+                                        {
+                                            _loggerForScan.Info("    📄 正在获取第 {Page} 批私密归档帖子...", privatePage);
+                                            fetchedThreads = await channel.GetPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
+                                        },
+                                        token),
+                                    CancellationToken.None);
 
                                 if (fetchedThreads?.Count > 0)
                                 {
@@ -812,16 +822,18 @@ public class ThreadScanner
 
                             // 1. 获取活跃的子区
                             int activeCount = 0;
-                            await _httpRetryPolicy.ExecuteAsync(async () =>
-                            {
-                                // 控制速率
-                                using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                _loggerForScan.Info("  📥 正在获取活跃子区...");
-                                var activeThreads = await channel.GetActiveThreadsAsync();
-                                activeCount = activeThreads.Count;
-                                _loggerForScan.Info("  ✅ 获取到 {Count} 个活跃子区", activeCount);
-                                restThreads.AddRange(activeThreads);
-                            });
+                            await _httpRetryPolicy.ExecuteAsync(
+                                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                    async _ =>
+                                    {
+                                        _loggerForScan.Info("  📥 正在获取活跃子区...");
+                                        var activeThreads = await channel.GetActiveThreadsAsync();
+                                        activeCount = activeThreads.Count;
+                                        _loggerForScan.Info("  ✅ 获取到 {Count} 个活跃子区", activeCount);
+                                        restThreads.AddRange(activeThreads);
+                                    },
+                                    token),
+                                CancellationToken.None);
 
                             // 2. 获取公开归档的子区（分页获取）
                             _loggerForScan.Info("  📥 开始获取公开归档子区...");
@@ -833,13 +845,15 @@ public class ThreadScanner
                             {
                                 IReadOnlyCollection<RestThreadChannel>? fetchedThreads = null;
 
-                                await _httpRetryPolicy.ExecuteAsync(async () =>
-                                {
-                                    // 控制速率
-                                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                    _loggerForScan.Info("    📄 正在获取第 {Page} 批公开归档子区...", publicPage);
-                                    fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
-                                });
+                                await _httpRetryPolicy.ExecuteAsync(
+                                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                        async _ =>
+                                        {
+                                            _loggerForScan.Info("    📄 正在获取第 {Page} 批公开归档子区...", publicPage);
+                                            fetchedThreads = await channel.GetPublicArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
+                                        },
+                                        token),
+                                    CancellationToken.None);
 
                                 if (fetchedThreads?.Count > 0)
                                 {
@@ -868,13 +882,15 @@ public class ThreadScanner
                             {
                                 IReadOnlyCollection<RestThreadChannel>? fetchedThreads = null;
 
-                                await _httpRetryPolicy.ExecuteAsync(async () =>
-                                {
-                                    // 控制速率
-                                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                    _loggerForScan.Info("    📄 正在获取第 {Page} 批私密归档子区...", privatePage);
-                                    fetchedThreads = await channel.GetPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
-                                });
+                                await _httpRetryPolicy.ExecuteAsync(
+                                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                        async _ =>
+                                        {
+                                            _loggerForScan.Info("    📄 正在获取第 {Page} 批私密归档子区...", privatePage);
+                                            fetchedThreads = await channel.GetPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
+                                        },
+                                        token),
+                                    CancellationToken.None);
 
                                 if (fetchedThreads?.Count > 0)
                                 {
@@ -903,13 +919,15 @@ public class ThreadScanner
                             {
                                 IReadOnlyCollection<RestThreadChannel>? fetchedThreads = null;
 
-                                await _httpRetryPolicy.ExecuteAsync(async () =>
-                                {
-                                    // 控制速率
-                                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                                    _loggerForScan.Info("    📄 正在获取第 {Page} 批已加入的私密归档子区...", joinedPage);
-                                    fetchedThreads = await channel.GetJoinedPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
-                                });
+                                await _httpRetryPolicy.ExecuteAsync(
+                                    token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                        async _ =>
+                                        {
+                                            _loggerForScan.Info("    📄 正在获取第 {Page} 批已加入的私密归档子区...", joinedPage);
+                                            fetchedThreads = await channel.GetJoinedPrivateArchivedThreadsAsync(limit: 100, before: beforeTimestamp);
+                                        },
+                                        token),
+                                    CancellationToken.None);
 
                                 if (fetchedThreads?.Count > 0)
                                 {
@@ -1203,43 +1221,45 @@ public class ThreadScanner
             int reactionCount = 0;
 
             // 获取帖子的首楼消息和最新消息
-            await _httpRetryPolicy.ExecuteAsync(async () =>
-            {
-                try
-                {
-                    // 控制速率
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    // 获取首楼消息（帖子ID等于首楼消息ID）
-                    firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id, _requestOptions);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
-                    throw;
-                }
-            });
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        try
+                        {
+                            // 获取首楼消息（帖子ID等于首楼消息ID）
+                            firstMessage = await restThreadChannel.GetMessageAsync(restThreadChannel.Id, _requestOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
+                            throw;
+                        }
+                    },
+                    token),
+                CancellationToken.None);
 
             // 获取帖子的首楼消息和最新消息
-            await _httpRetryPolicy.ExecuteAsync(async () =>
-            {
-                try
-                {
-                    // 控制速率
-                    using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-
-                    // 获取最新消息
-                    // SelectManyAsync 会把 IAsyncEnumerable<批次> 转换成 IAsyncEnumerable<单个消息>
-                    lastMessage = await restThreadChannel.GetMessagesAsync(1, _requestOptions)
-                                               .SelectMany(batch => batch.ToAsyncEnumerable()) // 压平操作
-                                               .FirstOrDefaultAsync(); // 获取第一个元素
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
-                    throw;
-                }
-            });
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        try
+                        {
+                            // 获取最新消息
+                            // SelectManyAsync 会把 IAsyncEnumerable<批次> 转换成 IAsyncEnumerable<单个消息>
+                            lastMessage = await restThreadChannel.GetMessagesAsync(1, _requestOptions)
+                                                       .SelectMany(batch => batch.ToAsyncEnumerable()) // 压平操作
+                                                       .FirstOrDefaultAsync(); // 获取第一个元素
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error(ex, "❌ 获取帖子的首楼消息和最新消息失败");
+                            throw;
+                        }
+                    },
+                    token),
+                CancellationToken.None);
 
             if (firstMessage is null || string.IsNullOrWhiteSpace(firstMessage.Content))
             {
@@ -1250,13 +1270,14 @@ public class ThreadScanner
                         _loggerForScan.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
                         restThreadChannel.Name, restThreadChannel.Id);
                         {
-                            // 控制速率
-                            using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                            var restChannel = await _discordSocketClient.Rest.GetChannelAsync(restThreadChannel.Id);
+                            // 限速在重试内部：两次 REST 调用各自排队取令牌
+                            var restChannel = await _rateLimitedExecutor.WriteAndWaitAsync(
+                                async _ => await _discordSocketClient.Rest.GetChannelAsync(restThreadChannel.Id),
+                                CancellationToken.None);
                             var restTextChannel = (RestTextChannel)restChannel;
-                            // 控制速率
-                            using var tokenb = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                            firstMessage = await restTextChannel.GetMessageAsync(restThreadChannel.Id);
+                            firstMessage = await _rateLimitedExecutor.WriteAndWaitAsync(
+                                async _ => await restTextChannel.GetMessageAsync(restThreadChannel.Id),
+                                CancellationToken.None);
                         }
                     }
                     catch (Exception ex)

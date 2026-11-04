@@ -2,6 +2,9 @@ using System.Collections.Concurrent;
 using System.Text;
 using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using Polly.Retry;
+using Lunarium.Bot.Framework.RateLimiting;
 using Lunarium.Logging;
 using Lunarium.Bot.DataCenter.Utils;
 using Lunarium.Scheduler.Interfaces;
@@ -22,19 +25,31 @@ public class AnalysisAsyncJob : IAsyncJob
     // 线程安全的频道缓存字典，避免重复调用 API 获取频道信息
     private readonly ConcurrentDictionary<ulong, IMessageChannel> _dashboardChannelCache = new();
 
-    // 为 Discord API 请求设置统一的选项，包括较长的超时时间和自动重试策略
-    private readonly RequestOptions _requestOptions = new RequestOptions
-    {
-        Timeout = 5 * 60 * 1000, // 设置总超时为 5 分钟
-        RetryMode = RetryMode.AlwaysRetry // 启用 Discord.Net 的内置重试机制
-    };
+    // 全局限速与重试
+    private readonly RateLimitedExecutor _rateLimitedExecutor;
+    private readonly AsyncRetryPolicy _httpRetryPolicy;
 
-    public AnalysisAsyncJob(ILogger logger, ConfigLoader configLoader, DataAnalysis dataAnalysis, DiscordSocketClient client)
+    // Discord API 请求选项：统一使用全局配置（60s 绝对期限 + RetryMode.AlwaysFail），
+    // 重试一律交给 HttpPolicy。不要在本类里另建 AlwaysRetry 的 RequestOptions，
+    // 那会让超时后的请求在 RequestQueueBucket 里无限空转（已踩过）。
+    private readonly RequestOptions _requestOptions;
+
+    public AnalysisAsyncJob(
+        ILogger logger,
+        ConfigLoader configLoader,
+        DataAnalysis dataAnalysis,
+        DiscordSocketClient client,
+        RateLimitedExecutor rateLimitedExecutor,
+        RequestOptions requestOptions,
+        [FromKeyedServices("HttpPolicy")] AsyncRetryPolicy httpRetryPolicy)
     {
         _logger = logger.ForContext("AnalysisJob");
         _configLoader = configLoader;
         _dataAnalysis = dataAnalysis;
         _client = client;
+        _rateLimitedExecutor = rateLimitedExecutor;
+        _requestOptions = requestOptions;
+        _httpRetryPolicy = httpRetryPolicy;
     }
 
     /// <summary>
@@ -110,7 +125,12 @@ public class AnalysisAsyncJob : IAsyncJob
                     foreach (var embed in sortedEmbeds)
                     {
                         var categoryName = embed.Title ?? "未知分类";
-                        var sentMessage = await dashboardChannel.SendMessageAsync(embed: embed, options: _requestOptions);
+                        // 限速在重试内部：每次重试尝试都会重新排队取令牌
+                        var sentMessage = await _httpRetryPolicy.ExecuteAsync(
+                            token => _rateLimitedExecutor.WriteAndWaitAsync(
+                                async _ => await dashboardChannel.SendMessageAsync(embed: embed, options: _requestOptions),
+                                token),
+                            CancellationToken.None);
                         sentMessages.Add((categoryName, sentMessage));
                     }
 
@@ -159,7 +179,12 @@ public class AnalysisAsyncJob : IAsyncJob
 
         // 缓存未命中，通过 API 获取
         logger.Debug("🔍 频道 {ChannelId} 不在缓存中，尝试通过 API 获取...", channelId);
-        var channel = await _client.GetChannelAsync(channelId);
+        // 限速在重试内部：每次重试尝试都会重新排队取令牌
+        var channel = await _httpRetryPolicy.ExecuteAsync(
+            token => _rateLimitedExecutor.WriteAndWaitAsync(
+                async _ => await _client.GetChannelAsync(channelId),
+                token),
+            CancellationToken.None);
 
         if (channel is IMessageChannel messageChannel)
         {
@@ -208,7 +233,12 @@ public class AnalysisAsyncJob : IAsyncJob
 
         summaryBuilder.AppendLine("-# 每天定时更新，报告记录保存在本频道内，可通过搜索 [时间] 进行查找。");
 
-        await channel.SendMessageAsync(summaryBuilder.ToString());
+        // 限速在重试内部：每次重试尝试都会重新排队取令牌
+        await _httpRetryPolicy.ExecuteAsync(
+            token => _rateLimitedExecutor.WriteAndWaitAsync(
+                async _ => await channel.SendMessageAsync(summaryBuilder.ToString()),
+                token),
+            CancellationToken.None);
         logger.Info("✅ 摘要信息发送成功！");
     }
 

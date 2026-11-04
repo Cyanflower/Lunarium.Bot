@@ -9,6 +9,7 @@ using Discord.WebSocket;
 using SixLabors.ImageSharp;
 
 using Lunarium.Bot.Framework;
+using Lunarium.Bot.Framework.RateLimiting;
 
 // 项目内命名空间
 using Lunarium.Bot.DataCenter.Models;
@@ -44,19 +45,24 @@ public partial class DataProcessService
         try
         {
             await Task.Delay(1000);
-            using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-            await _httpRetryPolicy.ExecuteAsync(async () =>
-            {
-                // 获取首楼消息（帖子ID等于首楼消息ID）
-                try
-                {
-                    firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "获取帖子的首楼消息失败");
-                }
-            });
+            await _httpRetryPolicy.ExecuteAsync(
+                token => _rateLimitedExecutor.WriteAndWaitAsync(
+                    async _ =>
+                    {
+                        // 获取首楼消息（帖子ID等于首楼消息ID）
+                        try
+                        {
+                            firstMessage = await socketThreadChannel.GetMessageAsync(socketThreadChannel.Id, _requestOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            // 必须 rethrow：这里的异常一旦被吞掉，外层 Polly 会视为成功、永不重试
+                            _logger.Error(ex, "获取帖子的首楼消息失败");
+                            throw;
+                        }
+                    },
+                    token),
+                CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -74,13 +80,14 @@ public partial class DataProcessService
                     _logger.Warning("⚠️ 帖子没有有效首楼消息: {ThreadName} (ID: {ThreadId}), 尝试备用方法",
                     socketThreadChannel.Name, socketThreadChannel.Id);
                     {
-                        // 控制速率
-                        using var token = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                        var restChannel = await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id);
+                        // 限速在重试内部：两次 REST 调用各自排队取令牌
+                        var restChannel = await _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _discordSocketClient.Rest.GetChannelAsync(socketThreadChannel.Id),
+                            CancellationToken.None);
                         var restTextChannel = (RestTextChannel)restChannel;
-                        // 控制速率
-                        using var tokenb = await _apiRequestRateLimiter.AcquireWithLoggingAsync(_logger, 1);
-                        firstMessage = await restTextChannel.GetMessageAsync(restTextChannel.Id);
+                        firstMessage = await _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await restTextChannel.GetMessageAsync(restTextChannel.Id),
+                            CancellationToken.None);
                     }
                 }
                 catch (Exception ex)
