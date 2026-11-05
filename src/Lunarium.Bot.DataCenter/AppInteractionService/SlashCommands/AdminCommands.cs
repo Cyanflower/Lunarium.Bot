@@ -254,6 +254,26 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         }
     }
 
+    [SlashCommand("立即同步url缓存", "立即从数据库全量重建 URL 签名桶计划")]
+    public async Task UrlCacheSyncAsync()
+    {
+        await DeferAsync(ephemeral: false);
+        // 鉴权: 如果不是admin, 则返回
+        if (!await _authUtils.IsAdmin("立即同步url缓存", Context)) return;
+        // === 命令逻辑 ===
+        try
+        {
+            await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
+
+            await FollowupAsync(embed: EmbedUtils.SuccessEmbed("操作完成", "url缓存全量同步成功"), ephemeral: false);
+        }
+        catch (Exception ex)
+        {
+            await FollowupAsync(embed: EmbedUtils.FailedEmbed("url缓存全量同步失败", ex.ToString()));
+            _logger.Error(ex, "url缓存全量同步失败, 原因:");
+        }
+    }
+
     [SlashCommand("立即同步用户与身份组信息", "立即执行一次同步用户信息和身份组信息")]
     public async Task SyncMembersAndRolesAsync()
     {
@@ -320,22 +340,10 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
 
             var utc8 = TimeSpan.FromHours(8);
             
-            foreach (var item in items)
+            foreach (HourlyBucketSerializedObject item in items)
             {
-                var exportObj = new
-                {
-                    item.Url,
-                    item.ChannelId,
-                    item.MessageId,
-                    item.ExpireTimestamp,
-                    // 额外字段: UTC+8 ISO8601
-                    ExpireDateIso = DateTimeOffset.FromUnixTimeSeconds(item.ExpireTimestamp)
-                                        .ToOffset(utc8)
-                                        .ToString("yyyy-MM-dd HH:mm:ss zzz")
-                };
-
                 // 写入一行 JSON
-                await writer.WriteLineAsync(JsonSerializer.Serialize(exportObj, new JsonSerializerOptions { WriteIndented = false }));
+                await writer.WriteLineAsync(JsonSerializer.Serialize(item, new JsonSerializerOptions { WriteIndented = false }));
             }
             
             await writer.FlushAsync();
@@ -353,150 +361,6 @@ public class AdminCommands : InteractionModuleBase<SocketInteractionContext>
         {
             _logger.Error(ex, "导出URL缓存失败");
             await FollowupAsync(embed: EmbedUtils.FailedEmbed("导出失败", ex.Message));
-        }
-    }
-
-    [SlashCommand("调试url缓存查询", "根据URL查询缓存状态")]
-    public async Task InspectUrlSignedInfoAsync([Summary("url", "Discord附件URL")] string inputUrl)
-    {
-        await DeferAsync(ephemeral: false);
-        if (!await _authUtils.IsAdmin("调试url缓存查询", Context)) return;
-
-        var sb = new StringBuilder();
-        var utc8 = TimeSpan.FromHours(8);
-
-        try
-        {
-            sb.AppendLine("**🔎 URL 调试分析报告**");
-            sb.AppendLine("----------------------------------------");
-
-            // 1. 解析输入 URL
-            Uri uri;
-            try 
-            {
-                uri = new Uri(inputUrl);
-            }
-            catch (UriFormatException)
-            {
-                await FollowupAsync(embed: EmbedUtils.FailedEmbed("格式错误", "提供的字符串不是一个有效的 URL。"));
-                return;
-            }
-
-            // 尝试提取 ChannelId 和 MessageId (标准 Discord 附件格式: /attachments/{channelId}/{messageId}/{filename})
-            ulong channelId = 0;
-            ulong messageId = 0;
-            bool idsFound = false;
-
-            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            // segments 通常是 ["attachments", "1417750224088338473", "1444732908681302138", "image.png"]
-            for (int i = 0; i < segments.Length - 1; i++)
-            {
-                if (segments[i] == "attachments" && i + 2 < segments.Length)
-                {
-                    if (ulong.TryParse(segments[i+1], out channelId) && ulong.TryParse(segments[i+2], out messageId))
-                    {
-                        idsFound = true;
-                        break;
-                    }
-                }
-            }
-
-            // 解析 ex 参数
-            var query = HttpUtility.ParseQueryString(uri.Query);
-            string exHex = query["ex"] ?? "null";
-            long inputExpireTs = 0;
-            bool exParsed = long.TryParse(exHex, System.Globalization.NumberStyles.HexNumber, null, out inputExpireTs);
-
-            // === 报告：输入解析部分 ===
-            sb.AppendLine("📥 **输入解析**");
-            sb.AppendLine($"🔗 URL: `{inputUrl.Slice}...`"); // 截断防止过长
-            
-            if (idsFound)
-            {
-                sb.AppendLine($"🆔 ChannelId: `{channelId}`");
-            }
-            else
-            {
-                sb.AppendLine("⚠️ **警告**: 无法从 URL 路径中提取 ChannelId，仅通过 URL 字符串匹配可能不准确。");
-            }
-
-            sb.AppendLine($"🕰️ ex (Hex): `{exHex}`");
-            if (exParsed)
-            {
-                var inputTime = DateTimeOffset.FromUnixTimeSeconds(inputExpireTs).ToOffset(utc8);
-                sb.AppendLine($"📅 解析时间 (Unix): `{inputExpireTs}`");
-                sb.AppendLine($"📅 解析时间 (ISO): `{inputTime:yyyy-MM-dd HH:mm:ss zzz}`");
-                
-                if (inputTime < DateTimeOffset.Now)
-                    sb.AppendLine("❌ **状态**: URL 已过期");
-                else
-                    sb.AppendLine("✅ **状态**: URL 有效");
-            }
-            else
-            {
-                sb.AppendLine("❌ **错误**: 无法解析 `ex` 参数，URL 可能无效。");
-            }
-            sb.AppendLine("----------------------------------------");
-
-            // 2. 查询缓存
-            sb.AppendLine("💾 **缓存查询结果**");
-            
-            UrlSignedInfo? cachedItem = null;
-
-            if (idsFound)
-            {
-                // 优先使用 ID 精确查询
-                cachedItem = _urlSignedInfoCacheService.FindByIds(channelId);
-            }
-            
-            // 如果 ID 没查到或者没解析出 ID，但缓存里可能存了该 URL (兜底，虽然 UrlSignedInfo 设计上依赖 ID)
-            // 这里我们主要依赖 ID 查询，因为题目要求 "根据 ... channelId 查询缓存"
-            
-            if (cachedItem != null)
-            {
-                sb.AppendLine("✅ **命中缓存**: ✅ 存在");
-                sb.AppendLine($"🔗 缓存 URL: `{cachedItem.Url}...`");
-                
-                // 解析缓存中的 ex (为了验证)
-                var cachedUri = new Uri(cachedItem.Url);
-                var cachedEx = HttpUtility.ParseQueryString(cachedUri.Query)["ex"];
-                
-                sb.AppendLine($"🕰️ 缓存 ex (Hex): `{cachedEx}`");
-                sb.AppendLine($"📅 缓存 ExpireTimestamp: `{cachedItem.ExpireTimestamp}`");
-                sb.AppendLine($"📅 缓存 ExpireISO: `{DateTimeOffset.FromUnixTimeSeconds(cachedItem.ExpireTimestamp).ToOffset(utc8):yyyy-MM-dd HH:mm:ss zzz}`");
-
-                // 对比
-                if (exParsed && cachedItem.ExpireTimestamp == inputExpireTs)
-                {
-                    sb.AppendLine("⚖️ **一致性检查**: ✅ 时间戳完全一致");
-                }
-                else if (exParsed)
-                {
-                    sb.AppendLine($"⚠️ **一致性检查**: ❌ 不一致 (差异 {cachedItem.ExpireTimestamp - inputExpireTs} 秒)");
-                    sb.AppendLine("   (可能由于 URL 签名已刷新但缓存未更新，或反之)");
-                }
-            }
-            else
-            {
-                sb.AppendLine("❌ **命中缓存**: ❌ 不存在");
-                sb.AppendLine("   (请确认该频道的图片是否已被扫描入库，或是否已被过滤)");
-            }
-
-            // 发送结果
-            var embed = new EmbedBuilder()
-                .WithTitle("URL 缓存调试分析")
-                .WithDescription(sb.ToString())
-                .WithColor(cachedItem != null ? Color.Green : Color.Orange)
-                .WithCurrentTimestamp()
-                .Build();
-
-            await FollowupAsync(embed: embed);
-
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "URL缓存调试命令执行失败");
-            await FollowupAsync(embed: EmbedUtils.FailedEmbed("执行出错", ex.Message));
         }
     }
 }

@@ -68,7 +68,7 @@ public class UrlSignedInfoCacheSyncAsyncJob : IAsyncJob
 
             _logger.Info("URL同步完成");
 
-            var embed = EmbedUtils.SuccessEmbed(_urlSignedInfoCacheService.GetCacheStatistics(), "定时同步缓存更新成功");
+            var embed = EmbedUtils.SuccessEmbed(_urlSignedInfoCacheService.GetPlanStatistics(), "定时同步缓存更新成功");
 
             // 判断是否有缓存或者已有缓存是否和配置相同(检查配置更新)
             if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogThread)

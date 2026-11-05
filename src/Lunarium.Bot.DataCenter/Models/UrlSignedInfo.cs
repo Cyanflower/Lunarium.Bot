@@ -37,6 +37,30 @@ public class UrlSignedInfo : IComparable<UrlSignedInfo>
         }
     }
 
+    /// <summary>
+    /// 获取剩余有效期的整数小时数（小数一律向上进位）
+    /// </summary>
+    /// <param name="now">当前时间，默认以 UtcNow 为准（方便单元测试传入指定时间）</param>
+    /// <returns>剩余小时数；若已过期则返回 0</returns>
+    public int GetRemainingHours(DateTimeOffset? now = null)
+    {
+        // 1. 获取当前时间戳（秒）
+        long currentTimestamp = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
+
+        // 2. 计算剩余秒数
+        long remainingSeconds = ExpireTimestamp - currentTimestamp;
+
+        // 3. 如果已经过期，直接返回 0 小时
+        if (remainingSeconds <= 0)
+        {
+            return 0;
+        }
+
+        // 4. 计算小时数并向下取整 (1小时 = 3600秒)
+        // 正整数直接相除自动向下舍去小数，例如 3601 / 3600 = 1，3599 / 3600 = 0
+        return (int)(remainingSeconds / 3600);
+    }
+
     // 比较逻辑
     public int CompareTo(UrlSignedInfo? other)
     {

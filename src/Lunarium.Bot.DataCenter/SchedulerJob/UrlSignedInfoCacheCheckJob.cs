@@ -29,7 +29,7 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
     private readonly UrlSignedInfoCacheService _urlSignedInfoCacheService;
     private readonly ConfigLoader _configLoader;
     private readonly DiscordSocketClient _client;
-    private IChannel? _cacheLogChannel;
+    // private IChannel? _cacheLogChannel;
     private readonly RateLimitedExecutor _rateLimitedExecutor;
     private readonly RequestOptions _requestOptions;
     private readonly AsyncRetryPolicy _dbRetryPolicy;
@@ -64,38 +64,22 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
         {
             _logger.Info("定时检查URL签名过期开始");
             // 执行同步扫描
-            var checkResult = _urlSignedInfoCacheService.HourlyCheck();
+            UrlCheckResult checkResult = _urlSignedInfoCacheService.HourlyCheck();
 
-            List<ulong> needGetChannel = new();
-
-            foreach (var info in checkResult)
+            if (checkResult.UrlSigneds.Count == 0)
             {
-                if (!_channelCache.ContainsKey(info.ChannelId)) needGetChannel.Add(info.ChannelId);
+                _logger.Info(
+                    "本轮没有待处理的 URL（桶 [{Buckets}]），跳过",
+                    string.Join(",", checkResult.BucketIndices));
+                return;
             }
 
-            var getChannelTask = needGetChannel.Select(id => Task.Run(async () =>
-            {
-                try
-                {
-                    var channel = await _httpRetryPolicy.ExecuteAsync(
-                        token => _rateLimitedExecutor.WriteAndWaitAsync(
-                            async _ => await _client.GetChannelAsync(id, options: _requestOptions),
-                            token),
-                        CancellationToken.None);
-                    if (channel is IMessageChannel messageChannel) _channelCache.TryAdd(channel.Id, messageChannel);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "❌ 获取 Discord 频道失败 (ChannelId: {ChannelId})，将跳过该频道的缓存检查。", id);
-                }
-            }));
+            await CheckChannelCache(checkResult);
 
-            await Task.WhenAll(getChannelTask);
-
-            ConcurrentBag<(UrlSignedInfo OldItem, UrlSignedInfo? NewItem)> getResult = new();
             ConcurrentBag<(ulong threadId, Jsonb<List<string>> urls)> toDbData = new();
+            ConcurrentBag<UrlSignedInfo> toRequeue = new();
 
-            var getResultTask = checkResult.Select(info => Task.Run(async () =>
+            var getResultTask = checkResult.UrlSigneds.Select(info => Task.Run(async () =>
             {
                 if (_channelCache.TryGetValue(info.ChannelId, out var channel))
                 {
@@ -107,9 +91,8 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
                                 token),
                             CancellationToken.None);
 
-                        if (message is null) 
+                        if (message is null)
                         {
-                            getResult.Add((info, null));
                             toDbData.Add((info.ChannelId, new Jsonb<List<string>>(null)));
                             return;
                         }
@@ -122,9 +105,9 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
                                 .Where(a => IsImageAttachment(a))
                                 .Select(a => a.Url)
                                 .ToList();
-                            // 外链图片以embed形式存在
+                            // 外链图片以embed形式存在（括号不能省：Gifv 可能没有 Thumbnail）
                             imageAttachment.AddRange(socketMessage.Embeds
-                                .Where(embed => embed.Thumbnail is not null && embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv)
+                                .Where(embed => embed.Thumbnail is not null && (embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv))
                                 .Select(embed => embed.Thumbnail!.Value.Url)
                                 .ToList()
                             );
@@ -135,9 +118,9 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
                                 .Where(a => IsImageAttachment(a))
                                 .Select(a => a.Url)
                                 .ToList();
-                            // 外链图片以embed形式存在
+                            // 外链图片以embed形式存在（括号不能省：Gifv 可能没有 Thumbnail）
                             imageAttachment.AddRange(restMessage.Embeds
-                                .Where(embed => embed.Thumbnail is not null && embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv)
+                                .Where(embed => embed.Thumbnail is not null && (embed.Type == EmbedType.Image || embed.Type == EmbedType.Gifv))
                                 .Select(embed => embed.Thumbnail!.Value.Url)
                                 .ToList()
                             );
@@ -145,44 +128,33 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
 
                         if (imageAttachment.Count > 0 && !string.IsNullOrWhiteSpace(imageAttachment[0]))
                         {
-                            // 无论如何都回库
+                            // 无论如何都回库；是否继续维护由下一次 DailySync 的 TryToDomain 判断
                             toDbData.Add((info.ChannelId, new Jsonb<List<string>>(imageAttachment)));
-
-                            // 只在包含 dc cdn 链接的情况下回缓存池
-                            var newUrl = imageAttachment.FirstOrDefault(url => UrlSignedInfo.IsDiscordCdnUrl(url), defaultValue: null);
-                            if (newUrl is not null)
-                            {
-                                var newInfo = new UrlSignedInfo(newUrl, channel.Id, message.Id);
-                                getResult.Add((info, newInfo));
-                            }
-                            else
-                            {
-                                // 非 dc cdn 的外链, 移除缓存
-                                getResult.Add((info, null));
-                            }
                         }
                         else
                         {
-                            getResult.Add((info, null));
                             toDbData.Add((info.ChannelId, new Jsonb<List<string>>(null)));
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error(ex);
-                        getResult.Add((info, null));
-                        toDbData.Add((info.ChannelId, new Jsonb<List<string>>(null)));
-                        _logger.Error(ex, "❌ 处理频道消息时发生异常，无法提取图片链接 (ChannelId: {ChannelId}, MessageId: {MessageId})", info.ChannelId, info.MessageId);
+                        // 临时失败：不回写 null（否则下次 GetAllUrlInfoAsync 会把这条永久过滤掉），
+                        // 塞进下一个桶，下一小时重试。
+                        toRequeue.Add(info);
+                        _logger.Error(ex, "❌ 处理频道消息时发生异常，本条已排入下一个桶重试 (ChannelId: {ChannelId}, MessageId: {MessageId})", info.ChannelId, info.MessageId);
                     }
                 }
                 else
                 {
-                    getResult.Add((info, null));
-                    toDbData.Add((info.ChannelId, new Jsonb<List<string>>(null)));
+                    // 频道没取到属于临时失败：保留旧行，塞进下一个桶重试
+                    toRequeue.Add(info);
                 }
             }));
 
             await Task.WhenAll(getResultTask);
+
+            // 本轮失败（临时异常/频道取不到）的条目回插到下一个桶，下一小时重试
+            _urlSignedInfoCacheService.RequeueToNextBucket(toRequeue);
 
             try
             {
@@ -202,8 +174,6 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
                         throw;
                     }
                 });
-
-                _urlSignedInfoCacheService.UpdateCache(getResult);
             }
             catch (Exception ex)
             {
@@ -211,38 +181,55 @@ public class UrlSignedInfoCacheCheckAsyncJob : IAsyncJob
             }
 
             _logger.Info("定时检查URL签名过期完成");
-            
-            var embed = EmbedUtils.SuccessEmbed(_urlSignedInfoCacheService.GetCacheStatistics(), "定时同步缓存更新成功");
-
-            // 判断是否有缓存或者已有缓存是否和配置相同(检查配置更新)
-            if (_cacheLogChannel is not IMessageChannel || _cacheLogChannel.Id != _configLoader.Config.AuthConfig.LogThread)
-            {
-                // 限速在重试内部：每次重试尝试都会重新排队取令牌
-                _cacheLogChannel = await _httpRetryPolicy.ExecuteAsync(
-                    token => _rateLimitedExecutor.WriteAndWaitAsync(
-                        async _ => await _client.GetChannelAsync(_configLoader.Config.AuthConfig.LogThread),
-                        token),
-                    CancellationToken.None);
-            }
-
-            // 转换为通用可发消息频道
-            if (_cacheLogChannel is IMessageChannel logChannel)
-            {
-                await _httpRetryPolicy.ExecuteAsync(
-                    token => _rateLimitedExecutor.WriteAndWaitAsync(
-                        async _ => await logChannel.SendMessageAsync(embed: embed),
-                        token),
-                    CancellationToken.None);
-            }
-            else
-            {
-                _logger.Error("配置的日志频道 (ID: {_configLoader.Config.AuthConfig.LogChannel}) 不是一个有效的文本或线程频道，无法发送日志！", _configLoader.Config.AuthConfig.LogChannel);
-            }
 
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "UrlSignedInfoCacheCheckJob 执行时发生未处理的异常:");
+        }
+    }
+
+    private async Task CheckChannelCache(UrlCheckResult urlCheckResult)
+    {
+        try
+        {
+            // 使用 Distinct() 防止同一个 Channel 被重复请求多次
+            var distinct = urlCheckResult.UrlSigneds
+                .Select(x => x.ChannelId)
+                .Distinct()
+                .Where(id => !_channelCache.ContainsKey(id))
+                .ToList();
+
+            List<ulong> needGetChannelIds = new();
+
+            foreach (var id in distinct)
+            {
+                if (!_channelCache.ContainsKey(id)) 
+                    needGetChannelIds.Add(id);
+            }
+    
+            var getChannelTask = needGetChannelIds.Select(async (id) =>
+            {
+                try
+                {
+                    var channel = await _httpRetryPolicy.ExecuteAsync(
+                        token => _rateLimitedExecutor.WriteAndWaitAsync(
+                            async _ => await _client.GetChannelAsync(id, options: _requestOptions),
+                            token),
+                        CancellationToken.None);
+                    if (channel is IMessageChannel messageChannel) _channelCache.TryAdd(channel.Id, messageChannel);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "❌ 获取 Discord 频道失败 (ChannelId: {ChannelId})，将跳过该频道的缓存检查。", id);
+                }
+            });
+    
+            await Task.WhenAll(getChannelTask);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "检查频道缓存失败");
         }
     }
 

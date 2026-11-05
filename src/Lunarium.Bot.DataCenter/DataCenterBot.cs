@@ -230,7 +230,7 @@ public class DataCenterBotService : IHostedService
     private RateLimitedExecutor RateLimitedExecutorConfigure()
     {
         return RateLimitedExecutor.CreateSmoothPerRequest(
-            concurrency: 15,
+            concurrency: 20,
             qps: 45,
             channelSize: 8192,
             onError: ex => _logger.Error(ex, "限速器内部异常"));
@@ -450,6 +450,10 @@ public class DataCenterBotService : IHostedService
                 _healthMonitoring.AddConnectEventHandler();
                 _isFirstTime = false;
 
+                // 启动时立即从数据库重建一次桶计划。
+                // 放在登录消息之前：即使 Discord 侧发送失败，缓存也不会空跑一整天。
+                await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
+
                 var loginEmbed = new EmbedBuilder()
                     .WithTitle("数据中心监控")
                     .WithAuthor(_client.CurrentUser)
@@ -477,8 +481,6 @@ public class DataCenterBotService : IHostedService
                         CancellationToken.None);
                 }
 
-                // 立即从数据库同步一次缓存
-                await _urlSignedInfoCacheSyncAsyncJob.ExecuteAsync();
             }
             else
             {
