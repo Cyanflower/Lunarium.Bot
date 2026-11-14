@@ -97,7 +97,7 @@ public sealed class ArchiveBotService : IHostedService
                 logError: ex => provider.GetRequiredService<ILogger>().Error(ex, "状态报告 CacheStore 异常"),
                 allowCorruptRebuild: true))
             .AddSingleton(provider => RateLimitedExecutor.CreateSmoothPerRequest(
-                concurrency: 15,
+                concurrency: 20,
                 qps: 45,
                 channelSize: 4096,
                 onError: ex => provider.GetRequiredService<ILogger>().Error(ex, "归档限速器异常")))
